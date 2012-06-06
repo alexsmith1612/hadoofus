@@ -1,4 +1,0 @@
-#ifndef HADOOFUS_BASICOBJ_H
-#define HADOOFUS_BASICOBJ_H
-
-#endif

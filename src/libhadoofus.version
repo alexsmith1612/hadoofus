@@ -1,0 +1,12 @@
+HADOOFUS {
+  global:
+    hdfs_rpc_response_future_init;
+    hdfs_namenode_init;
+    hdfs_namenode_connect;
+    hdfs_namenode_authenticate;
+    hdfs_namenode_invoke;
+    hdfs_future_get;
+    hdfs_namenode_destroy;
+  local:
+    *;
+};

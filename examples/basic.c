@@ -22,15 +22,14 @@ main(int argc, char **argv)
 		goto out;
 
 	// Call getProtocolVersion(61)
+	future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER;
 	hdfs_invocation_init(&rpc, "getProtocolVersion", hdfs_long_new(61), NULL);
 	err = hdfs_namenode_invoke(&namenode, &rpc, &future);
 	if (err)
 		goto out;
 
 	// Get the response (should be long(61))
-	err = hdfs_future_get(&future, &object);
-	if (err)
-		goto out;
+	hdfs_future_get(&future, &object);
 
 	printf("success\n");
 
