@@ -33,4 +33,12 @@ _wait(pthread_mutex_t *l, pthread_cond_t *c)
 	assert(rc == 0);
 }
 
+static inline void
+_notifyall(pthread_cond_t *c)
+{
+	int rc;
+	rc = pthread_cond_broadcast(c);
+	assert(rc == 0);
+}
+
 #endif

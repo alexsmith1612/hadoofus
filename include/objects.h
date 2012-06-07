@@ -1,6 +1,8 @@
 #ifndef HADOOFUS_OBJECTS_H
 #define HADOOFUS_OBJECTS_H
 
+#include <stdbool.h>
+
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -55,9 +57,10 @@ struct hdfs_array_long {
 };
 
 struct hdfs_located_block {
+	int64_t _offset;
+
 	int64_t _blockid;
 	int64_t _generation;
-
 	int64_t _len;
 
 	int _num_locs;
@@ -84,6 +87,7 @@ struct hdfs_datanode_info {
 	char *_location/* rack */;
 	char *_hostname,
 	     *_port;
+	uint16_t _namenodeport;
 	/* "name" is hostname:port, "hostname" is just hostname */
 };
 
@@ -121,10 +125,14 @@ struct hdfs_array_byte {
 };
 
 struct hdfs_rpc_invocation {
+	char *_method;
+	struct hdfs_object *_args[16];
+	int _nargs,
+	    _msgno;
 };
 
 struct hdfs_authheader {
-	char *username;
+	char *_username;
 };
 
 struct hdfs_object {
@@ -164,13 +172,18 @@ struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t generation, i
 struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
 struct hdfs_object *	hdfs_located_directory_listing_new(void);
-struct hdfs_object *	hdfs_datanode_info_new(const char *host, const char *port, const char *rack);
+struct hdfs_object *	hdfs_datanode_info_new(const char *host, const char *port,
+			const char *rack, uint16_t namenodeport);
 struct hdfs_object *	hdfs_array_datanode_info_new(void);
 struct hdfs_object *	hdfs_file_status_new(const char *logical_name, const struct stat *st,
 			const char *owner, const char *group);
+struct hdfs_object *	hdfs_file_status_new_ex(const char *logical_name, int64_t size,
+    			bool directory, int replication, int64_t block_size, int64_t mtime_ms,
+			int64_t atime_ms, int perms, const char *owner, const char *group);
 struct hdfs_object *	hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs,
 			int64_t quota);
 struct hdfs_object *	hdfs_array_byte_new(int32_t len, int8_t *bytes);
+struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 
 // Caller loses references to objects that are being appended into arrays.
@@ -184,8 +197,14 @@ void	hdfs_directory_listing_append_file_status(
 void	hdfs_array_datanode_info_append_datanode_info(
 	struct hdfs_object *array, struct hdfs_object *datanode_info);
 
-// Serialize an object, allocating memory on the heap.
-void	hdfs_object_serialize(struct hdfs_object *obj, char **buf, int *buflen);
+// Serialize an object, allocating memory on the heap. Initialize the struct
+// pointed to by hbuf to all zeros.
+struct hdfs_heap_buf {
+	char *buf;
+	int used,
+	    size;
+};
+void	hdfs_object_serialize(struct hdfs_heap_buf *hbuf, struct hdfs_object *obj);
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);

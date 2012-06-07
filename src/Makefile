@@ -1,6 +1,8 @@
 OBJS=\
+	 heapbuf.o \
 	 namenode.o \
-	 net.o
+	 net.o \
+	 objects.o
 
 libhadoofus.so: libhadoofus.version $(OBJS)
 	gcc -fPIC -shared -o libhadoofus.so $(OBJS) -Wl,--version-script=libhadoofus.version

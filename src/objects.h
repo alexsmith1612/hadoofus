@@ -22,15 +22,20 @@
 #define BLOCK_TYPE "org.apache.hadoop.hdfs.protocol.Block"
 #define ARRAYBYTE_TYPE "[B"
 
+#define CLIENT_PROTOCOL "org.apache.hadoop.hdfs.protocol.ClientProtocol"
+
 struct _hdfs_result {
 	int64_t rs_msgno;
 	struct hdfs_object *rs_obj;
 };
 
+void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
+
 // Returns HDFS_INVALID_PROTO if the buffer contains invalid protocol data.
 // Returns NULL if we can't decode a response from the available buffer.
 // Otherwise, returns a result object.
 struct _hdfs_result *	_hdfs_result_deserialize(char *buf, int buflen, int *obj_size);
+void			_hdfs_result_free(struct _hdfs_result *);
 
 extern struct _hdfs_result *_HDFS_INVALID_PROTO;
 

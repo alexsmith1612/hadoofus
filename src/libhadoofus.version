@@ -7,6 +7,35 @@ HADOOFUS {
     hdfs_namenode_invoke;
     hdfs_future_get;
     hdfs_namenode_destroy;
+
+    hdfs_void_new;
+    hdfs_null_new;
+    hdfs_boolean_new;
+    hdfs_int_new;
+    hdfs_long_new;
+    hdfs_array_long_new;
+    hdfs_block_new;
+    hdfs_located_block_new;
+    hdfs_located_blocks_new;
+    hdfs_directory_listing_new;
+    hdfs_located_directory_listing_new;
+    hdfs_datanode_info_new;
+    hdfs_array_datanode_info_new;
+    hdfs_file_status_new;
+    hdfs_file_status_new_ex;
+    hdfs_content_summary_new;
+    hdfs_array_byte_new;
+    hdfs_rpc_invocation_new;
+    hdfs_authheader_new;
+
+    hdfs_located_block_append_datanode_info;
+    hdfs_located_blocks_append_located_block;
+    hdfs_directory_listing_append_file_status;
+    hdfs_array_datanode_info_append_datanode_info;
+
+    hdfs_object_serialize;
+    hdfs_object_free;
+
   local:
     *;
 };

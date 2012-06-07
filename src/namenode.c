@@ -24,6 +24,9 @@ static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
 static struct hdfs_rpc_response_future *
 		_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno);
 
+static void	_future_complete(struct hdfs_rpc_response_future *future,
+		struct hdfs_object *obj);
+
 void
 hdfs_namenode_init(struct hdfs_namenode *n)
 {
@@ -81,8 +84,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
 	const char *err = NULL, *preamble = "hrpc\x04\x50";
 	struct hdfs_object *header;
-	char *buf = NULL;
-	int buflen = 0;
+	struct hdfs_heap_buf hbuf = { 0 };
 
 	_lock(&n->nn_lock);
 	assert(!n->nn_authed);
@@ -90,23 +92,24 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 
 	// Create / serialize the connection header object
 	header = hdfs_authheader_new(username);
-	hdfs_object_serialize(header, &buf, &buflen);
+	hdfs_object_serialize(&hbuf, header);
 	hdfs_object_free(header);
 
 	// Prefix the header object with the protocol preamble
-	buf = realloc(buf, buflen + strlen(preamble));
-	assert(buf);
-	memmove(buf + strlen(preamble), buf, buflen);
-	memcpy(buf, preamble, strlen(preamble));
-	buflen += strlen(preamble);
+	hbuf.buf = realloc(hbuf.buf, hbuf.size + strlen(preamble));
+	assert(hbuf.buf);
+	memmove(hbuf.buf + strlen(preamble), hbuf.buf, hbuf.used);
+	memcpy(hbuf.buf, preamble, strlen(preamble));
+	hbuf.used += strlen(preamble);
+	hbuf.size += strlen(preamble);
 
 	// Write the entire thing to the socket. Honestly, the first write
 	// should succeed (we have the entire outbound sockbuf) but we call it
 	// in a loop for correctness.
-	err = _write_all(n->nn_sock, buf, buflen);
+	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
 
 	_unlock(&n->nn_lock);
-	free(buf);
+	free(hbuf.buf);
 
 	return err;
 }
@@ -118,8 +121,7 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	const char *err = NULL;
 	bool nnlocked;
 	int64_t msgno;
-	char *buf;
-	int buflen;
+	struct hdfs_heap_buf hbuf = { 0 };
 
 	assert(rpc);
 	assert(rpc->ob_type == H_RPC_INVOCATION);
@@ -152,13 +154,14 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	nnlocked = false;
 
 	// Serialize rpc and transmit
-	hdfs_object_serialize(rpc, &buf, &buflen);
+	_rpc_invocation_set_msgno(rpc, msgno);
+	hdfs_object_serialize(&hbuf, rpc);
 
 	_lock(&n->nn_sendlock);
-	err = _write_all(n->nn_sock, buf, buflen);
+	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
 	_unlock(&n->nn_sendlock);
 
-	free(buf);
+	free(hbuf.buf);
 
 out:
 	if (nnlocked)
@@ -296,7 +299,7 @@ _namenode_recvthr(void *vn)
 			break;
 
 		_future_complete(future, result->rs_obj);
-		hdfs_result_free(result);
+		_hdfs_result_free(result);
 	}
 
 out:
@@ -355,4 +358,18 @@ _namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno)
 	_unlock(&n->nn_lock);
 
 	return res;
+}
+
+static void
+_future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
+{
+	assert(o);
+
+	_lock(&f->fu_lock);
+
+	assert(!f->fu_res);
+	f->fu_res = o;
+	_notifyall(&f->fu_cond);
+
+	_unlock(&f->fu_lock);
 }
