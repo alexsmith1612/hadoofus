@@ -1,5 +1,6 @@
 OBJS=\
 	 heapbuf.o \
+	 heapbufobjs.o \
 	 namenode.o \
 	 net.o \
 	 objects.o

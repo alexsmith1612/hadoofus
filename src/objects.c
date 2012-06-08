@@ -8,9 +8,8 @@
 #include <string.h>
 
 #include "heapbuf.h"
+#include "heapbufobjs.h"
 #include "objects.h"
-
-#define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
 
 static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
 struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
@@ -18,27 +17,90 @@ struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
 static struct {
 	const char *type;
 	bool objtype;
+	struct hdfs_object *(*slurper)(struct hdfs_heap_buf *);
 } object_types[] = {
-	[H_VOID - _H_START] = { .type = VOID_TYPE, .objtype = false },
-	[H_NULL - _H_START] = { .type = NULL_TYPE1, .objtype = false },
-	[H_BOOLEAN - _H_START] = { .type = BOOLEAN_TYPE, .objtype = false },
-	[H_INT - _H_START] = { .type = INT_TYPE, .objtype = false },
-	[H_LONG - _H_START] = { .type = LONG_TYPE, .objtype = false },
-	[H_ARRAY_LONG - _H_START] = { .type = ARRAYLONG_TYPE, .objtype = false },
-	[H_LOCATED_BLOCK - _H_START] = { .type = LOCATEDBLOCK_TYPE, .objtype = true },
-	[H_LOCATED_BLOCKS - _H_START] = { .type = LOCATEDBLOCKS_TYPE, .objtype = true },
-	[H_DIRECTORY_LISTING - _H_START] = { .type = DIRECTORYLISTING_TYPE, .objtype = true },
-	[H_DATANODE_INFO - _H_START] = { .type = DATANODEINFO_TYPE, .objtype = true },
-	[H_ARRAY_DATANODE_INFO - _H_START] = { .type = ARRAYDATANODEINFO_TYPE, .objtype = false },
-	[H_FILE_STATUS - _H_START] = { .type = FILESTATUS_TYPE, .objtype = true },
-	[H_CONTENT_SUMMARY - _H_START] = { .type = CONTENTSUMMARY_TYPE, .objtype = true },
-	[H_LOCATED_DIRECTORY_LISTING - _H_START] = { .type = LOCATEDDIRECTORYLISTING_TYPE, .objtype = true },
-	[H_UPGRADE_STATUS_REPORT - _H_START] = { .type = UPGRADESTATUSREPORT_TYPE, .objtype = true },
-	[H_BLOCK - _H_START] = { .type = BLOCK_TYPE, .objtype = true },
-	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false },
+	[H_VOID - _H_START] = { .type = VOID_TYPE, .objtype = false,
+		.slurper = _oslurp_null, },
+	[H_NULL - _H_START] = { .type = NULL_TYPE1, .objtype = false,
+		.slurper = _oslurp_null, },
+	[H_BOOLEAN - _H_START] = { .type = BOOLEAN_TYPE, .objtype = false,
+		.slurper = _oslurp_boolean, },
+	[H_INT - _H_START] = { .type = INT_TYPE, .objtype = false,
+		.slurper = _oslurp_int, },
+	[H_LONG - _H_START] = { .type = LONG_TYPE, .objtype = false,
+		.slurper = _oslurp_long, },
+	[H_ARRAY_LONG - _H_START] = { .type = ARRAYLONG_TYPE, .objtype = false,
+		.slurper = /*_oslurp_array_long*/NULL, },
+	[H_LOCATED_BLOCK - _H_START] = { .type = LOCATEDBLOCK_TYPE, .objtype = true,
+		.slurper = _oslurp_located_block, },
+	[H_LOCATED_BLOCKS - _H_START] = { .type = LOCATEDBLOCKS_TYPE, .objtype = true,
+		.slurper = _oslurp_located_blocks, },
+	[H_DIRECTORY_LISTING - _H_START] = { .type = DIRECTORYLISTING_TYPE, .objtype = true,
+		.slurper = _oslurp_directory_listing, },
+	[H_DATANODE_INFO - _H_START] = { .type = DATANODEINFO_TYPE, .objtype = true,
+		.slurper = _oslurp_datanode_info, },
+	[H_ARRAY_DATANODE_INFO - _H_START] = { .type = ARRAYDATANODEINFO_TYPE, .objtype = false,
+		.slurper = _oslurp_array_datanode_info, },
+	[H_FILE_STATUS - _H_START] = { .type = FILESTATUS_TYPE, .objtype = true,
+		.slurper = _oslurp_file_status, },
+	[H_CONTENT_SUMMARY - _H_START] = { .type = CONTENTSUMMARY_TYPE, .objtype = true,
+		.slurper = _oslurp_content_summary, },
+	[H_LOCATED_DIRECTORY_LISTING - _H_START] = { .type = LOCATEDDIRECTORYLISTING_TYPE,
+		.objtype = true, .slurper = /*_oslurp_located_directory_listing*/NULL, },
+	[H_UPGRADE_STATUS_REPORT - _H_START] = { .type = UPGRADESTATUSREPORT_TYPE, .objtype = true,
+		.slurper = /*_oslurp_upgrade_status_report*/NULL, },
+	[H_BLOCK - _H_START] = { .type = BLOCK_TYPE, .objtype = true,
+		.slurper = _oslurp_block, },
+	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false,
+		.slurper = /*_oslurp_array_byte*/NULL, },
 	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
 };
+
+static struct {
+	const char *type;
+} exception_types[] = {
+	[0] = { .type = NULL, },
+	[H_ACCESS_CONTROL_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+		.type = ACCESS_EXCEPTION_STR, },
+	[H_ALREADY_BEING_CREATED_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+		.type = ALREADY_BEING_EXCEPTION_STR, },
+	[H_FILE_NOT_FOUND_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+		.type = NOT_FOUND_EXCEPTION_STR, },
+	[H_IO_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+		.type = IO_EXCEPTION_STR, },
+	[H_LEASE_EXPIRED_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+		.type = LEASE_EXCEPTION_STR, },
+};
+
+enum hdfs_object_type
+_string_to_type(const char *otype)
+{
+	for (int i = 0; i < nelem(object_types); i++)
+		if (streq(otype, object_types[i].type))
+			return _H_START + i;
+
+	return _H_INVALID;
+}
+
+static enum hdfs_object_type
+_string_to_etype(const char *etype)
+{
+	for (int i = 1/*skip proto exception; never matches*/;
+	    i < nelem(exception_types); i++)
+		if (streq(etype, exception_types[i].type))
+			return H_PROTOCOL_EXCEPTION + i;
+
+	return H_PROTOCOL_EXCEPTION;
+}
+
+static struct hdfs_object *
+_object_exception(const char *etype, const char *emsg)
+{
+	enum hdfs_object_type realtype;
+	realtype = _string_to_etype(etype);
+	return hdfs_protocol_exception_new(realtype, emsg);
+}
 
 static inline int64_t
 _timespec_to_ms(struct timespec ts)
@@ -101,6 +163,26 @@ hdfs_long_new(int64_t val)
 }
 
 struct hdfs_object *
+hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
+{
+	struct hdfs_object *r = _objmalloc();
+	char *copy_strs[4];
+
+	copy_strs[0] = strdup(s1);
+	copy_strs[1] = strdup(s2);
+	copy_strs[2] = strdup(s3);
+	copy_strs[3] = strdup(s4);
+
+	r->ob_type = H_TOKEN;
+	for (int i = 0; i < nelem(copy_strs); i++) {
+		assert(copy_strs[i]);
+		r->ob_val._token._strings[i] = copy_strs[i];
+	}
+
+	return r;
+}
+
+struct hdfs_object *
 hdfs_array_long_new(int len, const int64_t *values)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -117,14 +199,14 @@ hdfs_array_long_new(int len, const int64_t *values)
 }
 
 struct hdfs_object *
-hdfs_located_block_new(int64_t blkid, int64_t generation, int64_t len)
+hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_LOCATED_BLOCK;
 	r->ob_val._located_block = (struct hdfs_located_block) {
 		._blockid = blkid,
-		._generation = generation,
 		._len = len,
+		._generation = generation,
 	};
 	return r;
 }
@@ -366,6 +448,20 @@ hdfs_authheader_new(const char *user)
 	return r;
 }
 
+struct hdfs_object *
+hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
+{
+	char *msg_copy = strdup(msg);
+	struct hdfs_object *r = _objmalloc();
+	assert(msg_copy);
+	r->ob_type = H_PROTOCOL_EXCEPTION;
+	r->ob_val._exception = (struct hdfs_exception) {
+		._etype = etype,
+		._msg = msg_copy,
+	};
+	return r;
+}
+
 // Caller loses references to objects that are being appended into other
 // objects.
 #define H_ARRAY_RESIZE 8
@@ -503,6 +599,13 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_AUTHHEADER:
 		free(obj->ob_val._authheader._username);
 		break;
+	case H_TOKEN:
+		for (int i = 0; i < nelem(obj->ob_val._token._strings); i++)
+			free(obj->ob_val._token._strings[i]);
+		break;
+	case H_PROTOCOL_EXCEPTION:
+		free(obj->ob_val._exception._msg);
+		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
 		assert(false);
@@ -523,24 +626,16 @@ _typestring(struct hdfs_object *obj)
 }
 
 static bool
-_is_objtype(struct hdfs_object *obj)
+_is_object_objtype(struct hdfs_object *obj)
 {
 	return object_types[obj->ob_type - _H_START].objtype;
 }
 
-#if 0
-// Serializes responses into the buffer. (old code)
-void
-j_serialize_with_header_(RpcCall *rpc, struct hdfsbuf *dest, struct hdfs_object *obj)
+static bool
+_is_type_objtype(enum hdfs_object_type t)
 {
-	_bappend_response_header(dest, rpc, _typestring(obj));
-	if (_is_objtype(obj))
-		_bappend_string(dest, _typestring(obj));
-	if (obj->ob_type == H_NULL || obj->ob_type == J_VOID)
-		_bappend_string(dest, NULL_TYPE2);
-	_j_serialize(dest, obj, 61L);
+	return object_types[t - _H_START].objtype;
 }
-#endif
 
 // Serializes an hdfs_object into a buffer. dest must be non-NULL and
 // initialized to zero.
@@ -706,7 +801,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 			struct hdfs_object *aobj = obj->ob_val._rpc_invocation._args[i];
 
 			_bappend_string(&rbuf, _typestring(aobj));
-			if (_is_objtype(aobj))
+			if (_is_object_objtype(aobj))
 				_bappend_string(&rbuf, _typestring(aobj));
 			if (aobj->ob_type == H_NULL || aobj->ob_type == H_VOID)
 				_bappend_string(&rbuf, NULL_TYPE2);
@@ -735,4 +830,129 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	default:
 		assert(false);
 	}
+}
+
+void
+_hdfs_result_free(struct _hdfs_result *r)
+{
+	if (r->rs_obj)
+		hdfs_object_free(r->rs_obj);
+	free(r);
+}
+
+struct _hdfs_result *
+_hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
+{
+	struct _hdfs_result *r = NULL;
+	struct hdfs_object *o = NULL;
+	struct hdfs_heap_buf rbuf = {
+		.buf = buf,
+		.used = 0,
+		.size = buflen,
+	};
+
+	int32_t msgno, status;
+	char *etype = NULL, *emsg = NULL;
+	char *otype = NULL, *ttype = NULL;
+	enum hdfs_object_type realtype;
+
+	msgno = _bslurp_s32(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	status = _bslurp_s32(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+
+	// Parse exceptions
+	if (status != 0) {
+		etype = _bslurp_string32(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+		emsg = _bslurp_string32(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+
+		r = malloc(sizeof *r);
+		assert(r);
+		r->rs_msgno = msgno;
+		r->rs_obj = _object_exception(etype, emsg);
+		free(etype);
+		free(emsg);
+		goto out;
+	}
+
+	// If we got this far we're reading a normal object
+	otype = _bslurp_string(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+
+	realtype = _string_to_type(otype);
+	if (realtype == _H_INVALID) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	// "object" types have their type twice (I think the idea is that the
+	// first type is that of the API and the second could be a child class
+	// or implementing class of an interface, but in practice it's always
+	// the same)
+	if (_is_type_objtype(realtype)) {
+		ttype = _bslurp_string(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+		assert(streq(ttype, otype));
+		free(ttype);
+		ttype = NULL;
+	} else if (realtype == H_VOID) {
+		realtype = H_NULL;
+	}
+
+	if (realtype == H_NULL) {
+		// ttype for null values is NOT its otype; it's another string.
+		ttype = _bslurp_string(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+		assert(streq(ttype, NULL_TYPE2));
+		free(ttype);
+		ttype = NULL;
+	}
+
+	o = hdfs_object_slurp(&rbuf, realtype);
+	if (rbuf.used < 0)
+		goto out;
+
+	r = malloc(sizeof *r);
+	assert(r);
+	r->rs_msgno = msgno;
+	r->rs_obj = o;
+
+out:
+	if (r) {
+		*obj_size = rbuf.used;
+	} else {
+		if (o)
+			hdfs_object_free(o);
+		if (etype)
+			free(etype);
+		if (emsg)
+			free(emsg);
+		if (otype)
+			free(otype);
+		if (ttype)
+			free(ttype);
+		if (rbuf.used == -2)
+			r = _HDFS_INVALID_PROTO;
+	}
+	return r;
+}
+
+struct hdfs_object *
+hdfs_object_slurp(struct hdfs_heap_buf *rbuf, enum hdfs_object_type realtype)
+{
+	struct hdfs_object *(*slurper)(struct hdfs_heap_buf *);
+
+	slurper = object_types[realtype - _H_START].slurper;
+	assert(slurper);
+
+	return slurper(rbuf);
 }

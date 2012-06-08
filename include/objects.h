@@ -27,7 +27,15 @@ enum hdfs_object_type {
 	H_ARRAY_BYTE,
 	H_RPC_INVOCATION,
 	H_AUTHHEADER,
+	H_TOKEN,
+	H_PROTOCOL_EXCEPTION,
+	H_ACCESS_CONTROL_EXCEPTION,
+	H_ALREADY_BEING_CREATED_EXCEPTION,
+	H_FILE_NOT_FOUND_EXCEPTION,
+	H_IO_EXCEPTION,
+	H_LEASE_EXPIRED_EXCEPTION,
 	_H_END,
+	_H_INVALID = _H_END,
 };
 
 struct hdfs_object;
@@ -135,6 +143,15 @@ struct hdfs_authheader {
 	char *_username;
 };
 
+struct hdfs_token {
+	char *_strings[4];
+};
+
+struct hdfs_exception {
+	enum hdfs_object_type _etype;
+	char *_msg;
+};
+
 struct hdfs_object {
 	enum hdfs_object_type ob_type;
 	union {
@@ -155,6 +172,8 @@ struct hdfs_object {
 		struct hdfs_array_byte _array_byte;
 		struct hdfs_rpc_invocation _rpc_invocation;
 		struct hdfs_authheader _authheader;
+		struct hdfs_exception _exception;
+		struct hdfs_token _token;
 	} ob_val;
 };
 
@@ -168,7 +187,7 @@ struct hdfs_object *	hdfs_long_new(int64_t val);
 struct hdfs_object *	hdfs_array_long_new(int len, const int64_t *values);
 
 struct hdfs_object *	hdfs_block_new(int64_t blkid, int64_t len, int64_t generation);
-struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t generation, int64_t len);
+struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation);
 struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
 struct hdfs_object *	hdfs_located_directory_listing_new(void);
@@ -185,6 +204,8 @@ struct hdfs_object *	hdfs_content_summary_new(int64_t length, int64_t files, int
 struct hdfs_object *	hdfs_array_byte_new(int32_t len, int8_t *bytes);
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
+struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
+struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(
@@ -205,6 +226,13 @@ struct hdfs_heap_buf {
 	    size;
 };
 void	hdfs_object_serialize(struct hdfs_heap_buf *hbuf, struct hdfs_object *obj);
+
+// Returns NULL if an object cannot be decoded. rbuf->used is set to -1 if we
+// just hit EOS, or -2 if we encountered something invalid.
+// Otherwise, returns a decoded object and sets rbuf->used to the size of the
+// serialized object.
+struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
+			enum hdfs_object_type realtype);
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
