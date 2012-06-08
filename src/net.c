@@ -19,6 +19,7 @@ _connect(int *s, const char *host, const char *port)
 
 	hints.ai_family = AF_INET/* hadoop is ipv4-only for now */;
 	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_NUMERICSERV | AI_ADDRCONFIG;
 
 	rc = getaddrinfo(host, port, &hints, &ai);
 	if (rc) {

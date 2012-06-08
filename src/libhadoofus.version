@@ -27,6 +27,7 @@ HADOOFUS {
     hdfs_array_byte_new;
     hdfs_rpc_invocation_new;
     hdfs_authheader_new;
+    hdfs_string_new;
     hdfs_protocol_exception_new;
 
     hdfs_located_block_append_datanode_info;

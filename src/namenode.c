@@ -74,6 +74,8 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 
 	pthread_attr_destroy(&attr);
 
+	n->nn_recvthr_alive = true;
+
 out:
 	_unlock(&n->nn_lock);
 	return err;
@@ -107,6 +109,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	// should succeed (we have the entire outbound sockbuf) but we call it
 	// in a loop for correctness.
 	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+	n->nn_authed = true;
 
 	_unlock(&n->nn_lock);
 	free(hbuf.buf);
@@ -189,6 +192,7 @@ hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 	assert(n->nn_refs >= 1);
 	assert(!n->nn_dead);
 	n->nn_dead = true;
+	n->nn_destroy_cb = cb;
 	_unlock(&n->nn_lock);
 
 	_namenode_decref(n);
@@ -224,7 +228,8 @@ _namenode_decref(struct hdfs_namenode *n)
 		if (n->nn_destroy_cb)
 			dcb = n->nn_destroy_cb;
 		memset(n, 0, sizeof *n);
-		dcb(n);
+		if (dcb)
+			dcb(n);
 	}
 }
 
@@ -299,6 +304,8 @@ _namenode_recvthr(void *vn)
 			break;
 
 		_future_complete(future, result->rs_obj);
+		// don't free the object we just handed the user:
+		result->rs_obj = NULL;
 		_hdfs_result_free(result);
 	}
 
@@ -336,6 +343,7 @@ _namenode_pending_insert_unlocked(struct hdfs_namenode *n, int64_t msgno,
 
 	n->nn_pending[n->nn_pending_len].pd_msgno = msgno;
 	n->nn_pending[n->nn_pending_len].pd_future = future;
+	n->nn_pending_len++;
 }
 
 static struct hdfs_rpc_response_future *

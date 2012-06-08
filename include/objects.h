@@ -6,6 +6,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#define HADOOFUS_CLIENT_PROTOCOL_STR "org.apache.hadoop.hdfs.protocol.ClientProtocol"
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -28,6 +30,7 @@ enum hdfs_object_type {
 	H_RPC_INVOCATION,
 	H_AUTHHEADER,
 	H_TOKEN,
+	H_STRING,
 	H_PROTOCOL_EXCEPTION,
 	H_ACCESS_CONTROL_EXCEPTION,
 	H_ALREADY_BEING_CREATED_EXCEPTION,
@@ -147,6 +150,10 @@ struct hdfs_token {
 	char *_strings[4];
 };
 
+struct hdfs_string {
+	char *_val;
+};
+
 struct hdfs_exception {
 	enum hdfs_object_type _etype;
 	char *_msg;
@@ -174,6 +181,7 @@ struct hdfs_object {
 		struct hdfs_authheader _authheader;
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
+		struct hdfs_string _string;
 	} ob_val;
 };
 
@@ -206,6 +214,7 @@ struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
+struct hdfs_object *	hdfs_string_new(const char *);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(

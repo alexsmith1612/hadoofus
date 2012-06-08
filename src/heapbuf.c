@@ -4,7 +4,7 @@
 
 #include "heapbuf.h"
 
-#define _MIN(a, b) (((a) > (b))? (b) : (a))
+#define _MAX(a, b) (((a) > (b))? (a) : (b))
 
 static void
 _hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
@@ -15,7 +15,7 @@ _hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
 	if (remain >= space)
 		return;
 
-	toalloc = _MIN(32, space - remain + 16);
+	toalloc = _MAX(32, space - remain + 16);
 
 	h->buf = realloc(h->buf, h->size + toalloc);
 	assert(h->buf);

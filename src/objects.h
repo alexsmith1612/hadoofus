@@ -23,8 +23,9 @@
 #define UPGRADESTATUSREPORT_TYPE "org.apache.hadoop.hdfs.server.common.UpgradeStatusReport"
 #define BLOCK_TYPE "org.apache.hadoop.hdfs.protocol.Block"
 #define ARRAYBYTE_TYPE "[B"
+#define STRING_TYPE "java.lang.String"
 
-#define CLIENT_PROTOCOL "org.apache.hadoop.hdfs.protocol.ClientProtocol"
+#define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 
 #define ACCESS_EXCEPTION_STR "org.apache.hadoop.security.AccessControlException"
 #define ALREADY_BEING_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.AlreadyBeingCreatedException"

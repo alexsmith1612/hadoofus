@@ -55,6 +55,7 @@ static struct {
 		.slurper = /*_oslurp_array_byte*/NULL, },
 	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
+	[H_STRING - _H_START] = { .type = STRING_TYPE, .objtype = false },
 };
 
 static struct {
@@ -440,10 +441,27 @@ hdfs_authheader_new(const char *user)
 {
 	char *user_copy = strdup(user);
 	struct hdfs_object *r = _objmalloc();
+
 	assert(user_copy);
+
 	r->ob_type = H_AUTHHEADER;
 	r->ob_val._authheader = (struct hdfs_authheader) {
 		._username = user_copy,
+	};
+	return r;
+}
+
+struct hdfs_object *
+hdfs_string_new(const char *s)
+{
+	char *str_copy = strdup(s);
+	struct hdfs_object *r = _objmalloc();
+
+	assert(str_copy);
+
+	r->ob_type = H_STRING;
+	r->ob_val._string = (struct hdfs_string) {
+		._val = str_copy,
 	};
 	return r;
 }
@@ -605,6 +623,9 @@ hdfs_object_free(struct hdfs_object *obj)
 		break;
 	case H_PROTOCOL_EXCEPTION:
 		free(obj->ob_val._exception._msg);
+		break;
+	case H_STRING:
+		free(obj->ob_val._string._val);
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
@@ -793,7 +814,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		break;
 	case H_RPC_INVOCATION:
 		{
-		struct hdfs_heap_buf rbuf;
+		struct hdfs_heap_buf rbuf = { 0 };
 		_bappend_s32(&rbuf, obj->ob_val._rpc_invocation._msgno);
 		_bappend_string(&rbuf, obj->ob_val._rpc_invocation._method);
 		_bappend_s32(&rbuf, obj->ob_val._rpc_invocation._nargs);
@@ -815,7 +836,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		break;
 	case H_AUTHHEADER:
 		{
-		struct hdfs_heap_buf abuf;
+		struct hdfs_heap_buf abuf = { 0 };
 		_bappend_text(&abuf, CLIENT_PROTOCOL);
 		_bappend_s8(&abuf, 1);
 		_bappend_string(&abuf, obj->ob_val._authheader._username);
@@ -825,6 +846,9 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_mem(dest, abuf.used, abuf.buf);
 		free(abuf.buf);
 		}
+		break;
+	case H_STRING:
+		_bappend_string(dest, obj->ob_val._string._val);
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
