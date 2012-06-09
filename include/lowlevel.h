@@ -1,5 +1,10 @@
-#ifndef HADOOFUS_HADOOFUS_H
-#define HADOOFUS_HADOOFUS_H
+#ifndef HADOOFUS_LOWLEVEL_H
+#define HADOOFUS_LOWLEVEL_H
+
+//
+// This is the low-level HDFS API. It can be used to send arbitrary RPCs and
+// exploit pipelining / out-of-order execution from a single thread.
+//
 
 #include <pthread.h>
 #include <stdbool.h>

@@ -8,7 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <hadoofus/hadoofus.h>
+#include <hadoofus/lowlevel.h>
 
 #include "net.h"
 #include "objects.h"

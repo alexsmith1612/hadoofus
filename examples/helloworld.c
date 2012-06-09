@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <hadoofus/hadoofus.h>
+#include <hadoofus/lowlevel.h>
 #include <hadoofus/objects.h>
 
 int

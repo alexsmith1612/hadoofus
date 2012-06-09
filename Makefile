@@ -3,8 +3,8 @@ src/libhadoofus.so:
 
 all: src/libhadoofus.so
 
-examples/basic: src/libhadoofus.so
-	make -C examples basic
+examples/helloworld: src/libhadoofus.so
+	make -C examples helloworld
 
 clean:
 	make -C src clean

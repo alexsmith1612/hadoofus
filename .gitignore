@@ -1,4 +1,4 @@
 */*.o
 */.*.swp
 */*.so
-examples/basic
+examples/helloworld
