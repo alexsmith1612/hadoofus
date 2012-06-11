@@ -79,11 +79,10 @@ struct hdfs_located_block {
 };
 
 struct hdfs_located_blocks {
-	bool _being_written;
 	int64_t _size;
-
-	int _num_blocks;
 	struct hdfs_object **_blocks/* type: hdfs_located_block[] */;
+	int _num_blocks;
+	bool _being_written;
 };
 
 struct hdfs_directory_listing {
@@ -108,13 +107,16 @@ struct hdfs_array_datanode_info {
 };
 
 struct hdfs_file_status {
-	char *_file;
 	int64_t _size;
+	int64_t _block_size,
+		_mtime,
+		_atime/* in ms since epoch */;
+	char *_file,
+	     *_owner,
+	     *_group;
+	int16_t _replication,
+		_permissions;
 	bool _directory;
-	int16_t _replication;
-	int64_t _block_size, _mtime, _atime/* in ms since epoch */;
-	int16_t _permissions;
-	char *_owner, *_group;
 };
 
 struct hdfs_content_summary {

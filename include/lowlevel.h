@@ -19,16 +19,16 @@ typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
 
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
-	int nn_refs,
-	    nn_sock;
-	bool nn_dead/*user-killed*/,
-	     nn_authed,
-	     nn_recvthr_alive;
 	int64_t nn_msgno;
 	pthread_t nn_recvthr;
 	hdfs_namenode_destroy_cb nn_destroy_cb;
 	struct _hdfs_pending *nn_pending;
-	int nn_pending_len;
+	int nn_refs,
+	    nn_sock,
+	    nn_pending_len;
+	bool nn_dead/*user-killed*/,
+	     nn_authed,
+	     nn_recvthr_alive;
 	pthread_mutex_t nn_sendlock;
 };
 
