@@ -39,6 +39,11 @@ HADOOFUS {
     hdfs_object_free;
     hdfs_object_slurp;
 
+    hdfs_namenode_new;
+    hdfs_namenode_delete;
+
+    hdfs_namenode_getProtocolVersion;
+
   local:
     *;
 };

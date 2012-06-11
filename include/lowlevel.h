@@ -12,6 +12,8 @@
 
 // EINTR is, explicitly, handled poorly.
 
+#include <hadoofus/objects.h>
+
 struct hdfs_namenode;
 struct _hdfs_pending;
 

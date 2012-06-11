@@ -20,7 +20,7 @@ main(int argc, char **argv)
 
 	if (argc > 1) {
 		if (strcmp(argv[1], "-h") == 0) {
-			printf("Usage: ./basic [host [port]]\n");
+			printf("Usage: ./helloworld [host [port]]\n");
 			exit(0);
 		}
 		host = argv[1];
