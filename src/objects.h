@@ -9,6 +9,7 @@
 #define NULL_TYPE2 "org.apache.hadoop.io.ObjectWritable$NullInstance"
 #define VOID_TYPE NULL_TYPE1
 #define BOOLEAN_TYPE "boolean"
+#define SHORT_TYPE "short"
 #define INT_TYPE "int"
 #define LONG_TYPE "long"
 #define ARRAYLONG_TYPE "[J"
@@ -24,6 +25,7 @@
 #define BLOCK_TYPE "org.apache.hadoop.hdfs.protocol.Block"
 #define ARRAYBYTE_TYPE "[B"
 #define STRING_TYPE "java.lang.String"
+#define FSPERMS_TYPE "org.apache.hadoop.fs.permission.FsPermission"
 
 #define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 

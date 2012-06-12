@@ -11,10 +11,12 @@ HADOOFUS {
     hdfs_void_new;
     hdfs_null_new;
     hdfs_boolean_new;
+    hdfs_short_new;
     hdfs_int_new;
     hdfs_long_new;
     hdfs_array_long_new;
     hdfs_block_new;
+    hdfs_block_copy;
     hdfs_located_block_new;
     hdfs_located_blocks_new;
     hdfs_directory_listing_new;
@@ -28,6 +30,7 @@ HADOOFUS {
     hdfs_rpc_invocation_new;
     hdfs_authheader_new;
     hdfs_string_new;
+    hdfs_fsperms_new;
     hdfs_protocol_exception_new;
 
     hdfs_located_block_append_datanode_info;
@@ -42,7 +45,29 @@ HADOOFUS {
     hdfs_namenode_new;
     hdfs_namenode_delete;
 
-    hdfs_namenode_getProtocolVersion;
+    hdfs_getProtocolVersion;
+    hdfs_getBlockLocations;
+    hdfs_create;
+    hdfs_append;
+    hdfs_setReplication;
+    hdfs_setPermission;
+    hdfs_setOwner;
+    hdfs_abandonBlock;
+    hdfs_addBlock;
+    hdfs_complete;
+    hdfs_rename;
+    hdfs_delete;
+    hdfs_mkdirs;
+    hdfs_getListing;
+    hdfs_renewLease;
+    hdfs_getStats;
+    hdfs_getPreferredBlockSize;
+    hdfs_getFileInfo;
+    hdfs_getContentSummary;
+    hdfs_setQuota;
+    hdfs_fsync;
+    hdfs_setTimes;
+    hdfs_recoverLease;
 
   local:
     *;

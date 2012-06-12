@@ -9,6 +9,7 @@
 // buf as needed; 'size' is kept current (and is the size of the underlying
 // buf), 'used' is the number of bytes of valid data.
 void	_bappend_s8(struct hdfs_heap_buf *, int8_t);
+void	_bappend_s16(struct hdfs_heap_buf *, int16_t);
 void	_bappend_u16(struct hdfs_heap_buf *, uint16_t);
 void	_bappend_s32(struct hdfs_heap_buf *, int32_t);
 void	_bappend_u32(struct hdfs_heap_buf *, uint32_t);

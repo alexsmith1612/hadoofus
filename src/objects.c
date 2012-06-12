@@ -56,6 +56,10 @@ static struct {
 	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
 	[H_STRING - _H_START] = { .type = STRING_TYPE, .objtype = false },
+	[H_FSPERMS - _H_START] = { .type = FSPERMS_TYPE, .objtype = true,
+		.slurper = _oslurp_fsperms, },
+	[H_SHORT - _H_START] = { .type = SHORT_TYPE, .objtype = false,
+		.slurper = _oslurp_short, },
 };
 
 static struct {
@@ -142,6 +146,15 @@ hdfs_boolean_new(bool val)
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_BOOLEAN;
 	r->ob_val._boolean._val = val;
+	return r;
+}
+
+struct hdfs_object *
+hdfs_short_new(int16_t val)
+{
+	struct hdfs_object *r = _objmalloc();
+	r->ob_type = H_SHORT;
+	r->ob_val._short._val = val;
 	return r;
 }
 
@@ -269,10 +282,70 @@ hdfs_datanode_info_new(const char *host, const char *port, const char *rack,
 }
 
 struct hdfs_object *
+hdfs_datanode_info_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r = _objmalloc();
+	char *rack_copy,
+	     *host_copy,
+	     *port_copy;
+	uint16_t namenodeport;
+
+	assert(src);
+	assert(src->ob_type == H_DATANODE_INFO);
+
+	rack_copy = strdup(src->ob_val._datanode_info._location);
+	host_copy = strdup(src->ob_val._datanode_info._hostname);
+	port_copy = strdup(src->ob_val._datanode_info._port);
+	namenodeport = src->ob_val._datanode_info._namenodeport;
+
+	assert(rack_copy);
+	assert(host_copy);
+	assert(port_copy);
+
+	r->ob_type = H_DATANODE_INFO;
+	r->ob_val._datanode_info = (struct hdfs_datanode_info) {
+		._location = rack_copy,
+		._hostname = host_copy,
+		._port = port_copy,
+		._namenodeport = namenodeport,
+	};
+	return r;
+}
+
+struct hdfs_object *
 hdfs_array_datanode_info_new()
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_ARRAY_DATANODE_INFO;
+	return r;
+}
+
+struct hdfs_object *
+hdfs_array_datanode_info_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+	int n;
+
+	if (!src)
+		return hdfs_null_new(H_ARRAY_DATANODE_INFO);
+
+	r = _objmalloc();
+
+	assert(src->ob_type == H_ARRAY_DATANODE_INFO);
+	n = src->ob_val._array_datanode_info._len;
+
+	r->ob_type = H_ARRAY_DATANODE_INFO;
+	r->ob_val._array_datanode_info._len = n;
+	if (n > 0) {
+		r->ob_val._array_datanode_info._values =
+		    malloc(n * sizeof(struct hdfs_object *));
+		assert(r->ob_val._array_datanode_info._values);
+
+		for (int i = 0; i < n; i++)
+			r->ob_val._array_datanode_info._values[i] =
+			    hdfs_datanode_info_copy(src->ob_val._array_datanode_info._values[i]);
+	}
+
 	return r;
 }
 
@@ -375,6 +448,23 @@ hdfs_block_new(int64_t blkid, int64_t len, int64_t generation)
 }
 
 struct hdfs_object *
+hdfs_block_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+
+	if (!src)
+		return hdfs_null_new(H_BLOCK);
+
+	r = _objmalloc();
+
+	assert(src->ob_type == H_BLOCK);
+
+	r->ob_type = H_BLOCK;
+	r->ob_val._block = src->ob_val._block;
+	return r;
+}
+
+struct hdfs_object *
 hdfs_array_byte_new(int len, int8_t *bytes)
 {
 	int8_t *bytes_copy = NULL;
@@ -391,6 +481,31 @@ hdfs_array_byte_new(int len, int8_t *bytes)
 		._len = len,
 		._bytes = bytes_copy,
 	};
+	return r;
+}
+
+struct hdfs_object *
+hdfs_array_byte_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+	int32_t len;
+
+	if (!src)
+		return hdfs_null_new(H_ARRAY_BYTE);
+
+	assert(src->ob_type == H_ARRAY_BYTE);
+
+	r = _objmalloc();
+	len = src->ob_val._array_byte._len;
+
+	r->ob_type = H_ARRAY_BYTE;
+	r->ob_val._array_byte._len = len;
+	if (len) {
+		int8_t *bytes_copy = malloc(len);
+		assert(bytes_copy);
+		memcpy(bytes_copy, src->ob_val._array_byte._bytes, len);
+		r->ob_val._array_byte._bytes = bytes_copy;
+	}
 	return r;
 }
 
@@ -463,6 +578,15 @@ hdfs_string_new(const char *s)
 	r->ob_val._string = (struct hdfs_string) {
 		._val = str_copy,
 	};
+	return r;
+}
+
+struct hdfs_object *
+hdfs_fsperms_new(int16_t perms)
+{
+	struct hdfs_object *r = _objmalloc();
+	r->ob_type = H_FSPERMS;
+	r->ob_val._fsperms._perms = perms;
 	return r;
 }
 
@@ -673,6 +797,9 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_BOOLEAN:
 		_bappend_s8(dest, obj->ob_val._boolean._val);
 		break;
+	case H_SHORT:
+		_bappend_s16(dest, obj->ob_val._short._val);
+		break;
 	case H_INT:
 		_bappend_s32(dest, obj->ob_val._int._val);
 		break;
@@ -850,6 +977,9 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_STRING:
 		_bappend_string(dest, obj->ob_val._string._val);
 		break;
+	case H_FSPERMS:
+		_bappend_s16(dest, obj->ob_val._fsperms._perms);
+		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
 		assert(false);
@@ -928,7 +1058,7 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 	}
 
 	if (realtype == H_NULL) {
-		// ttype for null values is NOT its otype; it's another string.
+		// ttype for null values is NOT the same as its otype; it's another string.
 		ttype = _bslurp_string(&rbuf);
 		if (rbuf.used < 0)
 			goto out;

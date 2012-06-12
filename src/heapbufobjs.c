@@ -42,6 +42,18 @@ _oslurp_boolean(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
+_oslurp_short(struct hdfs_heap_buf *b)
+{
+	int16_t v;
+
+	v = _bslurp_s16(b);
+	if (b->used < 0)
+		return NULL;
+
+	return hdfs_short_new(v);
+}
+
+struct hdfs_object *
 _oslurp_int(struct hdfs_heap_buf *b)
 {
 	int32_t v;
@@ -429,4 +441,16 @@ _oslurp_content_summary(struct hdfs_heap_buf *b)
 
 	return hdfs_content_summary_new(v[0]/*length*/, v[1]/*files*/,
 	    v[2]/*dirs*/, v[5]/*quota*/);
+}
+
+struct hdfs_object *
+_oslurp_fsperms(struct hdfs_heap_buf *b)
+{
+	int16_t perms;
+
+	perms = _bslurp_s16(b);
+	if (b->used < 0)
+		return NULL;
+
+	return hdfs_fsperms_new(perms);
 }

@@ -30,6 +30,15 @@ _bappend_s8(struct hdfs_heap_buf *h, int8_t arg)
 }
 
 void
+_bappend_s16(struct hdfs_heap_buf *h, int16_t sarg)
+{
+	uint16_t arg = (uint16_t)sarg;
+	_hbuf_reserve(h, sizeof(arg));
+	((uint8_t *)h->buf)[h->used++] = arg >> 8;
+	((uint8_t *)h->buf)[h->used++] = 0xff & arg;
+}
+
+void
 _bappend_u16(struct hdfs_heap_buf *h, uint16_t arg)
 {
 	_hbuf_reserve(h, sizeof(arg));

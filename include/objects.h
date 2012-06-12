@@ -31,6 +31,8 @@ enum hdfs_object_type {
 	H_AUTHHEADER,
 	H_TOKEN,
 	H_STRING,
+	H_FSPERMS,
+	H_SHORT,
 	H_PROTOCOL_EXCEPTION,
 	H_ACCESS_CONTROL_EXCEPTION,
 	H_ALREADY_BEING_CREATED_EXCEPTION,
@@ -52,6 +54,10 @@ struct hdfs_null {
 
 struct hdfs_boolean {
 	bool _val;
+};
+
+struct hdfs_short {
+	int16_t _val;
 };
 
 struct hdfs_int {
@@ -156,6 +162,10 @@ struct hdfs_string {
 	char *_val;
 };
 
+struct hdfs_fsperms {
+	int16_t _perms;
+};
+
 struct hdfs_exception {
 	enum hdfs_object_type _etype;
 	char *_msg;
@@ -167,6 +177,7 @@ struct hdfs_object {
 		struct hdfs_void _void;
 		struct hdfs_null _null;
 		struct hdfs_boolean _boolean;
+		struct hdfs_short _short;
 		struct hdfs_int _int;
 		struct hdfs_long _long;
 		struct hdfs_array_long _array_long;
@@ -184,6 +195,7 @@ struct hdfs_object {
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
 		struct hdfs_string _string;
+		struct hdfs_fsperms _fsperms;
 	} ob_val;
 };
 
@@ -191,19 +203,23 @@ struct hdfs_object {
 struct hdfs_object *	hdfs_void_new(void);
 struct hdfs_object *	hdfs_null_new(enum hdfs_object_type type);
 struct hdfs_object *	hdfs_boolean_new(bool val);
+struct hdfs_object *	hdfs_short_new(int16_t val);
 struct hdfs_object *	hdfs_int_new(int32_t val);
 struct hdfs_object *	hdfs_long_new(int64_t val);
 
 struct hdfs_object *	hdfs_array_long_new(int len, const int64_t *values);
 
 struct hdfs_object *	hdfs_block_new(int64_t blkid, int64_t len, int64_t generation);
+struct hdfs_object *	hdfs_block_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation);
 struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
 struct hdfs_object *	hdfs_located_directory_listing_new(void);
 struct hdfs_object *	hdfs_datanode_info_new(const char *host, const char *port,
 			const char *rack, uint16_t namenodeport);
+struct hdfs_object *	hdfs_datanode_info_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_datanode_info_new(void);
+struct hdfs_object *	hdfs_array_datanode_info_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_file_status_new(const char *logical_name, const struct stat *st,
 			const char *owner, const char *group);
 struct hdfs_object *	hdfs_file_status_new_ex(const char *logical_name, int64_t size,
@@ -212,11 +228,13 @@ struct hdfs_object *	hdfs_file_status_new_ex(const char *logical_name, int64_t s
 struct hdfs_object *	hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs,
 			int64_t quota);
 struct hdfs_object *	hdfs_array_byte_new(int32_t len, int8_t *bytes);
+struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_string_new(const char *);
+struct hdfs_object *	hdfs_fsperms_new(int16_t);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(
