@@ -47,6 +47,7 @@ main(int argc, char **argv)
 	    hdfs_long_new(61),
 	    NULL);
 	err = hdfs_namenode_invoke(&namenode, rpc, &future);
+	hdfs_object_free(rpc);
 	if (err)
 		goto out;
 
@@ -58,6 +59,8 @@ main(int argc, char **argv)
 		printf("success\n");
 	else
 		printf("bad result\n");
+
+	hdfs_object_free(object);
 
 out:
 	if (err)

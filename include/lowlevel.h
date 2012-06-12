@@ -22,7 +22,7 @@ typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
-	pthread_t nn_recvthr;
+	char *nn_recvbuf;
 	hdfs_namenode_destroy_cb nn_destroy_cb;
 	struct _hdfs_pending *nn_pending;
 	int nn_refs,
@@ -30,21 +30,25 @@ struct hdfs_namenode {
 	    nn_pending_len;
 	bool nn_dead/*user-killed*/,
 	     nn_authed,
-	     nn_recvthr_alive;
+	     nn_worked;
 	pthread_mutex_t nn_sendlock;
+	size_t nn_recvbuf_used,
+	       nn_recvbuf_size;
 };
 
 struct hdfs_rpc_response_future {
 	pthread_mutex_t fu_lock;
 	pthread_cond_t fu_cond;
 	struct hdfs_object *fu_res;
+	struct hdfs_namenode *fu_namenode;
 };
 
 #define HDFS_RPC_RESPONSE_FUTURE_INITIALIZER \
     (struct hdfs_rpc_response_future) { \
 	    .fu_lock = PTHREAD_MUTEX_INITIALIZER, \
 	    .fu_cond = PTHREAD_COND_INITIALIZER, \
-	    .fu_res = NULL \
+	    .fu_res = NULL, \
+	    .fu_namenode = NULL, \
     }
 static inline void
 hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)

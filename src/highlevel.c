@@ -62,6 +62,8 @@ hdfs_namenode_getProtocolVersion(struct hdfs_namenode *h, const char *protocol,
 	err = hdfs_namenode_invoke(h, rpc, &future);
 	_assert_not_err(err);
 
+	hdfs_object_free(rpc);
+
 	hdfs_future_get(&future, &object);
 
 	assert(object->ob_type == H_LONG ||
@@ -71,6 +73,8 @@ hdfs_namenode_getProtocolVersion(struct hdfs_namenode *h, const char *protocol,
 		*exception_out = object;
 		return 0;
 	} else {
-		return object->ob_val._long._val;
+		int64_t res = object->ob_val._long._val;
+		hdfs_object_free(object);
+		return res;
 	}
 }

@@ -900,8 +900,6 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 		assert(r);
 		r->rs_msgno = msgno;
 		r->rs_obj = _object_exception(etype, emsg);
-		free(etype);
-		free(emsg);
 		goto out;
 	}
 
@@ -925,8 +923,6 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 		if (rbuf.used < 0)
 			goto out;
 		assert(streq(ttype, otype));
-		free(ttype);
-		ttype = NULL;
 	} else if (realtype == H_VOID) {
 		realtype = H_NULL;
 	}
@@ -937,8 +933,6 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 		if (rbuf.used < 0)
 			goto out;
 		assert(streq(ttype, NULL_TYPE2));
-		free(ttype);
-		ttype = NULL;
 	}
 
 	o = hdfs_object_slurp(&rbuf, realtype);
@@ -951,19 +945,20 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 	r->rs_obj = o;
 
 out:
+	if (otype)
+		free(otype);
+	if (ttype)
+		free(ttype);
+	if (etype)
+		free(etype);
+	if (emsg)
+		free(emsg);
+
 	if (r) {
 		*obj_size = rbuf.used;
 	} else {
 		if (o)
 			hdfs_object_free(o);
-		if (etype)
-			free(etype);
-		if (emsg)
-			free(emsg);
-		if (otype)
-			free(otype);
-		if (ttype)
-			free(ttype);
 		if (rbuf.used == -2)
 			r = _HDFS_INVALID_PROTO;
 	}
