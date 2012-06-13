@@ -3,3 +3,5 @@
 */*.so
 examples/helloworld
 examples/hl-hello
+tests/check_hadoofus
+all_rpcs.list
