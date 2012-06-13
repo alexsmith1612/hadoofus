@@ -17,6 +17,7 @@ HADOOFUS {
     hdfs_array_long_new;
     hdfs_block_new;
     hdfs_block_copy;
+    hdfs_block_from_located_block;
     hdfs_located_block_new;
     hdfs_located_blocks_new;
     hdfs_directory_listing_new;
@@ -27,6 +28,7 @@ HADOOFUS {
     hdfs_file_status_new_ex;
     hdfs_content_summary_new;
     hdfs_array_byte_new;
+    hdfs_array_byte_copy;
     hdfs_rpc_invocation_new;
     hdfs_authheader_new;
     hdfs_string_new;

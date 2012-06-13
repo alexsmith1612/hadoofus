@@ -465,6 +465,23 @@ hdfs_block_copy(struct hdfs_object *src)
 }
 
 struct hdfs_object *
+hdfs_block_from_located_block(struct hdfs_object *src)
+{
+	struct hdfs_object *r = _objmalloc();
+
+	assert(src);
+	assert(src->ob_type == H_LOCATED_BLOCK);
+
+	r->ob_type = H_BLOCK;
+	r->ob_val._block = (struct hdfs_block) {
+		._blkid = src->ob_val._located_block._blockid,
+		._length = src->ob_val._located_block._len,
+		._generation = src->ob_val._located_block._generation,
+	};
+	return r;
+}
+
+struct hdfs_object *
 hdfs_array_byte_new(int len, int8_t *bytes)
 {
 	int8_t *bytes_copy = NULL;
@@ -693,6 +710,8 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_VOID: break; // NOOP
 	case H_NULL: break;
 	case H_BOOLEAN: break;
+	case H_SHORT: break;
+	case H_FSPERMS: break;
 	case H_INT: break;
 	case H_LONG: break;
 	case H_ARRAY_LONG:

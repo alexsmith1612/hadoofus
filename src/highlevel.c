@@ -180,7 +180,7 @@ _HDFS_PRIM_RPC_BODY(setPermission,
 	,
 	,
 	hdfs_string_new(path),
-	hdfs_short_new(perms)
+	hdfs_fsperms_new(perms)
 )
 
 _HDFS_PRIM_RPC_DECL(void, setOwner,

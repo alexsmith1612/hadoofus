@@ -19,6 +19,22 @@ struct hdfs_namenode *	hdfs_namenode_new(const char *host, const char *port,
 void			hdfs_namenode_delete(struct hdfs_namenode *);
 
 static inline bool
+hdfs_object_is_null(struct hdfs_object *o)
+{
+	assert(o);
+	return o->ob_type == H_NULL;
+}
+
+static inline enum hdfs_object_type
+hdfs_null_type(struct hdfs_object *o)
+{
+	assert(o);
+	assert(o->ob_type == H_NULL);
+
+	return o->ob_val._null._type;
+}
+
+static inline bool
 hdfs_object_is_exception(struct hdfs_object *o)
 {
 	assert(o);
@@ -32,6 +48,15 @@ hdfs_exception_get_type(struct hdfs_object *o)
 	assert(o->ob_type == H_PROTOCOL_EXCEPTION);
 
 	return o->ob_val._exception._etype;
+}
+
+static inline const char *
+hdfs_exception_get_message(struct hdfs_object *o)
+{
+	assert(o);
+	assert(o->ob_type == H_PROTOCOL_EXCEPTION);
+
+	return o->ob_val._exception._msg;
 }
 
 //
