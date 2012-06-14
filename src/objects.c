@@ -999,6 +999,11 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_FSPERMS:
 		_bappend_s16(dest, obj->ob_val._fsperms._perms);
 		break;
+	case H_BLOCK:
+		_bappend_s64(dest, obj->ob_val._block._blkid);
+		_bappend_s64(dest, obj->ob_val._block._length);
+		_bappend_s64(dest, obj->ob_val._block._generation);
+		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
 		assert(false);

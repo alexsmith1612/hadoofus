@@ -1,4 +1,4 @@
-src/libhadoofus.so:
+src/libhadoofus.so: src/*.c
 	make -C src
 
 all: src/libhadoofus.so
@@ -9,8 +9,11 @@ examples/helloworld: src/libhadoofus.so examples/helloworld.c
 examples/hl-hello: src/libhadoofus.so examples/hl-hello.c
 	make -C examples hl-hello
 
-test:
+test: test-build
 	make -C tests check
+
+test-build: tests/check_hadoofus
+	make -C tests check_hadoofus
 
 clean:
 	make -C src clean

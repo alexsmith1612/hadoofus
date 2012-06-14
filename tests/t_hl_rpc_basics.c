@@ -182,7 +182,6 @@ END_TEST
 
 START_TEST(test_abandonBlock)
 {
-	// TODO get this test passing.
 	bool s;
 	struct hdfs_object *e = NULL, *lb, *bl;
 	const char *tf = "/HADOOFUS_TEST_ABANDONBLOCK",
@@ -307,6 +306,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
 	tcase_add_test(tc, test_abandonBlock);
+	/*
 	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_complete);
 	tcase_add_test(tc, test_rename);
@@ -322,6 +322,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
+	*/
 
 	suite_add_tcase(s, tc);
 	return s;

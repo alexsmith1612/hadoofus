@@ -84,7 +84,7 @@ _oslurp_token(struct hdfs_heap_buf *b)
 	struct hdfs_object *res = NULL;
 
 	for (int i = 0; i < nelem(s); i++) {
-		s[i] = _bslurp_string(b);
+		s[i] = _bslurp_text(b);
 		if (b->used < 0)
 			goto out;
 	}
@@ -262,7 +262,9 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		goto out;
 
-	adminstate = _bslurp_string(b); // enums are just strings on the wire
+	// most enums are "string"s on the wire; adminstate is a "text" for
+	// some reason.
+	adminstate = _bslurp_text(b);
 	if (b->used < 0)
 		goto out;
 
