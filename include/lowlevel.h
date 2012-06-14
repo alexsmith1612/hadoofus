@@ -36,12 +36,22 @@ struct hdfs_namenode {
 	       nn_recvbuf_size;
 };
 
+struct hdfs_datanode {
+	pthread_mutex_t dn_lock;
+	int dn_sock;
+	bool dn_used;
+};
+
 struct hdfs_rpc_response_future {
 	pthread_mutex_t fu_lock;
 	pthread_cond_t fu_cond;
 	struct hdfs_object *fu_res;
 	struct hdfs_namenode *fu_namenode;
 };
+
+//
+// Namenode operations
+//
 
 #define HDFS_RPC_RESPONSE_FUTURE_INITIALIZER \
     (struct hdfs_rpc_response_future) { \
@@ -84,5 +94,30 @@ void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
 // thread when this function returns. However, the memory can be freed or
 // re-used when the user's callback is invoked.
 void		hdfs_namenode_destroy(struct hdfs_namenode *, hdfs_namenode_destroy_cb cb);
+
+//
+// Datanode operations
+//
+
+// Initializes a datanode connection object. Doesn't connect to the datanode.
+void		hdfs_datanode_init(struct hdfs_datanode *);
+
+// Attempt to connect to a host and port. Should only be called on a freshly-
+// initialized datanode struct.
+const char *	hdfs_datanode_connect(struct hdfs_datanode *, const char *host,
+		const char *port);
+
+// Attempt to write a buffer to the block associated with this connection.
+// Returns NULL on success or an error message on failure.
+const char *	hdfs_datanode_write(struct hdfs_datanode *, void *buf,
+		size_t len, bool sendcrcs);
+
+// Attempt to write from an fd to the block associated with this connection.
+// Returns NULL on success or an error message on failure.
+const char *	hdfs_datanode_pwritefd(struct hdfs_datanode *, int fd,
+		off_t len, off_t offset, bool sendcrcs);
+
+// Destroys a datanode object (caller should free).
+void		hdfs_datanode_destroy(struct hdfs_datanode *);
 
 #endif

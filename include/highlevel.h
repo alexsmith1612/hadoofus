@@ -146,4 +146,16 @@ void			hdfs_setTimes(struct hdfs_namenode *, const char *path,
 bool			hdfs_recoverLease(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
+//
+// High-level Datanode API
+//
+
+// Creates a new datanode connection. On error, returns NULL and sets
+// *error_out to an error message.
+struct hdfs_datanode *	hdfs_datanode_new(struct hdfs_object *located_block,
+			const char **error_out);
+
+// Destroys the connection and frees memory.
+void			hdfs_datanode_delete(struct hdfs_datanode *);
+
 #endif
