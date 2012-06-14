@@ -917,11 +917,11 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_string(dest, hostport);
 		_bappend_u16(dest, 31337/*arbitrary*/);
 		_bappend_u16(dest, obj->ob_val._datanode_info._namenodeport/*ipc port*/);
-		_bappend_u64(dest, 0/*capacity*/);
-		_bappend_u64(dest, 0/*space used*/);
-		_bappend_u64(dest, 0/*remaining*/);
-		_bappend_u64(dest, 0/*last update*/);
-		_bappend_u32(dest, 0/*xceivercount*/);
+		_bappend_s64(dest, 0/*capacity*/);
+		_bappend_s64(dest, 0/*space used*/);
+		_bappend_s64(dest, 0/*remaining*/);
+		_bappend_s64(dest, 0/*last update*/);
+		_bappend_s32(dest, 0/*xceivercount*/);
 		_bappend_text(dest, obj->ob_val._datanode_info._location);
 		_bappend_text(dest, obj->ob_val._datanode_info._hostname);
 		_bappend_text(dest, "NORMAL");
@@ -933,14 +933,14 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		{
 		int len = strlen(obj->ob_val._file_status._file);
 		mode_t perms = obj->ob_val._file_status._permissions;
-		_bappend_u32(dest, len);
+		_bappend_s32(dest, len);
 		_bappend_mem(dest, len, obj->ob_val._file_status._file);
-		_bappend_u64(dest, obj->ob_val._file_status._size);
+		_bappend_s64(dest, obj->ob_val._file_status._size);
 		_bappend_s8(dest, obj->ob_val._file_status._directory);
 		_bappend_u16(dest, obj->ob_val._file_status._replication);
-		_bappend_u64(dest, obj->ob_val._file_status._block_size);
-		_bappend_u64(dest, obj->ob_val._file_status._mtime);
-		_bappend_u64(dest, obj->ob_val._file_status._atime);
+		_bappend_s64(dest, obj->ob_val._file_status._block_size);
+		_bappend_s64(dest, obj->ob_val._file_status._mtime);
+		_bappend_s64(dest, obj->ob_val._file_status._atime);
 		if (obj->ob_val._file_status._directory)
 			perms &= 0777;
 		else

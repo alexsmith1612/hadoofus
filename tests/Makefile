@@ -17,7 +17,8 @@ check: $(TEST_PRGM)
 	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src" ./$(TEST_PRGM)
 
 $(TEST_PRGM): $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
-	gcc -Wall -Werror -fPIC -g $(CFLAGS) -o $@ $(TEST_OBJS) -lcheck -L../src -lhadoofus
+	gcc -Wall -Werror -fPIC -g $(CFLAGS) -o $@ $(TEST_OBJS) $(LDFLAGS) \
+		-lcheck -L../src -lhadoofus
 
 %.o: %.c
 	gcc -Wall -Werror -fPIC -g $(CFLAGS) -I../include -std=gnu99 -c $<

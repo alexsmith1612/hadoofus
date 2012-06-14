@@ -7,10 +7,27 @@ test: test-build
 
 test-build: tests/check_hadoofus
 
-clean:
+clean: cov-clean
 	make -C src clean
 	make -C examples clean
+	make -C tests clean
 
+cov-clean:
+	rm -rf hadoofus-coverage
+	make -C src cov-clean
+
+cov-html: clean cov-clean
+	CFLAGS="$(CFLAGS) -fprofile-arcs -ftest-coverage" \
+		  LDFLAGS="-lgcov" \
+		  make -C . build
+	LDFLAGS="-lgcov" make -C . test-build
+	lcov --directory src --zerocounters
+	CK_FORK=no make -C tests check
+	lcov --directory src --capture --output-file hadoofus.info
+	genhtml --output-directory hadoofus-coverage hadoofus.info
+	make -C src clean cov-clean
+	make -C tests clean
+	rm -f hadoofus.info
 
 
 tests/check_hadoofus: src/libhadoofus.so tests/*.c tests/*.h

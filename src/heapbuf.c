@@ -58,33 +58,9 @@ _bappend_s32(struct hdfs_heap_buf *h, int32_t sarg)
 }
 
 void
-_bappend_u32(struct hdfs_heap_buf *h, uint32_t arg)
-{
-	_hbuf_reserve(h, sizeof(arg));
-	((uint8_t *)h->buf)[h->used++] = arg >> 24;
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 16);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 8);
-	((uint8_t *)h->buf)[h->used++] = 0xff & arg;
-}
-
-void
 _bappend_s64(struct hdfs_heap_buf *h, int64_t sarg)
 {
 	uint64_t arg = (uint64_t)sarg;
-	_hbuf_reserve(h, sizeof(arg));
-	((uint8_t *)h->buf)[h->used++] = arg >> 56;
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 48);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 40);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 32);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 24);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 16);
-	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 8);
-	((uint8_t *)h->buf)[h->used++] = 0xff & arg;
-}
-
-void
-_bappend_u64(struct hdfs_heap_buf *h, uint64_t arg)
-{
 	_hbuf_reserve(h, sizeof(arg));
 	((uint8_t *)h->buf)[h->used++] = arg >> 56;
 	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 48);

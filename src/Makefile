@@ -7,7 +7,8 @@ OBJS=\
 	 objects.o
 
 libhadoofus.so: libhadoofus.version $(OBJS)
-	gcc -Wall -Werror -fPIC -g -shared -o libhadoofus.so $(OBJS) -Wl,--version-script=libhadoofus.version
+	gcc -Wall -Werror -fPIC -g -shared -o libhadoofus.so $(OBJS) \
+		$(LDFLAGS) -Wl,--version-script=libhadoofus.version
 
 all: libhadoofus.so
 
@@ -16,3 +17,6 @@ all: libhadoofus.so
 
 clean:
 	rm -f *.o libhadoofus.so
+
+cov-clean:
+	rm -f *.gcda *.gcno
