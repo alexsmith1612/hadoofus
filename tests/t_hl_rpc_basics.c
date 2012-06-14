@@ -48,7 +48,7 @@ END_TEST
 START_TEST(test_create)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *fs;
+	struct hdfs_object *e = NULL;
 	const char *tf = "/HADOOFUS_TEST_CREATE",
 	      *client = "HADOOFUS_CLIENT";
 
@@ -56,13 +56,6 @@ START_TEST(test_create)
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-
-	fs = hdfs_getFileInfo(h, tf, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_if(hdfs_object_is_null(fs));
-
-	hdfs_object_free(fs);
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
@@ -217,76 +210,296 @@ END_TEST
 
 START_TEST(test_addBlock)
 {
+	bool s;
+	struct hdfs_object *e = NULL, *lb;
+	const char *tf = "/HADOOFUS_TEST_ADDBLOCK",
+	      *client = "HADOOFUS_CLIENT";
+
+	// Create the file first
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	lb = hdfs_addBlock(h, tf, client, NULL, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_if(hdfs_object_is_null(lb));
+
+	hdfs_object_free(lb);
+
+	// Cleanup
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_complete)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_COMPLETE",
+	      *client = "HADOOFUS_CLIENT";
+
+	// Create the file first
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_complete(h, tf, client, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "complete returned false");
+
+	// Cleanup
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_rename)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_RENAME",
+	      *tf2 = "/HADOOFUS_TEST_RENAMED",
+	      *client = "HADOOFUS_CLIENT";
+
+	// Create the file first
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_rename(h, tf, tf2, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "rename returned false");
+
+	// Cleanup
+	s = hdfs_delete(h, tf2, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_delete)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_DELETE",
+	      *client = "HADOOFUS_CLIENT";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_mkdirs)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_MKDIRS";
+
+	s = hdfs_mkdirs(h, tf, 0755, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "mkdirs returned false");
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_getListing)
 {
+	struct hdfs_object *e = NULL, *listing;
+
+	listing = hdfs_getListing(h, "/", NULL, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_if(hdfs_object_is_null(listing));
+
+	hdfs_object_free(listing);
 }
 END_TEST
 
 START_TEST(test_renewLease)
 {
+	struct hdfs_object *e = NULL;
+
+	hdfs_renewLease(h, "HADOOFUS_CLIENT", &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
 }
 END_TEST
 
 START_TEST(test_getStats)
 {
+	struct hdfs_object *e = NULL, *stats;
+
+	stats = hdfs_getStats(h, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_object_free(stats);
 }
 END_TEST
 
 START_TEST(test_getPreferredBlockSize)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_GETPREFERREDBLOCKSIZE",
+	      *client = "HADOOFUS_CLIENT";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	/*bs = */hdfs_getPreferredBlockSize(h, tf, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_getFileInfo)
 {
+	struct hdfs_object *e = NULL, *fs;
+
+	fs = hdfs_getFileInfo(h, "/", &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_if(hdfs_object_is_null(fs));
+
+	hdfs_object_free(fs);
 }
 END_TEST
 
 START_TEST(test_getContentSummary)
 {
+	struct hdfs_object *e = NULL, *cs;
+
+	cs = hdfs_getContentSummary(h, "/", &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_if(hdfs_object_is_null(cs));
+
+	hdfs_object_free(cs);
 }
 END_TEST
 
 START_TEST(test_setQuota)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_SETQUOTA";
+
+	s = hdfs_mkdirs(h, tf, 0755, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "mkdirs returned false");
+
+	hdfs_setQuota(h, tf, -1, -1, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_fsync)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_FSYNC",
+	      *client = "HADOOFUS_CLIENT";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_fsync(h, tf, client, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_setTimes)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_SETTIMES",
+	      *client = "HADOOFUS_CLIENT";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_setTimes(h, tf, -1, -1, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
 START_TEST(test_recoverLease)
 {
+	bool s;
+	struct hdfs_object *e = NULL;
+	const char *tf = "/HADOOFUS_TEST_RECOVERLEASE",
+	      *client = "HADOOFUS_CLIENT",
+	      *client2 = "HADOOFUS_CLIENT_2";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	s = hdfs_recoverLease(h, tf, client2, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_if(s, "recoverLease returned true");
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	fail_unless(s, "delete returned false");
 }
 END_TEST
 
@@ -306,7 +519,6 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
 	tcase_add_test(tc, test_abandonBlock);
-	/*
 	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_complete);
 	tcase_add_test(tc, test_rename);
@@ -322,7 +534,6 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
-	*/
 
 	suite_add_tcase(s, tc);
 	return s;

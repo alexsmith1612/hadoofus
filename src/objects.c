@@ -30,7 +30,7 @@ static struct {
 	[H_LONG - _H_START] = { .type = LONG_TYPE, .objtype = false,
 		.slurper = _oslurp_long, },
 	[H_ARRAY_LONG - _H_START] = { .type = ARRAYLONG_TYPE, .objtype = false,
-		.slurper = /*_oslurp_array_long*/NULL, },
+		.slurper = _oslurp_array_long, },
 	[H_LOCATED_BLOCK - _H_START] = { .type = LOCATEDBLOCK_TYPE, .objtype = true,
 		.slurper = _oslurp_located_block, },
 	[H_LOCATED_BLOCKS - _H_START] = { .type = LOCATEDBLOCKS_TYPE, .objtype = true,

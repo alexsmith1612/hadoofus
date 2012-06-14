@@ -15,6 +15,7 @@ struct hdfs_object *	_oslurp_boolean(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_short(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_int(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_long(struct hdfs_heap_buf *);
+struct hdfs_object *	_oslurp_array_long(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_token(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_located_block(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_located_blocks(struct hdfs_heap_buf *);

@@ -265,7 +265,7 @@ _HDFS_OBJ_RPC_DECL(getListing,
 _HDFS_OBJ_RPC_BODY(getListing,
 	H_DIRECTORY_LISTING,
 	hdfs_string_new(path),
-	hdfs_array_byte_copy(begin)
+	(begin? hdfs_array_byte_copy(begin) : hdfs_array_byte_new(0, NULL))
 )
 
 _HDFS_PRIM_RPC_DECL(void, renewLease,

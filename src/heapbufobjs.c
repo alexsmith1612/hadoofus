@@ -78,6 +78,51 @@ _oslurp_long(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
+_oslurp_array_long(struct hdfs_heap_buf *b)
+{
+	struct hdfs_object *res = NULL;
+	int64_t *longs = NULL;
+	int32_t n;
+
+	n = _bslurp_s32(b);
+	if (b->used < 0)
+		return NULL;
+	if (n < 0) {
+		b->used = -2;
+		return NULL;
+	}
+
+	if (n > 0) {
+		longs = malloc(n * sizeof *longs);
+		assert(longs);
+
+		for (int32_t i = 0; i < n; i++) {
+			bool eq;
+			char *s = _bslurp_string(b);
+			if (b->used < 0)
+				goto out;
+			eq = streq(s, LONG_TYPE);
+			free(s);
+			if (!eq) {
+				b->used = -2;
+				goto out;
+			}
+
+			longs[i] = _bslurp_s64(b);
+			if (b->used < 0)
+				goto out;
+		}
+	}
+
+	res = hdfs_array_long_new(n, longs);
+
+out:
+	if (longs)
+		free(longs);
+	return res;
+}
+
+struct hdfs_object *
 _oslurp_token(struct hdfs_heap_buf *b)
 {
 	char *s[4] = { 0 };
