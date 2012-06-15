@@ -69,8 +69,8 @@ struct hdfs_long {
 };
 
 struct hdfs_array_long {
-	int _len;
 	int64_t *_vals;
+	int _len;
 };
 
 struct hdfs_located_block {
@@ -80,8 +80,8 @@ struct hdfs_located_block {
 	int64_t _generation;
 	int64_t _len;
 
-	int _num_locs;
 	struct hdfs_object **_locs/* type: hdfs_datanode_info[] */;
+	int _num_locs;
 };
 
 struct hdfs_located_blocks {
@@ -92,11 +92,10 @@ struct hdfs_located_blocks {
 };
 
 struct hdfs_directory_listing {
-	bool _has_locations;
-
-	int _num_files;
 	struct hdfs_object **_files/* type: hdfs_file_status[] */;
 	struct hdfs_object **_located_blocks/* hdfs_located_blocks[] or NULL */;
+	int _num_files;
+	bool _has_locations;
 };
 
 struct hdfs_datanode_info {
@@ -108,8 +107,8 @@ struct hdfs_datanode_info {
 };
 
 struct hdfs_array_datanode_info {
-	int _len;
 	struct hdfs_object **_values/* type: hdfs_datanode_info[] */;
+	int _len;
 };
 
 struct hdfs_file_status {
@@ -139,13 +138,13 @@ struct hdfs_block {
 };
 
 struct hdfs_array_byte {
-	int _len;
 	int8_t *_bytes;
+	int _len;
 };
 
 struct hdfs_rpc_invocation {
+	struct hdfs_object *_args[8];
 	char *_method;
-	struct hdfs_object *_args[16];
 	int _nargs,
 	    _msgno;
 };
@@ -167,12 +166,11 @@ struct hdfs_fsperms {
 };
 
 struct hdfs_exception {
-	enum hdfs_object_type _etype;
 	char *_msg;
+	enum hdfs_object_type _etype;
 };
 
 struct hdfs_object {
-	enum hdfs_object_type ob_type;
 	union {
 		struct hdfs_void _void;
 		struct hdfs_null _null;
@@ -197,6 +195,7 @@ struct hdfs_object {
 		struct hdfs_string _string;
 		struct hdfs_fsperms _fsperms;
 	} ob_val;
+	enum hdfs_object_type ob_type;
 };
 
 // These functions copy user-supplied values.
