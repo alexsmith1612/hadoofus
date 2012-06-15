@@ -1,4 +1,5 @@
 OBJS=\
+	 datanode.o \
 	 heapbuf.o \
 	 heapbufobjs.o \
 	 highlevel.o \

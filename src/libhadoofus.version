@@ -71,6 +71,14 @@ HADOOFUS {
     hdfs_setTimes;
     hdfs_recoverLease;
 
+    hdfs_datanode_init;
+    hdfs_datanode_connect;
+    hdfs_datanode_write;
+    hdfs_datanode_write_file;
+    hdfs_datanode_destroy;
+    hdfs_datanode_new;
+    hdfs_datanode_delete;
+
   local:
     *;
 };

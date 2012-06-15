@@ -114,8 +114,21 @@ const char *	hdfs_datanode_write(struct hdfs_datanode *, void *buf,
 
 // Attempt to write from an fd to the block associated with this connection.
 // Returns NULL on success or an error message on failure.
-const char *	hdfs_datanode_pwritefd(struct hdfs_datanode *, int fd,
+const char *	hdfs_datanode_write_file(struct hdfs_datanode *, int fd,
 		off_t len, off_t offset, bool sendcrcs);
+
+// Attempt to read the block associated with this connection. Returns NULL on
+// success. The passed buf should be large enough for the entire block. The
+// caller knows the block size ahead of time.
+const char *	hdfs_datanode_read(struct hdfs_datanode *, void *buf, size_t len,
+		bool verifycrc);
+
+// Attempt to read the block associated with this connection. The block is
+// written to the passed fd at the given offset. If the block is larger than
+// len, returns an error (and the state of the file in the region [off,
+// off+len) is undefined).
+const char *	hdfs_datanode_read_file(struct hdfs_datanode *, int fd,
+		off_t len, off_t offset, bool verifycrc);
 
 // Destroys a datanode object (caller should free).
 void		hdfs_datanode_destroy(struct hdfs_datanode *);
