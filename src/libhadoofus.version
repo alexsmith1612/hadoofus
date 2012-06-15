@@ -34,6 +34,9 @@ HADOOFUS {
     hdfs_string_new;
     hdfs_fsperms_new;
     hdfs_protocol_exception_new;
+    hdfs_token_new;
+    hdfs_token_copy;
+    hdfs_token_new_empty;
 
     hdfs_located_block_append_datanode_info;
     hdfs_located_blocks_append_located_block;

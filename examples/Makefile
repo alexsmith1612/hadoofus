@@ -1,8 +1,16 @@
+LIBS = -L../src -lhadoofus -lpthread -lz
+FLAGS = -Wall -Werror $(CFLAGS) -g -I../include
+BIN = \
+	  helloworld \
+	  hl-hello
+
+all: $(BIN)
+
 helloworld: helloworld.c
-	gcc -Wall $(CFLAGS) -g -I../include -L../src helloworld.c -lhadoofus -lpthread -o helloworld
+	gcc $(FLAGS) $^ -o $@ $(LIBS)
 
 hl-hello: hl-hello.c
-	gcc -Wall $(CFLAGS) -g -I../include -L../src hl-hello.c -lhadoofus -lpthread -o hl-hello
+	gcc $(FLAGS) $^ -o $@ $(LIBS)
 
 clean:
-	rm -f helloworld
+	rm -f $(BIN)

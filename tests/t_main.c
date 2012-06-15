@@ -24,7 +24,8 @@ main(int argc, char **argv)
 	struct hdfs_object *exception = NULL;
 	bool success = true;
 	Suite *(*suites[])(void) = {
-		t_hl_rpc_basics_suite
+		t_hl_rpc_basics_suite,
+		t_datanode_basics_suite,
 	};
 
 	if (!getenv(HDFS_T_ENV))

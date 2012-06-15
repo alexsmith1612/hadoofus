@@ -7,17 +7,20 @@ OBJS=\
 	 net.o \
 	 objects.o
 
-libhadoofus.so: libhadoofus.version $(OBJS)
-	gcc -Wall -Werror -fPIC -g -shared -o libhadoofus.so $(OBJS) \
-		$(LDFLAGS) -Wl,--version-script=libhadoofus.version
+FLAGS = -Wall -Werror -fPIC $(CFLAGS) -g
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
+LIB = libhadoofus.so
 
-all: libhadoofus.so
+$(LIB): libhadoofus.version $(OBJS)
+	gcc -o $@ $(LIBFLAGS) -Wl,--version-script=libhadoofus.version $(OBJS)
+
+all: $(LIB)
 
 %.o: %.c
-	gcc -Wall -Werror -fPIC $(CFLAGS) -g -I../include -std=gnu99 -c $<
+	gcc -I../include -std=gnu99 $(FLAGS) -c $<
 
 clean:
-	rm -f *.o libhadoofus.so
+	rm -f *.o $(LIB)
 
 cov-clean:
 	rm -f *.gcda *.gcno

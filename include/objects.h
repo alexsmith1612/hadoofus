@@ -233,6 +233,8 @@ struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
+struct hdfs_object *	hdfs_token_new_empty(void);
+struct hdfs_object *	hdfs_token_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_string_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
 

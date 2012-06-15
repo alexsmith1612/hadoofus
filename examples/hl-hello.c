@@ -34,7 +34,7 @@ main(int argc, char **argv)
 	if (!h)
 		goto out;
 
-	res = hdfs_namenode_getProtocolVersion(h, HADOOFUS_CLIENT_PROTOCOL_STR, 61L,
+	res = hdfs_getProtocolVersion(h, HADOOFUS_CLIENT_PROTOCOL_STR, 61L,
 	    &exception);
 	if (exception) {
 		err = exception->ob_val._exception._msg;

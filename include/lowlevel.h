@@ -38,7 +38,14 @@ struct hdfs_namenode {
 
 struct hdfs_datanode {
 	pthread_mutex_t dn_lock;
-	int dn_sock;
+	int64_t dn_blkid,
+		dn_gen,
+		dn_offset,
+		dn_size;
+	struct hdfs_object *dn_token;
+	char *dn_client;
+	int dn_sock,
+	    dn_proto;
 	bool dn_used;
 };
 
@@ -99,8 +106,16 @@ void		hdfs_namenode_destroy(struct hdfs_namenode *, hdfs_namenode_destroy_cb cb)
 // Datanode operations
 //
 
+// The datanode protocol used by Apache Hadoop 1.0.x (also 0.20.20x):
+#define HDFS_DATANODE_AP_1_0 0x11
+// The datanode protocol used by Cloudera CDH3 (derived from apache 0.20.1):
+#define HDFS_DATANODE_CDH3 0x10
+
 // Initializes a datanode connection object. Doesn't connect to the datanode.
-void		hdfs_datanode_init(struct hdfs_datanode *);
+void		hdfs_datanode_init(struct hdfs_datanode *,
+		int64_t blkid, int64_t size, int64_t gen, /* block */
+		int64_t offset, const char *client, struct hdfs_object *token,
+		int proto);
 
 // Attempt to connect to a host and port. Should only be called on a freshly-
 // initialized datanode struct.

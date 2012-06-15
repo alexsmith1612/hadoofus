@@ -197,6 +197,39 @@ hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 }
 
 struct hdfs_object *
+hdfs_token_new_empty()
+{
+	struct hdfs_object *r = _objmalloc();
+
+	r->ob_type = H_TOKEN;
+	for (int i = 0; i < 4; i++) {
+		char *s = strdup("");
+		assert(s);
+		r->ob_val._token._strings[i] = s;
+	}
+
+	return r;
+}
+
+struct hdfs_object *
+hdfs_token_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r = _objmalloc();
+
+	assert(src);
+	assert(src->ob_type == H_TOKEN);
+
+	r->ob_type = H_TOKEN;
+	for (int i = 0; i < 4; i++) {
+		char *s = strdup(src->ob_val._token._strings[i]);
+		assert(s);
+		r->ob_val._token._strings[i] = s;
+	}
+
+	return r;
+}
+
+struct hdfs_object *
 hdfs_array_long_new(int len, const int64_t *values)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -1003,6 +1036,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s64(dest, obj->ob_val._block._blkid);
 		_bappend_s64(dest, obj->ob_val._block._length);
 		_bappend_s64(dest, obj->ob_val._block._generation);
+		break;
+	case H_TOKEN:
+		for (int i = 0; i < 4; i++)
+			_bappend_text(dest, obj->ob_val._token._strings[i]);
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
