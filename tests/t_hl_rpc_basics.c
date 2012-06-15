@@ -161,7 +161,7 @@ START_TEST(test_setOwner)
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
-	hdfs_setOwner(h, tf, "daemon", "root", &e);
+	hdfs_setOwner(h, tf, "daemon", "wheel", &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
