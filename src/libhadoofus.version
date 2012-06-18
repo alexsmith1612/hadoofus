@@ -78,9 +78,13 @@ HADOOFUS {
     hdfs_datanode_connect;
     hdfs_datanode_write;
     hdfs_datanode_write_file;
+    hdfs_datanode_read;
+    hdfs_datanode_read_file;
     hdfs_datanode_destroy;
     hdfs_datanode_new;
     hdfs_datanode_delete;
+
+    HDFS_DATANODE_ERR_NO_CRCS;
 
   local:
     *;

@@ -135,17 +135,21 @@ const char *	hdfs_datanode_write_file(struct hdfs_datanode *, int fd,
 // Attempt to read the block associated with this connection. Returns NULL on
 // success. The passed buf should be large enough for the entire block. The
 // caller knows the block size ahead of time.
-const char *	hdfs_datanode_read(struct hdfs_datanode *, void *buf, size_t len,
-		bool verifycrc);
+const char *	hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len,
+		void *buf, bool verifycrc);
 
 // Attempt to read the block associated with this connection. The block is
 // written to the passed fd at the given offset. If the block is larger than
 // len, returns an error (and the state of the file in the region [off,
 // off+len) is undefined).
-const char *	hdfs_datanode_read_file(struct hdfs_datanode *, int fd,
-		off_t len, off_t offset, bool verifycrc);
+const char *	hdfs_datanode_read_file(struct hdfs_datanode *, off_t bloff,
+		off_t len, int fd, off_t fdoff, bool verifycrc);
 
 // Destroys a datanode object (caller should free).
 void		hdfs_datanode_destroy(struct hdfs_datanode *);
+
+// Error returned on reads if the user requested CRC validation but the server
+// did not transmit CRCs.
+extern const char *HDFS_DATANODE_ERR_NO_CRCS;
 
 #endif

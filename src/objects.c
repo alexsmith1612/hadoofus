@@ -661,9 +661,9 @@ hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
 	if (array_len % H_ARRAY_RESIZE == 0) { \
 		array = realloc(array, (array_len+H_ARRAY_RESIZE) * sizeof(struct hdfs_object *)); \
 		assert(array); \
-		array[array_len] = obj; \
-		array_len += 1; \
 	} \
+	array[array_len] = obj; \
+	array_len += 1; \
 } while (0)
 
 void

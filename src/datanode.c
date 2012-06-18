@@ -1,5 +1,6 @@
 #include <netinet/tcp.h>
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,6 +17,9 @@
 #include "pthread_wrappers.h"
 #include "util.h"
 
+const char *HDFS_DATANODE_ERR_NO_CRCS =
+    "Server doesn't send CRCs, can't verify. Aborting read";
+
 #define OP_WRITE 0x50
 #define OP_READ 0x51
 
@@ -27,6 +31,15 @@ enum {
 	STATUS_ERROR_EXISTS,
 	STATUS_ERROR_ACCESS_TOKEN,
 	STATUS_CHECKSUM_OK,
+};
+
+static char DN_CHECKSUM_OK[2] = {
+	(char)(STATUS_CHECKSUM_OK >> 8),
+	(char)(STATUS_CHECKSUM_OK & 0xff),
+};
+static char DN_ERROR_CHECKSUM[2] = {
+	(char)(STATUS_ERROR_CHECKSUM >> 8),
+	(char)(STATUS_ERROR_CHECKSUM & 0xff),
 };
 
 static const char *dn_error_msgs[] = {
@@ -54,12 +67,29 @@ struct _packet_state {
 	bool sendcrcs;
 };
 
+struct _read_state {
+	int64_t client_offset,
+		server_offset;
+	int32_t chunk_size;
+	bool has_crcs;
+};
+
+
+static void		_compose_read_header(struct hdfs_heap_buf *, struct hdfs_datanode *,
+			off_t offset, off_t len);
 static void		_compose_write_header(struct hdfs_heap_buf *, struct hdfs_datanode *,
 			bool crcs);
+static const char *	_datanode_read(struct hdfs_datanode *, off_t bloff, off_t len,
+			int fd, off_t fdoff, void *buf, bool verify);
 static const char *	_datanode_write(struct hdfs_datanode *, void *buf, int fd, off_t len,
 			off_t offset, bool sendcrcs);
+static const char *	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
+			struct _read_state *);
 static const char *	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static const char *	_recv_packet(struct _packet_state *, struct _read_state *);
 static const char *	_send_packet(struct _packet_state *);
+static const char *	_verify_crcdata(void *crcdata, int32_t chunksize,
+			int32_t crcdlen, int32_t dlen);
 static const char *	_wait_ack(struct _packet_state *ps);
 
 //
@@ -201,11 +231,43 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 
 // Datanode read operations
 
-const char *	hdfs_datanode_read(struct hdfs_datanode *, void *buf, size_t len,
-		bool verifycrc);
+const char *
+hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
+	bool verifycrc)
+{
+	assert(buf);
+	assert(off >= 0);
 
-const char *	hdfs_datanode_read_file(struct hdfs_datanode *, int fd,
-		off_t len, off_t offset, bool verifycrc);
+	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf,
+	    verifycrc);
+}
+
+const char *
+hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
+	int fd, off_t fdoff, bool verifycrc)
+{
+	assert(bloff >= 0);
+	assert(fdoff >= 0);
+	assert(fd >= 0);
+
+	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/, verifycrc);
+}
+
+static void
+_compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
+	off_t offset, off_t len)
+{
+	_bappend_s16(h, d->dn_proto);
+
+	_bappend_s8(h, OP_READ);
+
+	_bappend_s64(h, d->dn_blkid);
+	_bappend_s64(h, d->dn_gen);
+	_bappend_s64(h, offset);
+	_bappend_s64(h, len);
+	_bappend_text(h, d->dn_client);
+	hdfs_object_serialize(h, d->dn_token);
+}
 
 static void
 _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crcs)
@@ -224,6 +286,69 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 	hdfs_object_serialize(h, d->dn_token);
 	_bappend_s8(h, !!crcs);
 	_bappend_s32(h, 512/*checksum chunk size*/);
+}
+
+const char *
+_datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
+	int fd, off_t fdoff, void *buf, bool verify)
+{
+	const char *err = NULL;
+	struct hdfs_heap_buf header = { 0 },
+			     recvbuf = { 0 };
+	struct _packet_state pstate = { 0 };
+	struct _read_state rinfo = { 0 };
+
+	assert(d);
+	assert(len > 0);
+
+	_lock(&d->dn_lock);
+
+	assert(!d->dn_used);
+	d->dn_used = true;
+
+	_compose_read_header(&header, d, bloff, len);
+	err = _write_all(d->dn_sock, header.buf, header.used);
+	if (err)
+		goto out;
+
+	err = _read_read_status(d, &recvbuf, &rinfo);
+	if (err)
+		goto out;
+
+	if (!rinfo.has_crcs && verify) {
+		err = HDFS_DATANODE_ERR_NO_CRCS;
+		goto out;
+	}
+
+	// good to read. begin.
+	rinfo.client_offset = bloff;
+
+	pstate.sock = d->dn_sock;
+	pstate.sendcrcs = verify;
+	pstate.buf = buf;
+	pstate.fd = fd;
+	pstate.remains = len;
+	pstate.fdoffset = fdoff;
+	pstate.recvbuf = &recvbuf;
+	pstate.proto = d->dn_proto;
+	while (pstate.remains > 0) {
+		err = _recv_packet(&pstate, &rinfo);
+		if (err)
+			goto out;
+	}
+
+	// tell server the read was fine
+	err = _write_all(d->dn_sock, DN_CHECKSUM_OK, 2);
+	if (err)
+		goto out;
+
+out:
+	if (header.buf)
+		free(header.buf);
+	if (recvbuf.buf)
+		free(recvbuf.buf);
+	_unlock(&d->dn_lock);
+	return err;
 }
 
 const char *
@@ -287,6 +412,61 @@ out:
 	if (recvbuf.buf)
 		free(recvbuf.buf);
 	_unlock(&d->dn_lock);
+	return err;
+}
+
+static const char *
+_read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
+	struct _read_state *rs)
+{
+	const char *err = NULL;
+	struct hdfs_heap_buf obuf = { 0 };
+	int16_t status;
+	int32_t chunk_size;
+	int64_t server_offset;
+	bool crcs;
+
+	while (h->used < 2) {
+		err = _read_to_hbuf(d->dn_sock, h);
+		if (err)
+			goto out;
+	}
+
+	obuf.buf = h->buf;
+	obuf.size = h->used;
+
+	status = _bslurp_s16(&obuf);
+	assert(obuf.used > 0);
+
+	if (status != STATUS_SUCCESS) {
+		err = "Server reported error with read request; aborting read";
+		goto out;
+	}
+
+	while (h->used < 15) {
+		err = _read_to_hbuf(d->dn_sock, h);
+		if (err)
+			goto out;
+	}
+
+	obuf.size = h->used;
+
+	crcs = _bslurp_s8(&obuf);
+	assert(obuf.used > 0);
+	chunk_size = _bslurp_s32(&obuf);
+	assert(obuf.used > 0);
+	server_offset = _bslurp_s64(&obuf);
+	assert(obuf.used > 0);
+
+	rs->server_offset = server_offset;
+	rs->chunk_size = chunk_size;
+	rs->has_crcs = crcs;
+
+	// Skip recvbuf past request status
+	h->used -= obuf.used;
+	memmove(h->buf, h->buf + obuf.used, h->used);
+
+out:
 	return err;
 }
 
@@ -358,6 +538,120 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 out:
 	if (statusmsg)
 		free(statusmsg);
+	return err;
+}
+
+static const char *
+_recv_packet(struct _packet_state *ps, struct _read_state *rs)
+{
+	const char *err = NULL;
+	const int ONEGB = 1024*1024*1024;
+	struct hdfs_heap_buf *recvbuf = ps->recvbuf,
+			     obuf = { 0 };
+	int32_t plen, dlen, crcdlen;
+	int64_t offset;
+	bool lastpacket;
+
+	int32_t c_begin, c_len;
+
+	// slurp packet header
+	while (recvbuf->used < 25) {
+		err = _read_to_hbuf(ps->sock, recvbuf);
+		if (err)
+			goto out;
+	}
+
+	obuf.buf = recvbuf->buf;
+	obuf.size = recvbuf->used;
+
+	plen = _bslurp_s32(&obuf);
+	assert(obuf.used > 0);
+	offset = _bslurp_s64(&obuf);
+	assert(obuf.used > 0);
+	/*seqno = */_bslurp_s64(&obuf);
+	assert(obuf.used > 0);
+	lastpacket = _bslurp_s8(&obuf);
+	assert(obuf.used > 0);
+	dlen = _bslurp_s32(&obuf);
+	assert(obuf.used > 0);
+
+	crcdlen = plen - dlen - 4;
+	if (plen < 0 || dlen < 0 || dlen > ONEGB || plen > ONEGB)
+		err = "got bogus packet; aborting read";
+	else if (crcdlen < 0)
+		err = "got bogus packet size; aborting read";
+	else if (rs->has_crcs && crcdlen != ((dlen + rs->chunk_size - 1) / rs->chunk_size) * 4)
+		err = "got bogus packet crc data; aborting read";
+	else if (!rs->has_crcs && crcdlen > 0)
+		err = "didn't expect crc data but got some anyway; aborting read";
+
+	if (err)
+		goto out;
+
+	while (recvbuf->used < 25 + crcdlen + dlen) {
+		err = _read_to_hbuf(ps->sock, recvbuf);
+		if (err)
+			goto out;
+	}
+
+	if (crcdlen > 0) {
+		err = _verify_crcdata(recvbuf->buf + 25, rs->chunk_size, crcdlen, dlen);
+		if (err) {
+			// On CRC errors, let the server know before aborting:
+			_write_all(ps->sock, DN_ERROR_CHECKSUM, 2);
+			goto out;
+		}
+	}
+
+	// figure out where in the packet to start copying from, and how much to copy
+	if (offset < rs->client_offset)
+		c_begin = rs->client_offset - offset;
+	else
+		c_begin = 0;
+	if (c_begin >= dlen) {
+		err = "Server started read before requested offset; aborting read";
+		goto out;
+	}
+	c_len = _min(dlen - c_begin, ps->remains);
+
+	// Copy the packet data out to the user's buf or to file:
+	if (ps->buf) {
+		memcpy(ps->buf, recvbuf->buf + 25 + crcdlen + c_begin, c_len);
+	} else {
+		int written = 0, rc;
+		while (written < c_len) {
+			rc = pwrite(ps->fd,
+			    recvbuf->buf + 25 + crcdlen + c_begin + written,
+			    c_len - written,
+			    ps->fdoffset + written);
+			if (rc == -1)
+				err = strerror(errno);
+			else if (rc == 0)
+				err = "EOF writing out to file; aborting read";
+
+			if (err)
+				goto out;
+			written += rc;
+		}
+	}
+
+	ps->remains -= c_len;
+	ps->fdoffset += c_len;
+	if (ps->buf)
+		ps->buf += c_len;
+
+	if (ps->remains > 0 && lastpacket) {
+		err = "Got last packet before read completed; aborting read";
+		goto out;
+	}
+
+	// skip recvbuf over this packet. this is probably excessive memcopying
+	// especially if/when multiple packets queue up. TODO: something
+	// smarter.
+	recvbuf->used -= (25 + crcdlen + dlen);
+	memmove(recvbuf->buf, recvbuf->buf + 25 + crcdlen + dlen, recvbuf->used);
+
+out:
 	return err;
 }
 
@@ -480,6 +774,30 @@ out:
 	if (crcdata)
 		free(crcdata);
 	return err;
+}
+
+static const char *
+_verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
+{
+	uint32_t crcinit;
+	void *data = crcdata + crcdlen;
+
+	crcinit = crc32(0L, Z_NULL, 0);
+
+	for (int i = 0; i < dlen / chunksize; i++) {
+		int32_t chunklen = _min(chunksize, dlen - i*chunksize);
+		uint32_t crc = crc32(crcinit, data + i*chunksize, chunklen),
+			 pcrc;
+
+		pcrc = (((uint32_t) (*((uint8_t *)crcdata + i*4))) << 24) +
+		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 1))) << 16) +
+		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 2))) << 8) +
+		    (uint32_t) (*((uint8_t *)crcdata + i*4 + 3));
+		if (crc != ntohl(pcrc))
+			return "Got bad CRC during read; aborting";
+	}
+
+	return NULL;
 }
 
 static const char *
