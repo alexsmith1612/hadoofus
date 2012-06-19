@@ -4,6 +4,7 @@ HADOOFUS {
     hdfs_namenode_init;
     hdfs_namenode_connect;
     hdfs_namenode_authenticate;
+    hdfs_namenode_get_msgno;
     hdfs_namenode_invoke;
     hdfs_future_get;
     hdfs_namenode_destroy;
@@ -19,11 +20,14 @@ HADOOFUS {
     hdfs_block_copy;
     hdfs_block_from_located_block;
     hdfs_located_block_new;
+    hdfs_located_block_copy;
     hdfs_located_blocks_new;
     hdfs_directory_listing_new;
     hdfs_located_directory_listing_new;
     hdfs_datanode_info_new;
+    hdfs_datanode_info_copy;
     hdfs_array_datanode_info_new;
+    hdfs_array_datanode_info_copy;
     hdfs_file_status_new;
     hdfs_file_status_new_ex;
     hdfs_content_summary_new;
@@ -37,6 +41,7 @@ HADOOFUS {
     hdfs_token_new;
     hdfs_token_copy;
     hdfs_token_new_empty;
+    hdfs_etype_to_string;
 
     hdfs_located_block_append_datanode_info;
     hdfs_located_blocks_append_located_block;

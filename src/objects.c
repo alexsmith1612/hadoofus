@@ -99,6 +99,15 @@ _string_to_etype(const char *etype)
 	return H_PROTOCOL_EXCEPTION;
 }
 
+const char *
+hdfs_etype_to_string(enum hdfs_object_type e)
+{
+	const char *res = exception_types[e - H_PROTOCOL_EXCEPTION].type;
+	if (!res)
+		return "ProtocolException";
+	return res;
+}
+
 static struct hdfs_object *
 _object_exception(const char *etype, const char *emsg)
 {
@@ -254,6 +263,39 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
 		._blockid = blkid,
 		._len = len,
 		._generation = generation,
+	};
+	return r;
+}
+
+struct hdfs_object *
+hdfs_located_block_copy(struct hdfs_object *src)
+{
+	int nlocs;
+	struct hdfs_object *r = _objmalloc(),
+			   **arr_locs = NULL;
+
+	assert(src);
+	assert(src->ob_type == H_LOCATED_BLOCK);
+
+	nlocs = src->ob_val._located_block._num_locs;
+
+	if (nlocs > 0) {
+		arr_locs = malloc(nlocs * sizeof *arr_locs);
+		assert(arr_locs);
+
+
+		for (int i = 0; i < nlocs; i++)
+			arr_locs[i] = hdfs_datanode_info_copy(
+			    src->ob_val._located_block._locs[i]);
+	}
+
+	r->ob_type = H_LOCATED_BLOCK;
+	r->ob_val._located_block = (struct hdfs_located_block) {
+		._blockid = src->ob_val._located_block._blockid,
+		._len = src->ob_val._located_block._len,
+		._generation = src->ob_val._located_block._generation,
+		._num_locs = nlocs,
+		._locs = arr_locs,
 	};
 	return r;
 }

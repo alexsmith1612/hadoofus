@@ -7,3 +7,7 @@ tests/check_hadoofus
 all_rpcs.list
 .*.swp
 hadoofus-coverage
+wrappers/py/.*.swp
+wrappers/py/build
+wrappers/py/cpydoofus.c
+wrappers/py/cpydoofus.so

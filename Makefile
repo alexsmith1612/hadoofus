@@ -1,6 +1,9 @@
-all: build
+all: build all-wrappers
 
-build: src/libhadoofus.so
+all-wrappers: wrappers
+	make -C wrappers all
+
+build: src/libhadoofus.so all-wrappers
 
 test: test-build
 	make -C tests check
@@ -11,6 +14,7 @@ clean: cov-clean
 	make -C src clean
 	make -C examples clean
 	make -C tests clean
+	make -C wrappers clean
 
 cov-clean:
 	rm -rf hadoofus-coverage

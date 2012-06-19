@@ -85,6 +85,8 @@ const char *	hdfs_namenode_connect(struct hdfs_namenode *, const char *host, con
 // Sends the authentication header. You must do this before issuing any RPCs.
 const char *	hdfs_namenode_authenticate(struct hdfs_namenode *, const char *username);
 
+int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
+
 // The caller must initialize the future object before invoking the rpc. Once
 // this routine is called, the future belongs to this library until one of two
 // things happens:

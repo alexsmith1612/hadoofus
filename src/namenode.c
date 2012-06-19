@@ -103,6 +103,18 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	return err;
 }
 
+int64_t
+hdfs_namenode_get_msgno(struct hdfs_namenode *n)
+{
+	int64_t res;
+
+	_lock(&n->nn_lock);
+	res = n->nn_msgno;
+	_unlock(&n->nn_lock);
+
+	return res;
+}
+
 const char *
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
