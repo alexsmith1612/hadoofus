@@ -2,6 +2,8 @@ from libc.stdint cimport int64_t, intptr_t, int16_t, uint16_t
 from libc.stdlib cimport malloc, free
 from libc.string cimport const_char
 
+from cpython.bytes cimport PyBytes_FromStringAndSize
+
 from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_create, \
         hdfs_append, hdfs_setReplication, hdfs_setPermission, hdfs_setOwner, \
         hdfs_abandonBlock, hdfs_addBlock, hdfs_complete, hdfs_rename, hdfs_delete, \
@@ -36,6 +38,9 @@ _WRITE_BLOCK_SIZE = 64*1024*1024
 DATANODE_PROTO_AP_1_0 = clowlevel.DATANODE_AP_1_0
 DATANODE_PROTO_CDH3 = clowlevel.DATANODE_CDH3
 DATANODE_ERR_NO_CRCS = <char*>clowlevel.DATANODE_ERR_NO_CRCS
+
+cdef bytes const_str_to_py(const_char* s):
+    return <char*>s
 
 # Exceptions from pydoofus
 class DisconnectError(Exception):
@@ -79,8 +84,7 @@ cdef raise_protocol_error(hdfs_object* ex):
     cdef hdfs_exception *h_ex = &ex._exception
     cdef bytes py_msg = h_ex._msg # copy message so we can free hdfs object
     etype = exception_types.get(h_ex._etype, ProtocolException)
-    cdef char* c_etype = hdfs_etype_to_string(h_ex._etype)
-    cdef bytes py_etype = c_etype
+    cdef bytes py_etype = const_str_to_py(hdfs_etype_to_string(h_ex._etype))
 
     hdfs_object_free(ex)
     raise etype(py_etype, py_msg)
@@ -130,8 +134,6 @@ cdef str generic_repr(object o):
     return res
 
 
-# Giant kludge to prevent users from fucking with these themselves:
-cdef int _lbs_private
 cdef class located_blocks:
     cdef hdfs_object* lbs
 
@@ -139,13 +141,13 @@ cdef class located_blocks:
     cpdef readonly bint being_written
     cpdef readonly list blocks
 
-    def __cinit__(self, lbsp):
-        cdef intptr_t i = lbsp
-        if i is not <intptr_t>&_lbs_private:
-            raise AssertionError("located_blocks should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.lbs = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_LOCATED_BLOCKS
         assert self.lbs is NULL
@@ -180,13 +182,11 @@ cdef class located_blocks:
 
 # Note: caller loses their C-level ref to the object
 cdef located_blocks located_blocks_build(hdfs_object* o):
-    cdef located_blocks res = located_blocks(<intptr_t>&_lbs_private)
-    res.set_obj(o)
+    cdef located_blocks res = located_blocks.__new__(located_blocks)
+    res.init(o)
     return res
 
 
-# Same kludge
-cdef int _lb_private
 cdef class located_block:
     cdef hdfs_object* lb
 
@@ -196,13 +196,13 @@ cdef class located_block:
     cpdef readonly int64_t len
     cpdef readonly list locations
 
-    def __cinit__(self, lbp):
-        cdef intptr_t i = lbp
-        if i is not <intptr_t>&_lb_private:
-            raise AssertionError("located_block should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.lb = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_LOCATED_BLOCK
         assert self.lb is NULL
@@ -242,8 +242,8 @@ cdef class located_block:
 
 # Note: caller loses their C-level ref to the object
 cdef located_block located_block_build(hdfs_object* o):
-    cdef located_block res = located_block(<intptr_t>&_lb_private)
-    res.set_obj(o)
+    cdef located_block res = located_block.__new__(located_block)
+    res.init(o)
     return res
 
 
@@ -253,8 +253,7 @@ cdef hdfs_object* convert_located_block_to_block(located_block lb):
     cdef hdfs_object* res = hdfs_block_new(lb.blockid, lb.len, lb.generation)
     return res
 
-# Same kludge
-cdef int _b_private
+
 cdef class block:
     cdef hdfs_object* c_block
 
@@ -262,35 +261,17 @@ cdef class block:
     cpdef readonly int64_t blockid
     cpdef readonly int64_t generation
 
-    def __cinit__(self, copy, bp=None):
-        cdef intptr_t i
-        if copy is None:
-            if bp is None:
-                raise AssertionError("block should be instantiated from a located_block!")
+    def __init__(self, copy):
+        assert copy is not None
+        assert type(copy) is located_block
 
-            i = bp
-            if i is not <intptr_t>&_b_private:
-                raise AssertionError("block should only be instantiated from cpydoofus!")
-            self.c_block = NULL
-        else:
-            assert copy is not None
-            assert type(copy) is located_block
-
-            self.c_block = convert_located_block_to_block(copy)
-            self._set_props()
-
-    cdef set_obj(self, hdfs_object *o):
-        assert o is not NULL
-        assert o.ob_type == H_BLOCK
-        assert self.c_block is NULL
-
-        self.c_block = o
-        self._set_props()
-
-    cdef _set_props(self):
+        self.c_block = convert_located_block_to_block(copy)
         self.len = self.c_block._block._length
         self.blockid = self.c_block._block._blkid
         self.generation = self.c_block._block._generation
+
+    def __cinit__(self):
+        self.c_block = NULL
 
     def __dealloc__(self):
         if self.c_block is not NULL:
@@ -299,15 +280,7 @@ cdef class block:
     def __repr__(self):
         return generic_repr(self)
 
-# Note: caller loses their C-level ref to the object
-cdef block block_build(hdfs_object* o):
-    cdef block res = block(None, bp=<intptr_t>&_b_private)
-    res.set_obj(o)
-    return res
 
-
-# Same kludge
-cdef int _di_private
 cdef class datanode_info:
     cdef hdfs_object* c_di
 
@@ -316,13 +289,13 @@ cdef class datanode_info:
     cpdef readonly char* port
     cpdef readonly uint16_t ipc_port
 
-    def __cinit__(self, p):
-        cdef intptr_t i = p
-        if i is not <intptr_t>&_di_private:
-            raise AssertionError("datanode_info should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.c_di = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_DATANODE_INFO
         assert self.c_di is NULL
@@ -342,8 +315,8 @@ cdef class datanode_info:
 
 # Note: caller loses their C-level ref to the object
 cdef datanode_info datanode_info_build(hdfs_object* o):
-    cdef datanode_info res = datanode_info(<intptr_t>&_di_private)
-    res.set_obj(o)
+    cdef datanode_info res = datanode_info.__new__(datanode_info)
+    res.init(o)
     return res
 
 
@@ -360,20 +333,19 @@ cdef hdfs_object* file_status_copy(hdfs_object* fs):
             fs._file_status._owner,
             fs._file_status._group)
 
-# Same kludge
-cdef int _dl_private
+
 cdef class directory_listing:
     cdef hdfs_object* c_dl
 
     cpdef readonly list files
 
-    def __cinit__(self, p):
-        cdef intptr_t i = p
-        if i is not <intptr_t>&_dl_private:
-            raise AssertionError("directory_listing should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.c_dl = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_DIRECTORY_LISTING
         assert self.c_dl is NULL
@@ -409,8 +381,8 @@ cdef class directory_listing:
 
 # Note: caller loses their C-level ref to the object
 cdef directory_listing directory_listing_build(hdfs_object* o):
-    cdef directory_listing res = directory_listing(<intptr_t>&_dl_private)
-    res.set_obj(o)
+    cdef directory_listing res = directory_listing.__new__(directory_listing)
+    res.init(o)
     return res
 
 
@@ -440,8 +412,7 @@ cdef str format_repl(bint isdir, int repl):
         return "-"
     return str(repl)
 
-# Same kludge
-cdef int _fs_private
+
 cdef class file_status:
     cdef hdfs_object* c_fs
 
@@ -456,13 +427,13 @@ cdef class file_status:
     cpdef readonly int16_t permissions
     cpdef readonly bint is_directory
 
-    def __cinit__(self, p):
-        cdef intptr_t i = p
-        if i is not <intptr_t>&_fs_private:
-            raise AssertionError("file_status should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.c_fs = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_FILE_STATUS
         assert self.c_fs is NULL
@@ -495,13 +466,11 @@ cdef class file_status:
 
 # Note: caller loses their C-level ref to the object
 cdef file_status file_status_build(hdfs_object* o):
-    cdef file_status res = file_status(<intptr_t>&_fs_private)
-    res.set_obj(o)
+    cdef file_status res = file_status.__new__(file_status)
+    res.init(o)
     return res
 
 
-# Same kludge
-cdef int _cs_private
 cdef class content_summary:
     cdef hdfs_object* c_cs
 
@@ -510,13 +479,13 @@ cdef class content_summary:
     cpdef readonly int64_t directories
     cpdef readonly int64_t quota
 
-    def __cinit__(self, p):
-        cdef intptr_t i = p
-        if i is not <intptr_t>&_cs_private:
-            raise AssertionError("content_summary should only be instantiated from cpydoofus!")
+    def __init__(self):
+        raise TypeError("This class cannot be instantiated from Python")
+
+    def __cinit__(self):
         self.c_cs = NULL
 
-    cdef set_obj(self, hdfs_object *o):
+    cdef init(self, hdfs_object *o):
         assert o is not NULL
         assert o.ob_type == H_CONTENT_SUMMARY
 
@@ -535,8 +504,8 @@ cdef class content_summary:
 
 # Note: caller loses their C-level ref to the object
 cdef content_summary content_summary_build(hdfs_object* o):
-    cdef content_summary res = content_summary(<intptr_t>&_cs_private)
-    res.set_obj(o)
+    cdef content_summary res = content_summary.__new__(content_summary)
+    res.init(o)
     return res
 
 
@@ -577,24 +546,24 @@ cdef list convert_array_long_to_list(hdfs_object* o):
 
 # pydoofus-esque rpc class!
 cdef class rpc:
+    cdef hdfs_namenode nn
+    cdef bint closed
+
     cpdef readonly bytes _ipc_proto
     cpdef readonly str address
     cpdef readonly int protocol
     cpdef readonly str user
 
-    cdef hdfs_namenode nn
-    cdef bint closed
-
     def __cinit__(self):
-        cdef char* c_proto = CLIENT_PROTOCOL
-        self._ipc_proto = c_proto
-        self.closed = False
         hdfs_namenode_init(&self.nn)
 
     def __dealloc__(self):
         hdfs_namenode_destroy(&self.nn, NULL)
 
     def __init__(self, addr, protocol=HADOOP_1_0, user=None):
+        self._ipc_proto = const_str_to_py(CLIENT_PROTOCOL)
+        self.closed = False
+
         if user is None:
             user = "root"
 
@@ -604,19 +573,19 @@ cdef class rpc:
 
         cdef char* c_addr = addr
         cdef char* c_port = "8020"
-        cdef char* err
+        cdef const_char* err
         cdef bytes py_err
 
         err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
         if err is not NULL:
-            py_err = err
+            py_err = const_str_to_py(err)
             raise socket.error(errno.ECONNREFUSED, py_err)
 
         cdef char* c_user = user
 
         err = hdfs_namenode_authenticate(&self.nn, c_user)
         if err is not NULL:
-            py_err = err
+            py_err = const_str_to_py(err)
             raise socket.error(errno.EPIPE, py_err)
 
         # pydoofus checks getProtocolVersion(), we should too.
@@ -849,11 +818,15 @@ cdef class rpc:
 # - actual datanode we are connected to
 cdef class data:
     cdef hdfs_datanode* dn
+
     cpdef readonly int protocol
     cpdef readonly bytes client
     cpdef readonly int size
 
-    def __cinit__(self, lb, client, proto=DATANODE_PROTO_AP_1_0):
+    def __cinit__(self):
+        self.dn = NULL
+
+    def __init__(self, lb, client, proto=DATANODE_PROTO_AP_1_0):
         assert lb is not None
         assert type(lb) is located_block
 
@@ -862,14 +835,15 @@ cdef class data:
 
         cdef char* c_client = self.client
         cdef int c_proto = int(proto)
-        cdef char* err = NULL
+        cdef const_char* err = NULL
 
         assert c_proto is DATANODE_PROTO_AP_1_0 or c_proto is DATANODE_PROTO_CDH3
         self.protocol = c_proto
 
         self.dn = hdfs_datanode_new(located_block.get_lb(lb), c_client, c_proto, &err)
         if self.dn is NULL:
-            raise ValueError("Failed to create datanode connection: %s" % err)
+            raise ValueError("Failed to create datanode connection: %s" % \
+                    const_str_to_py(err))
 
     def __dealloc__(self):
         if self.dn is not NULL:
@@ -879,28 +853,22 @@ cdef class data:
         return generic_repr(self)
 
     def write(self, bytes data, bint sendcrcs=False):
-        cdef char* err
+        cdef const_char* err
         cdef char* inp = data
 
         err = hdfs_datanode_write(self.dn, inp, len(data), sendcrcs)
-        if err:
-            raise Exception(err)
+        if err is not NULL:
+            raise Exception(const_str_to_py(err))
 
     def read(self, bint verifycrcs=False):
-        cdef char* err
-        cdef char* buf = <char*>malloc(self.size)
+        cdef const_char* err
+        cdef bytes res = PyBytes_FromStringAndSize(NULL, self.size)
+        cdef char* buf = <char*>res
 
-        if buf is NULL:
-            raise MemoryError("OOM")
+        assert self.size > 0
 
         err = hdfs_datanode_read(self.dn, 0, self.size, buf, verifycrcs)
-        if err:
-            raise Exception(err)
-
-        cdef bytes res
-        try:
-            res = buf[:self.size]
-        finally:
-            free(buf)
+        if err is not NULL:
+            raise Exception(const_str_to_py(err))
 
         return res
