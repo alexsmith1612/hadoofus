@@ -9,5 +9,5 @@ all_rpcs.list
 hadoofus-coverage
 wrappers/py/.*.swp
 wrappers/py/build
-wrappers/py/cpydoofus.c
-wrappers/py/cpydoofus.so
+wrappers/py/hadoofus.c
+wrappers/py/hadoofus.so

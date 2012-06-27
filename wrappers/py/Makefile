@@ -1,10 +1,10 @@
-NAME = cpydoofus
+NAME = hadoofus
 LIB = $(NAME).so
 SRCS = \
 	   chighlevel.pxd \
 	   clowlevel.pxd \
 	   cobjects.pxd \
-	   cpydoofus.pyx
+	   $(NAME).pyx
 
 # Note: -fno-strict-aliasing is NECESSARY for ensuring correct behavior of
 # Python API code. (The Python object model is built on a system of type-

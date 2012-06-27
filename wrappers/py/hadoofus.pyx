@@ -543,6 +543,56 @@ cdef list convert_array_long_to_list(hdfs_object* o):
 
     return res
 
+cdef class _objects:
+    cdef bint once
+
+    cpdef readonly object DisconnectError
+    cpdef readonly object ProtocolException
+    cpdef readonly object AccessControlException
+    cpdef readonly object AlreadyBeingCreatedException
+    cpdef readonly object FileNotFoundException
+    cpdef readonly object IOException
+    cpdef readonly object LeaseExpiredException
+
+    cpdef readonly object located_blocks
+    cpdef readonly object located_block
+    cpdef readonly object block
+    cpdef readonly object datanode_info
+    cpdef readonly object directory_listing
+    cpdef readonly object file_status
+    cpdef readonly object content_summary
+
+    def __cinit__(self):
+        self.once = False
+
+    def __init__(self):
+        raise TypeError("cannot construct this from python")
+
+    cpdef init(self):
+        if self.once is True:
+            return
+
+        self.once = True
+
+        self.DisconnectError = DisconnectError
+        self.ProtocolException = ProtocolException
+        self.AccessControlException = AccessControlException
+        self.AlreadyBeingCreatedException = AlreadyBeingCreatedException
+        self.FileNotFoundException = FileNotFoundException
+        self.IOException = IOException
+        self.LeaseExpiredException = LeaseExpiredException
+
+        self.located_blocks = located_blocks
+        self.located_block = located_block
+        self.block = block
+        self.datanode_info = datanode_info
+        self.directory_listing = directory_listing
+        self.file_status = file_status
+        self.content_summary = content_summary
+
+objects = _objects.__new__(_objects)
+objects.init()
+
 
 # pydoofus-esque rpc class!
 cdef class rpc:
@@ -813,6 +863,10 @@ cdef class rpc:
         return res
 
 
+rpcproto = rpc
+namenode = rpc
+
+
 # TODO handle the connecting ourselves so we can report:
 # - num. failed datanode attempts (and list)
 # - actual datanode we are connected to
@@ -872,3 +926,7 @@ cdef class data:
             raise Exception(const_str_to_py(err))
 
         return res
+
+
+dataproto = data
+datanode = data
