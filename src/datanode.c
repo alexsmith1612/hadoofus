@@ -685,8 +685,20 @@ _send_packet(struct _packet_state *ps)
 #if !defined(__linux__) && !defined(__FreeBSD__)
 		datamalloced = true;
 #else
-		if (ps->sendcrcs)
+		if (ps->sendcrcs) {
 			datamalloced = true;
+		} else {
+			struct stat sb;
+			int rc;
+			rc = fstat(ps->fd, &sb);
+			if (rc == -1) {
+				err = strerror(errno);
+				goto out;
+			}
+			// Sendfile (on linux) doesn't work with device files
+			if (!S_ISREG(sb.st_mode))
+				datamalloced = true;
+		}
 #endif
 	}
 

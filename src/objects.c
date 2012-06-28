@@ -255,7 +255,7 @@ hdfs_array_long_new(int len, const int64_t *values)
 }
 
 struct hdfs_object *
-hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
+hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_LOCATED_BLOCK;
@@ -263,6 +263,7 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
 		._blockid = blkid,
 		._len = len,
 		._generation = generation,
+		._offset = offset,
 	};
 	return r;
 }
@@ -296,6 +297,7 @@ hdfs_located_block_copy(struct hdfs_object *src)
 		._generation = src->ob_val._located_block._generation,
 		._num_locs = nlocs,
 		._locs = arr_locs,
+		._offset = src->ob_val._located_block._offset,
 	};
 	return r;
 }
@@ -403,6 +405,10 @@ hdfs_array_datanode_info_copy(struct hdfs_object *src)
 
 	if (!src)
 		return hdfs_null_new(H_ARRAY_DATANODE_INFO);
+	if (src->ob_type == H_NULL) {
+		assert(src->ob_val._null._type == H_ARRAY_DATANODE_INFO);
+		return hdfs_null_new(H_ARRAY_DATANODE_INFO);
+	}
 
 	r = _objmalloc();
 
@@ -661,8 +667,15 @@ hdfs_authheader_new(const char *user)
 struct hdfs_object *
 hdfs_string_new(const char *s)
 {
-	char *str_copy = strdup(s);
-	struct hdfs_object *r = _objmalloc();
+	char *str_copy;
+	struct hdfs_object *r;
+
+	if (!s) {
+		return hdfs_null_new(H_STRING);
+	}
+
+	str_copy = strdup(s);
+	r = _objmalloc();
 
 	assert(str_copy);
 

@@ -39,8 +39,6 @@ cdef extern from "hadoofus/objects.h":
         H_LEASE_EXPIRED_EXCEPTION,
     cdef struct hdfs_void:
         pass
-    cdef struct hdfs_null:
-        pass
     cdef struct hdfs_boolean:
         pass
     cdef struct hdfs_short:
@@ -63,6 +61,9 @@ cdef extern from "hadoofus/objects.h":
         pass
     cdef struct hdfs_fsperms:
         pass
+
+    cdef struct hdfs_null:
+        hdfs_object_type _type
 
     cdef struct hdfs_content_summary:
         int64_t _length

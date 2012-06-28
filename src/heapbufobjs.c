@@ -207,7 +207,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 		return NULL;
 	}
 
-	res = hdfs_located_block_new(blkid, len, generation);
+	res = hdfs_located_block_new(blkid, len, generation, offset);
 	for (int i = 0; i < n_datanodes; i++) {
 		di = _oslurp_datanode_info(b);
 		if (b->used < 0) {

@@ -1,4 +1,4 @@
-from libc.stdint cimport int64_t, intptr_t, int16_t, uint16_t
+from libc.stdint cimport int64_t, intptr_t, int16_t, uint16_t, INT64_MIN, INT64_MAX
 from libc.stdlib cimport malloc, free
 from libc.string cimport const_char
 
@@ -19,17 +19,19 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_ACCESS_CONTROL_EXCEPTION, H_PROTOCOL_EXCEPTION, H_ALREADY_BEING_CREATED_EXCEPTION, \
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
-        H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, \
+        H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
+        H_NULL, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
-        hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex
+        hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new
 cimport clowlevel
 
 import errno
 import socket
 import sys
 import time
+import types
 
 # Public constants from pydoofus
 HADOOP_1_0 = 0x50
@@ -43,7 +45,7 @@ cdef bytes const_str_to_py(const_char* s):
     return <char*>s
 
 # Exceptions from pydoofus
-class DisconnectError(Exception):
+class DisconnectException(Exception):
     pass
 
 class ProtocolException(Exception):
@@ -112,15 +114,17 @@ cdef generic_iterable_getitem(iterable, v):
         raise TypeError("list indices must be integers, not %s" % type(v).__name__)
 
 
+cdef object bad_types = (types.FunctionType, types.LambdaType, types.CodeType,
+        types.MethodType, types.UnboundMethodType, types.BuiltinFunctionType,
+        types.BuiltinMethodType)
 cdef str generic_repr(object o):
     cdef list attrs = [], orig_attrs
-    cdef object t_method = type(dir)
 
     orig_attrs = dir(o)
     for oa in orig_attrs:
         if oa.startswith("_"):
             continue
-        if type(getattr(o, oa)) is t_method:
+        if isinstance(getattr(o, oa), bad_types):
             continue
         attrs.append(oa)
 
@@ -132,6 +136,42 @@ cdef str generic_repr(object o):
     res += ")"
 
     return res
+
+
+cdef bint generic_richcmp(object o1, object o2, int op) except *:
+    if op is 0:
+        return object.__lt__(o1, o2)
+    elif op is 1:
+        return object.__le__(o1, o2)
+    elif op is 2:
+        if type(o1) is not type(o2):
+            return False
+
+        dir1 = set(dir(o1))
+        dir2 = set(dir(o2))
+
+        if dir1 != dir2:
+            return False
+
+        for at in dir1:
+            if type(getattr(o1, at)) is not type(getattr(o2, at)):
+                return False
+
+            if at.startswith("_"):
+                continue
+            if isinstance(getattr(o1, at), bad_types):
+                continue
+
+            if getattr(o1, at) != getattr(o2, at):
+                return False
+
+        return True
+    elif op is 3:
+        return not generic_richcmp(o1, o2, 2)
+    elif op is 4:
+        return object.__gt__(o1, o2)
+    elif op is 5:
+        return object.__ge__(o1, o2)
 
 
 cdef class located_blocks:
@@ -182,7 +222,13 @@ cdef class located_blocks:
 
 # Note: caller loses their C-level ref to the object
 cdef located_blocks located_blocks_build(hdfs_object* o):
-    cdef located_blocks res = located_blocks.__new__(located_blocks)
+    cdef located_blocks res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_LOCATED_BLOCKS
+        return None
+
+    res = located_blocks.__new__(located_blocks)
     res.init(o)
     return res
 
@@ -242,7 +288,13 @@ cdef class located_block:
 
 # Note: caller loses their C-level ref to the object
 cdef located_block located_block_build(hdfs_object* o):
-    cdef located_block res = located_block.__new__(located_block)
+    cdef located_block res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_LOCATED_BLOCK
+        return None
+
+    res = located_block.__new__(located_block)
     res.init(o)
     return res
 
@@ -315,7 +367,13 @@ cdef class datanode_info:
 
 # Note: caller loses their C-level ref to the object
 cdef datanode_info datanode_info_build(hdfs_object* o):
-    cdef datanode_info res = datanode_info.__new__(datanode_info)
+    cdef datanode_info res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_DATANODE_INFO
+        return None
+
+    res = datanode_info.__new__(datanode_info)
     res.init(o)
     return res
 
@@ -381,7 +439,13 @@ cdef class directory_listing:
 
 # Note: caller loses their C-level ref to the object
 cdef directory_listing directory_listing_build(hdfs_object* o):
-    cdef directory_listing res = directory_listing.__new__(directory_listing)
+    cdef directory_listing res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_DIRECTORY_LISTING
+        return None
+
+    res = directory_listing.__new__(directory_listing)
     res.init(o)
     return res
 
@@ -464,9 +528,19 @@ cdef class file_status:
                 self.owner, self.group, self.size,
                 format_date(self.mtime), self.name)
 
+    def __richcmp__(self, object o, int n):
+        return generic_richcmp(self, o, n)
+
+
 # Note: caller loses their C-level ref to the object
 cdef file_status file_status_build(hdfs_object* o):
-    cdef file_status res = file_status.__new__(file_status)
+    cdef file_status res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_FILE_STATUS
+        return None
+
+    res = file_status.__new__(file_status)
     res.init(o)
     return res
 
@@ -504,7 +578,13 @@ cdef class content_summary:
 
 # Note: caller loses their C-level ref to the object
 cdef content_summary content_summary_build(hdfs_object* o):
-    cdef content_summary res = content_summary.__new__(content_summary)
+    cdef content_summary res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_CONTENT_SUMMARY
+        return None
+
+    res = content_summary.__new__(content_summary)
     res.init(o)
     return res
 
@@ -546,6 +626,7 @@ cdef list convert_array_long_to_list(hdfs_object* o):
 cdef class _objects:
     cdef bint once
 
+    cpdef readonly object DisconnectException
     cpdef readonly object DisconnectError
     cpdef readonly object ProtocolException
     cpdef readonly object AccessControlException
@@ -562,6 +643,9 @@ cdef class _objects:
     cpdef readonly object file_status
     cpdef readonly object content_summary
 
+    cpdef readonly int64_t INT64_MIN "i64min"
+    cpdef readonly int64_t INT64_MAX "i64max"
+
     def __cinit__(self):
         self.once = False
 
@@ -574,7 +658,8 @@ cdef class _objects:
 
         self.once = True
 
-        self.DisconnectError = DisconnectError
+        self.DisconnectError = DisconnectException
+        self.DisconnectException = DisconnectException
         self.ProtocolException = ProtocolException
         self.AccessControlException = AccessControlException
         self.AlreadyBeingCreatedException = AlreadyBeingCreatedException
@@ -589,6 +674,9 @@ cdef class _objects:
         self.directory_listing = directory_listing
         self.file_status = file_status
         self.content_summary = content_summary
+
+        self.INT64_MIN = INT64_MIN
+        self.INT64_MAX = INT64_MAX
 
 objects = _objects.__new__(_objects)
 objects.init()
@@ -652,7 +740,7 @@ cdef class rpc:
     # double-close() is fine, but operations must somehow raise
     # ValueError("X on closed handle") when called on a closed handle.
 
-    cpdef int64_t getProtocolVersion(self, int64_t version, char* protostr=CLIENT_PROTOCOL):
+    cpdef int64_t getProtocolVersion(self, int64_t version, char* protostr=CLIENT_PROTOCOL) except? -1:
         cdef int64_t res
         cdef hdfs_object* ex = NULL
 
@@ -689,7 +777,7 @@ cdef class rpc:
 
         return located_block_build(res)
 
-    cpdef bint setReplication(self, char *path, int16_t replication):
+    cpdef bint setReplication(self, char *path, int16_t replication) except *:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -706,17 +794,33 @@ cdef class rpc:
         if ex is not NULL:
             raise_protocol_error(ex)
 
-    cpdef setOwner(self, char *path, char *owner, char *group):
+    cpdef setOwner(self, char *path, bytes owner_py, bytes group_py):
         cdef hdfs_object* ex = NULL
+        cdef char *owner = NULL
+        cdef char *group = NULL
+
+        if owner_py is not None:
+            owner = owner_py
+        if group_py is not None:
+            group = group_py
 
         hdfs_setOwner(&self.nn, path, owner, group, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
-    cpdef abandonBlock(self, block bl, char *path, char *client):
+    cpdef abandonBlock(self, object bl, char *path, char *client):
         cdef hdfs_object* ex = NULL
+        cdef block r_bl
 
-        hdfs_abandonBlock(&self.nn, bl.c_block, path, client, &ex)
+        if type(bl) is block:
+            r_bl = bl
+        elif type(bl) is located_block:
+            r_bl = block(bl)
+        else:
+            raise TypeError("Argument 'bl' has incorrect type (expected hadoofus.block or" +
+                    " hadoofus.located_block, got %s)" % str(type(bl)))
+
+        hdfs_abandonBlock(&self.nn, r_bl.c_block, path, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -729,22 +833,27 @@ cdef class rpc:
             c_excl = convert_list_to_array_datanode_info(excluded)
 
         res = hdfs_addBlock(&self.nn, path, client, c_excl, &ex)
+
+        if c_excl is not NULL:
+            hdfs_object_free(c_excl)
+
         if ex is not NULL:
             raise_protocol_error(ex)
 
         return located_block_build(res)
 
-    cpdef bint complete(self, char *path, char *client):
+    cpdef bint complete(self, char *path, char *client) except *:
         cdef hdfs_object* ex = NULL
-        cdef bint res
+        cdef bint res = False
 
-        res = hdfs_complete(&self.nn, path, client, &ex)
-        if ex is not NULL:
-            raise_protocol_error(ex)
+        while res is False:
+            res = hdfs_complete(&self.nn, path, client, &ex)
+            if ex is not NULL:
+                raise_protocol_error(ex)
 
         return res
 
-    cpdef bint rename(self, char *src, char *dst):
+    cpdef bint rename(self, char *src, char *dst) except *:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -754,9 +863,12 @@ cdef class rpc:
 
         return res
 
-    cpdef bint delete(self, char *path, bint can_recurse=False):
+    cpdef bint delete(self, char *path, bint can_recurse=False, bint onearg=False) except *:
         cdef hdfs_object* ex = NULL
         cdef bint res
+
+        if onearg is True:
+            can_recurse = True
 
         res = hdfs_delete(&self.nn, path, can_recurse, &ex)
         if ex is not NULL:
@@ -764,7 +876,7 @@ cdef class rpc:
 
         return res
 
-    cpdef bint mkdirs(self, char *path, int16_t perms):
+    cpdef bint mkdirs(self, char *path, int16_t perms) except *:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -801,7 +913,7 @@ cdef class rpc:
 
         return convert_array_long_to_list(res)
 
-    cpdef int64_t getPreferredBlockSize(self, char *path):
+    cpdef int64_t getPreferredBlockSize(self, char *path) except? -1:
         cdef hdfs_object* ex = NULL
         cdef int64_t res
 
@@ -852,7 +964,7 @@ cdef class rpc:
         if ex is not NULL:
             raise_protocol_error(ex)
 
-    cpdef bint recoverLease(self, char *path, char *client):
+    cpdef bint recoverLease(self, char *path, char *client) except *:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -906,13 +1018,41 @@ cdef class data:
     def __repr__(self):
         return generic_repr(self)
 
-    def write(self, bytes data, bint sendcrcs=False):
+    def write(self, object data, int maxlen=-1, int offset=-1, bint sendcrcs=False,
+            bint keepalive=False):
         cdef const_char* err
-        cdef char* inp = data
+        cdef char* inp
+        cdef int fd
+        cdef int towrite
+        cdef bytes err_s
 
-        err = hdfs_datanode_write(self.dn, inp, len(data), sendcrcs)
-        if err is not NULL:
-            raise Exception(const_str_to_py(err))
+        # TODO send keepalive packets when keepalive=true
+
+        if type(data) is bytes:
+            inp = data
+            towrite = len(data)
+            if maxlen is not -1 and towrite > maxlen:
+                towrite = maxlen
+            err = hdfs_datanode_write(self.dn, inp, towrite, sendcrcs)
+            if err is not NULL:
+                err_s = const_str_to_py(err)
+                if err_s == "EOS":
+                    raise DisconnectException(err_s)
+                raise Exception(err_s)
+        elif type(data) is file:
+            fd = data.fileno()
+
+            if offset is -1:
+                offset = data.tell()
+
+            if maxlen is -1:
+                raise ValueError("Must set maxlen to write from a file")
+
+            err = hdfs_datanode_write_file(self.dn, fd, maxlen, offset, sendcrcs)
+            if err is not NULL:
+                raise Exception(const_str_to_py(err))
+        else:
+            raise TypeError("data is not a file nor string; aborting write")
 
     def read(self, bint verifycrcs=False):
         cdef const_char* err

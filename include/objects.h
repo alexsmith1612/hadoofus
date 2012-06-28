@@ -213,7 +213,7 @@ struct hdfs_object *	hdfs_array_long_new(int len, const int64_t *values);
 struct hdfs_object *	hdfs_block_new(int64_t blkid, int64_t len, int64_t generation);
 struct hdfs_object *	hdfs_block_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_block_from_located_block(struct hdfs_object *);
-struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation);
+struct hdfs_object *	hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset);
 struct hdfs_object *	hdfs_located_block_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
