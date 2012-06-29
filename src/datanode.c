@@ -796,7 +796,7 @@ _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 
 	crcinit = crc32(0L, Z_NULL, 0);
 
-	for (int i = 0; i < dlen / chunksize; i++) {
+	for (int i = 0; i < (dlen + chunksize - 1) / chunksize; i++) {
 		int32_t chunklen = _min(chunksize, dlen - i*chunksize);
 		uint32_t crc = crc32(crcinit, data + i*chunksize, chunklen),
 			 pcrc;
@@ -805,7 +805,8 @@ _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 1))) << 16) +
 		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 2))) << 8) +
 		    (uint32_t) (*((uint8_t *)crcdata + i*4 + 3));
-		if (crc != ntohl(pcrc))
+
+		if (crc != pcrc)
 			return "Got bad CRC during read; aborting";
 	}
 
