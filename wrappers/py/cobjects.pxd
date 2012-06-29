@@ -164,14 +164,14 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_block_copy(hdfs_object *)
     hdfs_object *hdfs_block_from_located_block(hdfs_object *)
     hdfs_object *hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
-    hdfs_object *hdfs_located_block_copy(hdfs_object*)
+    hdfs_object *hdfs_located_block_copy(hdfs_object*) nogil
     hdfs_object *hdfs_located_blocks_new(bint beingcreated, int64_t size)
     hdfs_object *hdfs_directory_listing_new()
     hdfs_object *hdfs_located_directory_listing_new()
     hdfs_object *hdfs_datanode_info_new(const_char *host, const_char *port, const_char *rack, uint16_t namenodeport)
-    hdfs_object *hdfs_datanode_info_copy(hdfs_object *)
+    hdfs_object *hdfs_datanode_info_copy(hdfs_object *) nogil
     hdfs_object *hdfs_array_datanode_info_new()
-    hdfs_object *hdfs_array_datanode_info_copy(hdfs_object *)
+    hdfs_object *hdfs_array_datanode_info_copy(hdfs_object *) nogil
     hdfs_object *hdfs_file_status_new(const_char *logical_name, const_stat *st, const_char *owner, const_char *group)
     hdfs_object *hdfs_file_status_new_ex(const_char *logical_name, int64_t size, bint directory, int replication, int64_t block_size, int64_t mtime_ms, int64_t atime_ms, int perms, const_char *owner, const_char *group)
     hdfs_object *hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs, int64_t quota)
@@ -189,10 +189,10 @@ cdef extern from "hadoofus/objects.h":
     void hdfs_located_block_append_datanode_info(hdfs_object *located_block, hdfs_object *datanode_info)
     void hdfs_located_blocks_append_located_block(hdfs_object *located_blocks, hdfs_object *located_block)
     void hdfs_directory_listing_append_file_status(hdfs_object *directory_listing, hdfs_object *file_status, hdfs_object *located_blocks)
-    void hdfs_array_datanode_info_append_datanode_info(hdfs_object *array, hdfs_object *datanode_info)
+    void hdfs_array_datanode_info_append_datanode_info(hdfs_object *array, hdfs_object *datanode_info) nogil
 
     void hdfs_object_serialize(hdfs_heap_buf *hbuf, hdfs_object *obj)
 
     hdfs_object *hdfs_object_slurp(hdfs_heap_buf *rbuf, hdfs_object_type realtype)
 
-    void hdfs_object_free(hdfs_object *obj)
+    void hdfs_object_free(hdfs_object *obj) nogil

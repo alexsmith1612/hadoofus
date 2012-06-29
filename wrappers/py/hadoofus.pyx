@@ -206,9 +206,12 @@ cdef class located_blocks:
     def __iter__(self):
         cdef hdfs_located_blocks* lbs = &self.lbs._located_blocks
         cdef located_block py_lb
+        cdef hdfs_object* lb
 
         for i in range(lbs._num_blocks):
-            py_lb = located_block_build(hdfs_located_block_copy(lbs._blocks[i]))
+            with nogil:
+                lb = hdfs_located_block_copy(lbs._blocks[i])
+            py_lb = located_block_build(lb)
             yield py_lb
 
     def __repr__(self):
@@ -272,9 +275,12 @@ cdef class located_block:
     def __iter__(self):
         cdef hdfs_located_block* lb = &self.lb._located_block
         cdef datanode_info py_di
+        cdef hdfs_object* di
 
         for i in range(lb._num_locs):
-            py_di = datanode_info_build(hdfs_datanode_info_copy(lb._locs[i]))
+            with nogil:
+                di = hdfs_datanode_info_copy(lb._locs[i])
+            py_di = datanode_info_build(di)
             yield py_di
 
     def __getitem__(self, v):
@@ -594,13 +600,16 @@ cdef hdfs_object* convert_list_to_array_datanode_info(list l_di):
     cdef hdfs_object* res
     cdef datanode_info di
     cdef hdfs_object* di_copy
+    cdef hdfs_object* c_di
 
     res = hdfs_array_datanode_info_new()
     try:
         for e in l_di:
             di = e
-            di_copy = hdfs_datanode_info_copy(di.c_di)
-            hdfs_array_datanode_info_append_datanode_info(res, di_copy)
+            c_di = di.c_di
+            with nogil:
+                di_copy = hdfs_datanode_info_copy(c_di)
+                hdfs_array_datanode_info_append_datanode_info(res, di_copy)
     except:
         hdfs_object_free(res)
         raise
@@ -693,10 +702,12 @@ cdef class rpc:
     cpdef readonly str user
 
     def __cinit__(self):
-        hdfs_namenode_init(&self.nn)
+        with nogil:
+            hdfs_namenode_init(&self.nn)
 
     def __dealloc__(self):
-        hdfs_namenode_destroy(&self.nn, NULL)
+        with nogil:
+            hdfs_namenode_destroy(&self.nn, NULL)
 
     def __init__(self, addr, protocol=HADOOP_1_0, user=None):
         self._ipc_proto = const_str_to_py(CLIENT_PROTOCOL)
@@ -714,14 +725,16 @@ cdef class rpc:
         cdef const_char* err
         cdef bytes py_err
 
-        err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
+        with nogil:
+            err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
         if err is not NULL:
             py_err = const_str_to_py(err)
             raise socket.error(errno.ECONNREFUSED, py_err)
 
         cdef char* c_user = user
 
-        err = hdfs_namenode_authenticate(&self.nn, c_user)
+        with nogil:
+            err = hdfs_namenode_authenticate(&self.nn, c_user)
         if err is not NULL:
             py_err = const_str_to_py(err)
             raise socket.error(errno.EPIPE, py_err)
@@ -734,7 +747,10 @@ cdef class rpc:
 
     property num_calls:
         def __get__(self):
-            return hdfs_namenode_get_msgno(&self.nn)
+            cdef int64_t res
+            with nogil:
+                res = hdfs_namenode_get_msgno(&self.nn)
+            return res
 
     # TODO plumb close() semantics through C-level api.
     # double-close() is fine, but operations must somehow raise
@@ -744,7 +760,8 @@ cdef class rpc:
         cdef int64_t res
         cdef hdfs_object* ex = NULL
 
-        res = hdfs_getProtocolVersion(&self.nn, protostr, version, &ex)
+        with nogil:
+            res = hdfs_getProtocolVersion(&self.nn, protostr, version, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -754,7 +771,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_getBlockLocations(&self.nn, path, offset, length, &ex)
+        with nogil:
+            res = hdfs_getBlockLocations(&self.nn, path, offset, length, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -763,7 +781,8 @@ cdef class rpc:
     cpdef create(self, char *path, int16_t perms, char *client, bint can_overwrite=False, int16_t replication=1, int64_t blocksize=_WRITE_BLOCK_SIZE, bint create_parent=True):
         cdef hdfs_object* ex = NULL
 
-        hdfs_create(&self.nn, path, perms, client, can_overwrite, create_parent, replication, blocksize, &ex)
+        with nogil:
+            hdfs_create(&self.nn, path, perms, client, can_overwrite, create_parent, replication, blocksize, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -771,7 +790,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_append(&self.nn, path, client, &ex)
+        with nogil:
+            res = hdfs_append(&self.nn, path, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -781,7 +801,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
-        res = hdfs_setReplication(&self.nn, path, replication, &ex)
+        with nogil:
+            res = hdfs_setReplication(&self.nn, path, replication, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -790,7 +811,8 @@ cdef class rpc:
     cpdef setPermission(self, char *path, int16_t perms):
         cdef hdfs_object* ex = NULL
 
-        hdfs_setPermission(&self.nn, path, perms, &ex)
+        with nogil:
+            hdfs_setPermission(&self.nn, path, perms, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -804,7 +826,8 @@ cdef class rpc:
         if group_py is not None:
             group = group_py
 
-        hdfs_setOwner(&self.nn, path, owner, group, &ex)
+        with nogil:
+            hdfs_setOwner(&self.nn, path, owner, group, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -820,7 +843,8 @@ cdef class rpc:
             raise TypeError("Argument 'bl' has incorrect type (expected hadoofus.block or" +
                     " hadoofus.located_block, got %s)" % str(type(bl)))
 
-        hdfs_abandonBlock(&self.nn, r_bl.c_block, path, client, &ex)
+        with nogil:
+            hdfs_abandonBlock(&self.nn, r_bl.c_block, path, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -832,7 +856,8 @@ cdef class rpc:
         if excluded is not None:
             c_excl = convert_list_to_array_datanode_info(excluded)
 
-        res = hdfs_addBlock(&self.nn, path, client, c_excl, &ex)
+        with nogil:
+            res = hdfs_addBlock(&self.nn, path, client, c_excl, &ex)
 
         if c_excl is not NULL:
             hdfs_object_free(c_excl)
@@ -847,7 +872,8 @@ cdef class rpc:
         cdef bint res = False
 
         while res is False:
-            res = hdfs_complete(&self.nn, path, client, &ex)
+            with nogil:
+                res = hdfs_complete(&self.nn, path, client, &ex)
             if ex is not NULL:
                 raise_protocol_error(ex)
 
@@ -857,7 +883,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
-        res = hdfs_rename(&self.nn, src, dst, &ex)
+        with nogil:
+            res = hdfs_rename(&self.nn, src, dst, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -870,7 +897,8 @@ cdef class rpc:
         if onearg is True:
             can_recurse = True
 
-        res = hdfs_delete(&self.nn, path, can_recurse, &ex)
+        with nogil:
+            res = hdfs_delete(&self.nn, path, can_recurse, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -880,7 +908,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
-        res = hdfs_mkdirs(&self.nn, path, perms, &ex)
+        with nogil:
+            res = hdfs_mkdirs(&self.nn, path, perms, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -890,7 +919,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_getListing(&self.nn, path, NULL, &ex)
+        with nogil:
+            res = hdfs_getListing(&self.nn, path, NULL, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -899,7 +929,8 @@ cdef class rpc:
     cpdef renewLease(self, char *client):
         cdef hdfs_object* ex = NULL
 
-        hdfs_renewLease(&self.nn, client, &ex)
+        with nogil:
+            hdfs_renewLease(&self.nn, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -907,7 +938,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_getStats(&self.nn, &ex)
+        with nogil:
+            res = hdfs_getStats(&self.nn, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -917,7 +949,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef int64_t res
 
-        res = hdfs_getPreferredBlockSize(&self.nn, path, &ex)
+        with nogil:
+            res = hdfs_getPreferredBlockSize(&self.nn, path, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -927,7 +960,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_getFileInfo(&self.nn, path, &ex)
+        with nogil:
+            res = hdfs_getFileInfo(&self.nn, path, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -937,7 +971,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
-        res = hdfs_getContentSummary(&self.nn, path, &ex)
+        with nogil:
+            res = hdfs_getContentSummary(&self.nn, path, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -946,21 +981,24 @@ cdef class rpc:
     cpdef setQuota(self, char *path, int64_t nsquota, int64_t dsquota):
         cdef hdfs_object* ex = NULL
 
-        hdfs_setQuota(&self.nn, path, nsquota, dsquota, &ex)
+        with nogil:
+            hdfs_setQuota(&self.nn, path, nsquota, dsquota, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
     cpdef fsync(self, char *path, char *client):
         cdef hdfs_object* ex = NULL
 
-        hdfs_fsync(&self.nn, path, client, &ex)
+        with nogil:
+            hdfs_fsync(&self.nn, path, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
     cpdef setTimes(self, char *path, int64_t mtime, int64_t atime):
         cdef hdfs_object* ex = NULL
 
-        hdfs_setTimes(&self.nn, path, mtime, atime, &ex)
+        with nogil:
+            hdfs_setTimes(&self.nn, path, mtime, atime, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -968,7 +1006,8 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
         cdef bint res
 
-        res = hdfs_recoverLease(&self.nn, path, client, &ex)
+        with nogil:
+            res = hdfs_recoverLease(&self.nn, path, client, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -984,6 +1023,7 @@ namenode = rpc
 # - actual datanode we are connected to
 cdef class data:
     cdef hdfs_datanode* dn
+    cdef hdfs_object* orig_lb
 
     cpdef readonly int protocol
     cpdef readonly bytes client
@@ -991,6 +1031,7 @@ cdef class data:
 
     def __cinit__(self):
         self.dn = NULL
+        self.orig_lb = NULL
 
     def __init__(self, lb, client, proto=DATANODE_PROTO_AP_1_0):
         assert lb is not None
@@ -999,21 +1040,32 @@ cdef class data:
         self.size = lb.len
         self.client = str(client)
 
+        self.protocol = int(proto)
+        assert self.protocol is DATANODE_PROTO_AP_1_0 or self.protocol is DATANODE_PROTO_CDH3
+
+        cdef hdfs_object* c_lb = located_block.get_lb(lb)
+        self.orig_lb = hdfs_located_block_copy(c_lb)
+        self.init()
+
+    def init(self):
+        cdef hdfs_datanode* dn
+        cdef int c_proto = self.protocol
         cdef char* c_client = self.client
-        cdef int c_proto = int(proto)
         cdef const_char* err = NULL
 
-        assert c_proto is DATANODE_PROTO_AP_1_0 or c_proto is DATANODE_PROTO_CDH3
-        self.protocol = c_proto
-
-        self.dn = hdfs_datanode_new(located_block.get_lb(lb), c_client, c_proto, &err)
-        if self.dn is NULL:
+        with nogil:
+            dn = hdfs_datanode_new(self.orig_lb, c_client, c_proto, &err)
+        if dn is NULL:
             raise ValueError("Failed to create datanode connection: %s" % \
                     const_str_to_py(err))
+        self.dn = dn
 
     def __dealloc__(self):
         if self.dn is not NULL:
-            hdfs_datanode_delete(self.dn)
+            with nogil:
+                hdfs_datanode_delete(self.dn)
+        if self.orig_lb is not NULL:
+            hdfs_object_free(self.orig_lb)
 
     def __repr__(self):
         return generic_repr(self)
@@ -1033,7 +1085,8 @@ cdef class data:
             towrite = len(data)
             if maxlen is not -1 and towrite > maxlen:
                 towrite = maxlen
-            err = hdfs_datanode_write(self.dn, inp, towrite, sendcrcs)
+            with nogil:
+                err = hdfs_datanode_write(self.dn, inp, towrite, sendcrcs)
             if err is not NULL:
                 err_s = const_str_to_py(err)
                 if err_s == "EOS":
@@ -1048,20 +1101,29 @@ cdef class data:
             if maxlen is -1:
                 raise ValueError("Must set maxlen to write from a file")
 
-            err = hdfs_datanode_write_file(self.dn, fd, maxlen, offset, sendcrcs)
+            with nogil:
+                err = hdfs_datanode_write_file(self.dn, fd, maxlen, offset, sendcrcs)
             if err is not NULL:
                 raise Exception(const_str_to_py(err))
         else:
             raise TypeError("data is not a file nor string; aborting write")
 
-    def read(self, bint verifycrcs=False):
+    def read(self, bint verifycrcs=True):
         cdef const_char* err
         cdef bytes res = PyBytes_FromStringAndSize(NULL, self.size)
         cdef char* buf = <char*>res
 
         assert self.size > 0
 
-        err = hdfs_datanode_read(self.dn, 0, self.size, buf, verifycrcs)
+        with nogil:
+            err = hdfs_datanode_read(self.dn, 0, self.size, buf, verifycrcs)
+
+        if verifycrcs and err is clowlevel.DATANODE_ERR_NO_CRCS:
+            hdfs_datanode_delete(self.dn)
+            self.dn = NULL
+            self.init()
+            err = hdfs_datanode_read(self.dn, 0, self.size, buf, False)
+
         if err is not NULL:
             raise Exception(const_str_to_py(err))
 
