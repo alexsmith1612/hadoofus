@@ -1070,7 +1070,7 @@ cdef class data:
     def __repr__(self):
         return generic_repr(self)
 
-    def write(self, object data, int maxlen=-1, int offset=-1, bint sendcrcs=False,
+    def write(self, object data, int maxlen=-1, int offset=-1, bint sendcrcs=True,
             bint keepalive=False):
         cdef const_char* err
         cdef char* inp
