@@ -1104,7 +1104,10 @@ cdef class data:
             with nogil:
                 err = hdfs_datanode_write_file(self.dn, fd, maxlen, offset, sendcrcs)
             if err is not NULL:
-                raise Exception(const_str_to_py(err))
+                err_s = const_str_to_py(err)
+                if err_s == "EOS":
+                    raise DisconnectException(err_s)
+                raise Exception(err_s)
         else:
             raise TypeError("data is not a file nor string; aborting write")
 
@@ -1112,6 +1115,7 @@ cdef class data:
         cdef const_char* err
         cdef bytes res = PyBytes_FromStringAndSize(NULL, self.size)
         cdef char* buf = <char*>res
+        cdef bytes err_s
 
         assert self.size > 0
 
@@ -1125,7 +1129,10 @@ cdef class data:
             err = hdfs_datanode_read(self.dn, 0, self.size, buf, False)
 
         if err is not NULL:
-            raise Exception(const_str_to_py(err))
+            err_s = const_str_to_py(err)
+            if err_s == "EOS":
+                raise DisconnectException(err_s)
+            raise Exception(err_s)
 
         return res
 

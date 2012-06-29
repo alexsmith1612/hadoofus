@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "net.h"
+#include "util.h"
 
 const char *
 _connect(int *s, const char *host, const char *port)

@@ -4,6 +4,7 @@
 #include "heapbuf.h"
 #include "heapbufobjs.h"
 #include "objects.h"
+#include "util.h"
 
 struct hdfs_object *
 _oslurp_null(struct hdfs_heap_buf *b)

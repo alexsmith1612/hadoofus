@@ -35,8 +35,6 @@
 #define IO_EXCEPTION_STR "java.io.IOException"
 #define LEASE_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.LeaseExpiredException"
 
-#define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
-
 struct _hdfs_result {
 	int64_t rs_msgno;
 	struct hdfs_object *rs_obj;
