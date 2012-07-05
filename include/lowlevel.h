@@ -126,7 +126,7 @@ const char *	hdfs_datanode_connect(struct hdfs_datanode *, const char *host,
 
 // Attempt to write a buffer to the block associated with this connection.
 // Returns NULL on success or an error message on failure.
-const char *	hdfs_datanode_write(struct hdfs_datanode *, void *buf,
+const char *	hdfs_datanode_write(struct hdfs_datanode *, const void *buf,
 		size_t len, bool sendcrcs);
 
 // Attempt to write from an fd to the block associated with this connection.

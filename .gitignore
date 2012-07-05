@@ -11,3 +11,8 @@ wrappers/py/.*.swp
 wrappers/py/build
 wrappers/py/hadoofus.c
 wrappers/py/hadoofus.so
+wrappers/c/*.o
+wrappers/c/*.a
+wrappers/c/*.so
+wrappers/c/.*.swp
+wrappers/c/hdfs_test

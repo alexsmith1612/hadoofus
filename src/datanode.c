@@ -51,6 +51,9 @@ static const char *dn_error_msgs[] = {
 	"Datanode access token error, aborting write",
 };
 
+static const int MAX_UNACKED_PACKETS = 80/*same as apache*/,
+	     CHUNK_SIZE = 512,
+	     PACKET_SIZE = 64*1024;
 
 struct _packet_state {
 	int64_t seqno,
@@ -81,7 +84,7 @@ static void		_compose_write_header(struct hdfs_heap_buf *, struct hdfs_datanode 
 			bool crcs);
 static const char *	_datanode_read(struct hdfs_datanode *, off_t bloff, off_t len,
 			int fd, off_t fdoff, void *buf, bool verify);
-static const char *	_datanode_write(struct hdfs_datanode *, void *buf, int fd, off_t len,
+static const char *	_datanode_write(struct hdfs_datanode *, const void *buf, int fd, off_t len,
 			off_t offset, bool sendcrcs);
 static const char *	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 			struct _read_state *);
@@ -212,7 +215,7 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 // Datanode write operations
 
 const char *
-hdfs_datanode_write(struct hdfs_datanode *d, void *buf, size_t len, bool sendcrcs)
+hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
 {
 	assert(buf);
 
@@ -285,7 +288,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 	_bappend_s32(h, 0);
 	hdfs_object_serialize(h, d->dn_token);
 	_bappend_s8(h, !!crcs);
-	_bappend_s32(h, 512/*checksum chunk size*/);
+	_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
 }
 
 const char *
@@ -352,7 +355,7 @@ out:
 }
 
 const char *
-_datanode_write(struct hdfs_datanode *d, void *buf, int fd, off_t len,
+_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	off_t offset, bool sendcrcs)
 {
 	const char *err = NULL;
@@ -382,12 +385,13 @@ _datanode_write(struct hdfs_datanode *d, void *buf, int fd, off_t len,
 	// we're good to write. start sending packets.
 	pstate.sock = d->dn_sock;
 	pstate.sendcrcs = sendcrcs;
-	pstate.buf = buf;
+	pstate.buf = (void*)buf;
 	pstate.fd = fd;
 	pstate.remains = len;
 	pstate.fdoffset = offset;
 	pstate.recvbuf = &recvbuf;
 	pstate.proto = d->dn_proto;
+	pstate.offset = d->dn_size;
 	while (pstate.remains > 0) {
 		err = _send_packet(&pstate);
 		if (err)
@@ -658,18 +662,26 @@ out:
 static const char *
 _send_packet(struct _packet_state *ps)
 {
-	const int MAX_UNACKED_PACKETS = 80/*same as apache*/,
-	      CHUNK_SIZE = 512;
 
 	const char *err = NULL;
 	struct hdfs_heap_buf phdr = { 0 };
 	uint32_t *crcdata = NULL;
-	size_t crclen = 0;
+	size_t crclen = 0, tosend;
 	unsigned char *data = NULL;
 	bool last, datamalloced = false;
 	struct iovec ios[3];
 
-	size_t tosend = _min(ps->remains, 64*1024);
+	tosend = _min(ps->remains, PACKET_SIZE);
+
+	if (ps->offset % CHUNK_SIZE) {
+		// N.B.: If you have a partial block, appending the unaligned
+		// bits first makes the remaining writes aligned. We mostly do
+		// this to match Apache HDFS behavior on append.
+		int64_t remaining_in_chunk =
+		    CHUNK_SIZE - (ps->offset % CHUNK_SIZE);
+
+		tosend = _min(tosend, remaining_in_chunk);
+	}
 
 	last = (tosend == ps->remains);
 
