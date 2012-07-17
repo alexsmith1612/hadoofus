@@ -633,6 +633,8 @@ hdfsWrite(hdfsFS fs, hdfsFile file, const void* buffer, tSize length)
 		}
 	}
 
+	f->fi_offset += res;
+
 out:
 	return res;
 }
