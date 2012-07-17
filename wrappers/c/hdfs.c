@@ -58,11 +58,13 @@ struct hdfsFile_internal {
 
 struct hdfsFS_internal {
 	struct hdfs_namenode *fs_namenode;
-	char *fs_cwd;
+	char *fs_cwd,
+	     *fs_uri;
 };
 
 static int	_flush(struct hdfs_namenode *, struct hdfsFile_internal *, const void *, size_t);
-static void	_hadoofus_file_status_to_libhdfs(struct hdfs_object *, hdfsFileInfo *);
+static void	_hadoofus_file_status_to_libhdfs(const char *dfs_uri,
+		const char *path, struct hdfs_object *, hdfsFileInfo *);
 static char *	_makeabs(struct hdfsFS_internal *, const char *path);
 static char *	_makehome(const char *user);
 static void	_urandbytes(char *, size_t);
@@ -128,6 +130,21 @@ hdfsConnectAsUser(const char* host, tPort port, const char *user)
 	res->fs_namenode = nn;
 	res->fs_cwd = _makehome(user);
 
+	// libhdfs is a sad, sad API. My hands are tied. (All filenames, at
+	// least for directory listings, need to be in the form:
+	//   dfs://<host>:<port>//path/to/file
+	//                       ^ Yes, that is two slashes.
+	//
+	// fuse_dfs depends on this naming scheme.
+	res->fs_uri = malloc(strlen("dfs://") + strlen(host) + 1 + strlen(sport) + 2);
+	assert(res->fs_uri);
+
+	strcpy(res->fs_uri, "dfs://");
+	strcat(res->fs_uri, host);
+	strcat(res->fs_uri, ":");
+	strcat(res->fs_uri, sport);
+	strcat(res->fs_uri, "/");
+
 	return (hdfsFS)res;
 }
 
@@ -164,6 +181,7 @@ hdfsDisconnect(hdfsFS fs)
 
 	hdfs_namenode_delete(client->fs_namenode);
 	free(client->fs_cwd);
+	free(client->fs_uri);
 	free(client);
 
 	return 0;
@@ -1039,7 +1057,8 @@ hdfsListDirectory(hdfsFS fs, const char* path, int *numEntries)
 		struct hdfs_object *fstatus =
 		    dl->ob_val._directory_listing._files[i];
 
-		_hadoofus_file_status_to_libhdfs(fstatus, &res[i]);
+		_hadoofus_file_status_to_libhdfs(client->fs_uri, path_abs,
+		    fstatus, &res[i]);
 	}
 
 	*numEntries = nfiles;
@@ -1084,7 +1103,7 @@ hdfsGetPathInfo(hdfsFS fs, const char* path)
 	res = malloc(sizeof *res);
 	assert(res);
 
-	_hadoofus_file_status_to_libhdfs(fstatus, res);
+	_hadoofus_file_status_to_libhdfs(client->fs_uri, path_abs, fstatus, res);
 
 out:
 	if (fstatus)
@@ -1510,19 +1529,29 @@ out:
 }
 
 static void
-_hadoofus_file_status_to_libhdfs(struct hdfs_object *fs, hdfsFileInfo *fi_out)
+_hadoofus_file_status_to_libhdfs(const char *dfs_uri, const char *path,
+	struct hdfs_object *fs, hdfsFileInfo *fi_out)
 {
 	struct hdfs_file_status *f = &fs->ob_val._file_status;
 
 	fi_out->mKind = f->_directory? kObjectKindDirectory : kObjectKindFile;
-	fi_out->mName = _xstrdup(f->_file);
+
+	fi_out->mName = malloc(strlen(dfs_uri) + strlen(path) + 1 + strlen(f->_file) + 1);
+	assert(fi_out->mName);
+	strcpy(fi_out->mName, dfs_uri);
+	strcat(fi_out->mName, path);
+	if (strcmp(path, "/"))
+		strcat(fi_out->mName, "/");
+	strcat(fi_out->mName, f->_file);
+
 	fi_out->mLastMod = f->_mtime / 1000; /* ms -> s */
 	fi_out->mSize = f->_size;
 	fi_out->mReplication = f->_replication;
 	fi_out->mBlockSize = f->_block_size;
 	fi_out->mOwner = _xstrdup(f->_owner);
 	fi_out->mGroup = _xstrdup(f->_group);
-	fi_out->mPermissions = f->_permissions;
+	fi_out->mPermissions = f->_permissions |
+	    (f->_directory? S_IFDIR : S_IFREG);
 	fi_out->mLastAccess = f->_atime / 1000; /* ms -> s */
 }
 
