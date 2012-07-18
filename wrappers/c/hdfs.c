@@ -338,6 +338,14 @@ hdfsCloseFile(hdfsFS fs, hdfsFile file)
 
 		while (!succ) {
 			succ = hdfs_complete(client->fs_namenode, f->fi_path, f->fi_client, &ex);
+			if (ex) {
+				ERR(EIO, "Could not complete '%s', abandoning "
+				    "write: %s", f->fi_path,
+				    hdfs_exception_get_message(ex));
+				hdfs_object_free(ex);
+				res = -1;
+				break;
+			}
 			if (!succ) {
 				WARN("Could not complete '%s'", f->fi_path);
 				usleep(400*1000);
@@ -345,15 +353,8 @@ hdfsCloseFile(hdfsFS fs, hdfsFile file)
 		}
 
 		free(f->fi_wbuf);
-		if (ex) {
-			ERR(EIO, "complete(): %s", hdfs_exception_get_message(ex));
-			hdfs_object_free(ex);
-			res = -1;
-			goto out;
-		}
 	}
 
-out:
 	free(f->fi_client);
 	free(f->fi_path);
 	free(f);
