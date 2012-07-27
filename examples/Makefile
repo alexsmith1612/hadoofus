@@ -14,3 +14,7 @@ hl-hello: hl-hello.c
 
 clean:
 	rm -f $(BIN)
+
+
+install:
+	:

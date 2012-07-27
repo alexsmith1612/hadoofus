@@ -21,3 +21,8 @@ $(LIB): $(SRCS) setup.py
 clean:
 	rm -f $(LIB) $(NAME).c
 	rm -rf build
+
+
+install: all setup.py
+	CFLAGS="$(FLAGS)" LDFLAGS="$(LINKFLAGS)" \
+		python setup.py install --root="$(DISTDIR)/" --prefix="$(PREFIX)"

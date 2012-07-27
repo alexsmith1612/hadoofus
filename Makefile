@@ -1,3 +1,6 @@
+PREFIX=/usr/local
+DISTDIR=
+
 all: build all-wrappers
 
 all-wrappers: wrappers
@@ -45,3 +48,11 @@ examples/helloworld: src/libhadoofus.so examples/helloworld.c
 
 examples/hl-hello: src/libhadoofus.so examples/hl-hello.c
 	make -C examples hl-hello
+
+
+install:
+	[ -d "$(DISTDIR)$(PREFIX)" ] || exit 1
+	make -C src install
+	make -C include install
+	make -C examples install
+	make -C wrappers install
