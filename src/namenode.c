@@ -275,7 +275,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 	if (nnworked)
 		goto out;
 
-	// only thread should be able to enter this section at a time:
+	// only one thread should be able to enter this section at a time:
 	while (true) {
 		_lock(&n->nn_lock);
 		nnlocked = true;

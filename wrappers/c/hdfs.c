@@ -1248,8 +1248,6 @@ out:
 	return res;
 }
 
-// TODO BELOW HERE XXX XXX XXX XXX
-
 /**
  * hdfsGetCapacity - Return the raw capacity of the filesystem.
  *
