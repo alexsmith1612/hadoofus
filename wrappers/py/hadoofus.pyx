@@ -691,8 +691,25 @@ objects = _objects.__new__(_objects)
 objects.init()
 
 
-# pydoofus-esque rpc class!
 cdef class rpc:
+    """
+    Represents a connection to an HDFS Namenode (HDFS RPC server)
+
+    Example usage:
+        clientname = "client_1234"
+        path = "/a/b/c.txt"
+
+        h = hadoofus.namenode("127.0.0.1", user='foo')
+        h.create(path, 0644, clientname)
+        block = h.addBlock(path, clientname)
+        hadoofus.datanode(block).write("Hello, world!", clientname)
+        h.complete(path, clientname)
+
+        file_blocks = h.getBlockLocations(path)
+        for block in file_blocks:
+            print hadoofus.datanode(block).read(clientname)
+    """
+
     cdef hdfs_namenode nn
     cdef bint closed
 
@@ -710,6 +727,17 @@ cdef class rpc:
             hdfs_namenode_destroy(&self.nn, NULL)
 
     def __init__(self, addr, protocol=HADOOP_1_0, user=None):
+        """
+        Create a connection to an HDFS namenode
+
+        addr:
+            a string hostname or ip address, e.g., '127.0.0.1'.
+        protocol (optional):
+            only hadoofus.HADOOP_1_0 for now.
+        user (optional):
+            a string username to present to the server for authorization
+            purposes. defaults to "root".
+        """
         self._ipc_proto = const_str_to_py(CLIENT_PROTOCOL)
         self.closed = False
 
@@ -757,6 +785,16 @@ cdef class rpc:
     # ValueError("X on closed handle") when called on a closed handle.
 
     cpdef int64_t getProtocolVersion(self, int64_t version, char* protostr=CLIENT_PROTOCOL) except? -1:
+        """
+        Returns remote protocol version
+
+        version:
+            an integer; apache hadoop 0.20.203 through 1.0.x all speak
+            protocol 61.
+        protostr (optional):
+            a string; all recent hadoop versions use "...ClientProtocol",
+            defined in hadoofus.rpc._ipc_proto, for this value.
+        """
         cdef int64_t res
         cdef hdfs_object* ex = NULL
 
@@ -768,6 +806,29 @@ cdef class rpc:
         return res
 
     cpdef located_blocks getBlockLocations(self, char* path, int64_t offset=0, int64_t length=4LL*1024*1024*1024):
+        """
+        Return a LocatedBlocks object, which contains file length as well as a
+        list of LocatedBlock objects. (LocatedBlock objects contain a block's
+        unique id number, length, and a list of "locations", ip:port pairs
+        pointing the caller at datanodes where the block can be retrieved.)
+        Clients must connect to one of these datanodes to fetch the data.
+
+        path:
+            An absolute path in the HDFS namespace, e.g. "/a/b/c.txt"
+        offset (optional):
+            Beginning of desired read range in this file (integer). Note: the
+            range is truncated/rounded up to block offsets, s.t. all blocks
+            containing part of the desired range are returned.
+
+            Defaults to 0.
+        length (optional):
+            Length of the desired range, starting at 'offset'.
+
+            Defaults to 4GB.
+
+        raises IOException:
+            if an error occurs (the error message may be revealing)
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -779,6 +840,44 @@ cdef class rpc:
         return located_blocks_build(res)
 
     cpdef create(self, char *path, int16_t perms, char *client, bint can_overwrite=False, int16_t replication=1, int64_t blocksize=_WRITE_BLOCK_SIZE, bint create_parent=True):
+        """
+        Creates a new empty file entry in the HDFS namespace
+
+        path:
+            Absolute path of the file being created, e.g., "/a/b.txt"
+        perms:
+            Unix permission to create the file with, e.g., 0644
+        client:
+            Any string; must be consistent across addBlock(), writes, and
+            complete() for a given file
+        can_overwrite (optional):
+            bool; if True, overwrite the file at 'path' (if it exists).
+
+            defaults to false.
+        replication (optional):
+            Replication factor. This library can only really write files with
+            replication=1 at this time.
+
+            If you're using this library and want to write higher replication
+            files to an HDFS cluster, you could create() / write with
+            replication=1, then later use setReplication() to have the cluster
+            copy the file to many nodes.
+
+            Defaults to 1
+        blocksize (optional):
+            Maximum block size for this file. Java default is 64 MiB.
+
+            Defaults to _WRITE_BLOCK_SIZE (64MB)
+        create_parent (optional):
+            If None or True, automatically create parent directory if missing.
+
+            Defaults to True
+
+        raises AccessControlException:
+            if permission is denied
+        raises IOException:
+            for other errors
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -787,6 +886,18 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef located_block append(self, char *path, char *client):
+        """
+        Returns the last block in the file if it is partially filled, otherwise
+        null.
+
+        path:
+            Absolute path of the file to append
+        clientname:
+            Just a string. See rpc.create() for usage.
+
+        raises IOException:
+            if an error occurs
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -798,6 +909,19 @@ cdef class rpc:
         return located_block_build(res)
 
     cpdef bint setReplication(self, char *path, int16_t replication) except *:
+        """
+        Change the replication factor of an existing file. Actual block
+        population / deletion will be done asynchronously. Returns 'false'
+        if path is a directory or doesn't exist.
+
+        path:
+            Absolute path to the file
+        replication:
+            An integer (typically 3-10)
+
+        raises IOException:
+            if an error occurs
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -809,6 +933,15 @@ cdef class rpc:
         return res
 
     cpdef setPermission(self, char *path, int16_t perms):
+        """
+        Basically, chmod
+
+        path:
+            Absolute path to chmod
+        perms:
+            Unix permissions, e.g., 0644. Note: HDFS discards mode bits outside
+            of 0777 for directories or 0666 for files.
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -817,6 +950,20 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef setOwner(self, char *path, bytes owner_py, bytes group_py):
+        """
+        chown
+
+        path:
+            Absolute path to chown
+        owner:
+            New owner of the file; if None, leave unchanged
+        group:
+            New group for the file; if None, leave unchanged
+
+        Note: Apache HDFS' concept of users and groups are simply string tags.
+        So, calling setOwner() with an owner or group which doesn't yet exist
+        will create it.
+        """
         cdef hdfs_object* ex = NULL
         cdef char *owner = NULL
         cdef char *group = NULL
@@ -832,6 +979,17 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef abandonBlock(self, object bl, char *path, char *client):
+        """
+        Clients can abandon blocks; partial writes to this block are discarded.
+        Clients may then obtain a new block, or complete the file.
+
+        block:
+            An hdfs Block or LocatedBlock object
+        path:
+            Path to the file for which the block is being abandoned
+        clientname:
+            Just a string. See rpc.create() for usage.
+        """
         cdef hdfs_object* ex = NULL
         cdef block r_bl
 
@@ -849,6 +1007,21 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef located_block addBlock(self, char *path, char *client, list excluded=None):
+        """
+        Add a block to a file (which must already be opened for writing by the
+        client). Returns a LocatedBlock object, which is a block id and
+        a list of IPs to connect to for writing the actual block data.
+
+        path:
+            Absolute path to the file
+        clientname:
+            A string; see rpc.create() for usage
+        excluded (optional):
+            If non-None, excluded is a list of DatanodeInfo objects which this
+            client has been given before by addBlock() but failed to connect
+            to. This is a mechanism for reporting Datanode outages to the
+            Namenode.
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
         cdef hdfs_object* c_excl = NULL
@@ -868,6 +1041,22 @@ cdef class rpc:
         return located_block_build(res)
 
     cpdef bint complete(self, char *path, char *client) except *:
+        """
+        A client has finished writing to a file. Releases exclusive ownership
+        of the file.
+
+        According to Java HDFS, a call to complete() won't return true until
+        all of the file's blocks have been fully replicated. At the RPC layer,
+        if complete() returns false, the caller should try again. However,
+        python callers do not have to do this because this we wrap complete()
+        for them.
+
+        path:
+            Absolute path of the file to complete. Must be open for writing by
+            the client
+        clientname:
+            Just a string. See rpc.create() for usage.
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res = False
 
@@ -880,6 +1069,20 @@ cdef class rpc:
         return res
 
     cpdef bint rename(self, char *src, char *dst) except *:
+        """
+        Rename an entity in the HDFS namespace. Returns False if the src name
+        doesn't exist or if the new name already exists in the namespace.
+
+        src:
+            Existing file or directory (absolute path string)
+        dest:
+            Destination path, or destination directory (if the destination
+            already exists, and is a directory, the file is moved into the
+            directory; the file keeps the same basename).
+
+        raises IOException:
+            on error
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -891,6 +1094,17 @@ cdef class rpc:
         return res
 
     cpdef bint delete(self, char *path, bint can_recurse=False, bint onearg=False) except *:
+        """
+        Delete an entity from the HDFS namespace. Returns False if the file or
+        directory was not removed.
+        
+        path:
+            Absolute path to remove
+        can_recurse (optional):
+            If True, recursive delete
+
+            Defaults to False
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -905,6 +1119,18 @@ cdef class rpc:
         return res
 
     cpdef bint mkdirs(self, char *path, int16_t perms) except *:
+        """
+        Recursively make directories with permissions 'perms'. Returns False if
+        the operation fails.
+
+        (Similar to Unix 'mkdir -p'.)
+
+        path:
+            The directory to create, e.g., /a/b/c/d. Will create all needed
+            parent directories.
+        perms:
+            Unix permissions for created directories, e.g., 0644
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -916,6 +1142,13 @@ cdef class rpc:
         return res
 
     cpdef directory_listing getListing(self, char *path):
+        """
+        Returns a DirectoryListing object (mostly just a list of FileStatus
+        objects)
+
+        path:
+            Absolute path of the directory to list
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -927,6 +1160,13 @@ cdef class rpc:
         return directory_listing_build(res)
 
     cpdef renewLease(self, char *client):
+        """
+        Renews all leases (locks that will expire automatically if clients
+        fail to renew them) held by a client
+
+        clientname:
+            String name of client, e.g., 'client-123'
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -935,6 +1175,16 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef list getStats(self):
+        """
+        Gets a set of filesystem statistics as a list of integers (in bytes
+        unless otherwise noted):
+            [0]: total storage capacity of the system
+            [1]: total used space
+            [2]: available storage space
+            [3]: number of "under-replicated" blocks
+            [4]: number of blocks with a corrupt replica
+            [5]: number of blocks with no uncorrupted replica
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -946,6 +1196,15 @@ cdef class rpc:
         return convert_array_long_to_list(res)
 
     cpdef int64_t getPreferredBlockSize(self, char *path) except? -1:
+        """
+        Returns the Namenode's preferred block size (integer) for a given file
+
+        path:
+            Absolute path of the file
+
+        raises IOException:
+            if it feels like it
+        """
         cdef hdfs_object* ex = NULL
         cdef int64_t res
 
@@ -957,6 +1216,20 @@ cdef class rpc:
         return res
 
     cpdef file_status getFileInfo(self, char *path):
+        """
+        Returns an HdfsFileStatus for a file. This contains information such as
+        if the file is currently open for writing or not; whether the file is
+        a directory; the length, replication factor, block size, mtime, atime,
+        permissions, owner, and group.
+
+        Returns None if no such file exists.
+
+        path:
+            Absolute path to query
+
+        raises IOException:
+            if permission is denied
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -968,6 +1241,20 @@ cdef class rpc:
         return file_status_build(res)
 
     cpdef content_summary getContentSummary(self, char *path):
+        """
+        Returns a summary of the files rooted at a path; basically the list:
+            [ total data length,
+              number of files,
+              number of directories,
+              quota,
+              space consumed,
+              space quota ]
+
+        Units are bytes or files or directories.
+
+        path:
+            Absolute path to summarize
+        """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
 
@@ -979,6 +1266,23 @@ cdef class rpc:
         return content_summary_build(res)
 
     cpdef setQuota(self, char *path, int64_t nsquota, int64_t dsquota):
+        """
+        Set a quota on a directory
+
+        path:
+            Absolute path of directory
+        ns_quota:
+            Integer representing 'namenode space' limit; QUOTA_DONT_SET implies
+            no change, and QUOTA_RESET destroys a quota.
+        ds_quota:
+            Integer representing a 'datanode space' limit; takes the same
+            special values as ns_quota.
+
+        raises FileNotFoundException:
+            if the path is not a directory or doesn't exist
+        raises QuotaExceededException:
+            if the directory size is too large for the given quota
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -987,6 +1291,16 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef fsync(self, char *path, char *client):
+        """
+        Writes all metadata for a file onto persistent storage. The file must
+        be open for writing.
+
+        path:
+            Absolute path of the file
+        clientname:
+            Client who has the file open for writing. See rpc.create() for
+            details.
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -995,6 +1309,21 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef setTimes(self, char *path, int64_t mtime, int64_t atime):
+        """
+        Set a file's modification and access time
+
+        Note that HDFS has no concept of time zones; these values are absolute
+        GMT times.
+
+        path:
+            Absolute path of file or directory
+        mtime:
+            Integer representing the new modification time (in java-style
+            milliseconds since unix epoch); -1 means 'no change'.
+        atime:
+            Integer representing the new access time (takes the same values as
+            mtime).
+        """
         cdef hdfs_object* ex = NULL
 
         with nogil:
@@ -1003,6 +1332,22 @@ cdef class rpc:
             raise_protocol_error(ex)
 
     cpdef bint recoverLease(self, char *path, char *client) except *:
+        """
+        Attempts to recover (destroy) another client's lease on a file. If that
+        file didn't have a lease before recoverLease(), returns True.
+
+        path:
+            Absolute path to the file
+        client:
+            An HDFS client name. See rpc.create().
+
+        raises IOException:
+            if 'path' is not a valid HDFS file name
+        raises FileNotFoundException:
+            if 'path' doesn't exist
+        raises AccessControlException:
+            if permission is denied
+        """
         cdef hdfs_object* ex = NULL
         cdef bint res
 
@@ -1022,6 +1367,16 @@ namenode = rpc
 # - num. failed datanode attempts (and list)
 # - actual datanode we are connected to
 cdef class data:
+    """
+    Represents a connection to an HDFS Datanode (HDFS block server)
+
+    Example use:
+        client = "client_123"
+        block = namenode_connection.addBlock(...)
+
+        datanode_connection = hadoofus.data(block, client)
+        datanode_connection.write("abcdefg...")
+    """
     cdef hdfs_datanode* dn
     cdef hdfs_object* orig_lb
 
@@ -1034,6 +1389,17 @@ cdef class data:
         self.orig_lb = NULL
 
     def __init__(self, lb, client, proto=DATANODE_PROTO_AP_1_0):
+        """
+        Creates a datanode connection object
+
+        lb:
+            a LocatedBlock, from getBlockLocations() or addBlock()
+        client:
+            just a client string. See rpc.create()'s docstring.
+        proto (optional):
+            Currently only supports DATANODE_PROTO_AP_1_0. (Defaults to this
+            value.)
+        """
         assert lb is not None
         assert type(lb) is located_block
 
@@ -1072,6 +1438,39 @@ cdef class data:
 
     def write(self, object data, int maxlen=-1, int offset=-1, bint sendcrcs=True,
             bint keepalive=False):
+        """
+        Writes data into the block represented by this datanode connection
+
+        Calling write() has the side effect of closing the datanode connection.
+
+        data:
+            Either a byte string or file-like object
+        maxlen (optional):
+            Maximum length to write to this block; required if data is a
+            file-like object. Defaults to -1 (unlimited).
+        offset (optional):
+            If data is a file-like object, represents the offset in data to
+            begin reading from. If data is a byte string, offset is ignored.
+            Defaults to -1 (current offset in data, i.e., data.tell()).
+        sendcrcs (optional):
+            HDFS provides an additional data integrity facility on top of TCP
+            and IP; if False, this facility is disabled (this may improve
+            performance).
+
+            The additional verification is simply a crc32 for every 512 bytes
+            of data, not a cryptographically strong hash function.
+
+            Defaults to True.
+
+        Ex: dn.write("AAAAAAAAAAAAAAAAAAAAAAAAAAAAA...")
+            dn.write(filelikeobject, maxlen=160)
+
+        Caveat: If the data to be written is longer than the block size, the
+                write may fail! This wrapper doesn't check for that. When data
+                is a string and maxlen != -1, writes min(len(data), maxlen).
+        Caveat: If you pass a file object for data, you must give us
+                maxlen so we know where the last packet is!
+        """
         cdef const_char* err
         cdef char* inp
         cdef int fd
@@ -1112,6 +1511,22 @@ cdef class data:
             raise TypeError("data is not a file nor string; aborting write")
 
     def read(self, bint verifycrcs=True):
+        """
+        Reads out the entire block and returns the contents as a byte string.
+        Raises an exception if an error occurs before the read is complete.
+
+        verifycrcs (optional):
+            If True, raises an exception IF the server sends CRC data AND that
+            CRC data indicates that the block is corrupt. If the server doesn't
+            send CRC data, no validation is performed and the operation will
+            silently succeed. Apache HDFS sends CRC data by default.
+
+            Defaults to True.
+
+        Calling read() has the side effect of closing the datanode connection.
+
+        Ex: dn.read() -> "AAAAAAAAAAAAa..."
+        """
         cdef const_char* err
         cdef bytes res = PyBytes_FromStringAndSize(NULL, self.size)
         cdef char* buf = <char*>res
