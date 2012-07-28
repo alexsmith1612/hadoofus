@@ -145,5 +145,9 @@ Conrad Meyer &lt;conrad.meyer@isilon.com&gt;
 
 #### License
 
-(The MIT license.) For license text, see the file `LICENSE` included with this
-source distribution.
+Unless otherwise noted, files in this source distribution are released under
+the terms of the MIT license. (Some files which are not compiled into installed
+binaries or otherwise installed by this package's Makefiles come from the
+Apache Hadoop sources and have different licenses. These licenses are clearly
+specified at the beginning of the files.) For the full text of the MIT license,
+see the file `LICENSE` included with this source distribution.
