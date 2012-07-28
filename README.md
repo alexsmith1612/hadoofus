@@ -13,6 +13,14 @@ block read and write operations, as well as a `libhdfs`-compatible interface
 
 It also includes a Python wrapper module, implemented in Cython.
 
+Note: This library currently supports the HDFS protocol as spoken by Apache
+Hadoop releases 0.20.203 through 1.0.3. The protocol is expected to stay the
+same for future 1.x.y releases, although Hadoop has been known to change
+semantics slightly between different versions of the software. The protocol has
+no spec; we do the best we can. Hadoop-2 will speak a slightly different
+protocol (but with similar semantics). Currently, libhadoofus does not support
+the Hadoop-2 HDFS protocol.
+
 #### What works
 
 The C library and Python wrappers should work well for the implemented RPCs. We
@@ -106,6 +114,22 @@ if (res != 61)
 
 hdfs_namenode_delete(h);
 ```
+
+#### HDFS Semantics
+
+HDFS attempts to be a restricted subset of a POSIX filesystem.
+
+Files can only have one writer at a time and do not support random writes. They
+can be appended but not overwritten in place.
+
+Generally, the Namenode acts as an RPC server for querying and manipulating
+file system metadata. It points clients at Datanode(s) to read/write file data.
+
+For more information, see [wikipedia's article on Hadoop][0] or the
+[HDFS Architecture Guide][1].
+
+[0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_Distributed_File_System "Hadoop Distributed File System"
+[1]: https://hadoop.apache.org/common/docs/r1.0.0/hdfs_design.html
 
 #### Installing
 
