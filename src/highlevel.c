@@ -3,7 +3,7 @@
 
 #include <hadoofus/highlevel.h>
 
-static inline void
+static void
 _assert_not_err(const char *err)
 {
 	if (err) {
@@ -14,7 +14,7 @@ _assert_not_err(const char *err)
 
 struct hdfs_namenode *
 hdfs_namenode_new(const char *host, const char *port, const char *username,
-	const char **error_out)
+	enum hdfs_kerb kerb_pref, const char **error_out)
 {
 	const char *err;
 	struct hdfs_namenode *h;
@@ -22,7 +22,7 @@ hdfs_namenode_new(const char *host, const char *port, const char *username,
 	h = malloc(sizeof *h);
 	assert(h);
 
-	hdfs_namenode_init(h);
+	hdfs_namenode_init(h, kerb_pref);
 	err = hdfs_namenode_connect(h, host, port);
 	if (err)
 		goto out;

@@ -3,6 +3,7 @@
 */*.so
 examples/helloworld
 examples/hl-hello
+examples/kerb
 tests/check_hadoofus
 all_rpcs.list
 .*.swp

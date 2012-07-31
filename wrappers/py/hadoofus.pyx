@@ -26,6 +26,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new
 cimport clowlevel
+cimport csasl2
 
 import errno
 import socket
@@ -40,6 +41,30 @@ _WRITE_BLOCK_SIZE = 64*1024*1024
 DATANODE_PROTO_AP_1_0 = clowlevel.DATANODE_AP_1_0
 DATANODE_PROTO_CDH3 = clowlevel.DATANODE_CDH3
 DATANODE_ERR_NO_CRCS = <char*>clowlevel.DATANODE_ERR_NO_CRCS
+
+NO_KERB = clowlevel.HDFS_NO_KERB
+TRY_KERB = clowlevel.HDFS_TRY_KERB
+REQUIRE_KERB = clowlevel.HDFS_REQUIRE_KERB
+
+def sasl_init():
+    """
+    sasl_init() should be called once before creating kerberized HDFS
+    connections.
+    """
+    cdef int r, sok
+
+    sok = csasl2.SASL_OK
+
+    r = csasl2.sasl_client_init(NULL)
+    if r != sok:
+        raise Exception("Could not initialize SASL2: %d" % r)
+
+def sasl_done():
+    """
+    sasl_done() should be called when an application is done with kerberized
+    HDFS connections.
+    """
+    csasl2.sasl_done()
 
 cdef bytes const_str_to_py(const_char* s):
     return <char*>s
@@ -720,13 +745,13 @@ cdef class rpc:
 
     def __cinit__(self):
         with nogil:
-            hdfs_namenode_init(&self.nn)
+            hdfs_namenode_init(&self.nn, clowlevel.HDFS_NO_KERB)
 
     def __dealloc__(self):
         with nogil:
             hdfs_namenode_destroy(&self.nn, NULL)
 
-    def __init__(self, addr, protocol=HADOOP_1_0, user=None):
+    def __init__(self, addr, protocol=HADOOP_1_0, user=None, kerb=NO_KERB):
         """
         Create a connection to an HDFS namenode
 
@@ -740,6 +765,10 @@ cdef class rpc:
         """
         self._ipc_proto = const_str_to_py(CLIENT_PROTOCOL)
         self.closed = False
+
+        cdef clowlevel.hdfs_kerb kp = kerb
+        if kerb != NO_KERB:
+            hdfs_namenode_init(&self.nn, kp)
 
         if user is None:
             user = "root"

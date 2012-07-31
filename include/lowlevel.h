@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <sasl/sasl.h>
+
 // EINTR is, explicitly, handled poorly.
 
 #include <hadoofus/objects.h>
@@ -19,15 +21,24 @@ struct _hdfs_pending;
 
 typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
 
+enum hdfs_kerb {
+	HDFS_NO_KERB,      // plaintext username (default)
+	HDFS_TRY_KERB,     // attempt kerb, but allow fallback to plaintext
+	HDFS_REQUIRE_KERB, // fail if server attempts to fallback to plaintext
+};
+
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
 	char *nn_recvbuf;
 	hdfs_namenode_destroy_cb nn_destroy_cb;
 	struct _hdfs_pending *nn_pending;
+	sasl_conn_t *nn_sasl_ctx;
 	int nn_refs,
 	    nn_sock,
-	    nn_pending_len;
+	    nn_pending_len,
+	    nn_sasl_ssf;
+	enum hdfs_kerb nn_kerb;
 	bool nn_dead/*user-killed*/,
 	     nn_authed,
 	     nn_worked;
@@ -75,7 +86,12 @@ hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
 
 // Initialize the connection object. Doesn't actually connect or authenticate
 // with the namenode.
-void		hdfs_namenode_init(struct hdfs_namenode *);
+//
+// Kerb setting one of:
+//   HDFS_NO_KERB      -- "Authenticate" with plaintext username (hadoop default)
+//   HDFS_TRY_KERB     -- attempt kerb, but allow fallback to plaintext
+//   HDFS_REQUIRE_KERB -- fail if server attempts to fallback to plaintext
+void		hdfs_namenode_init(struct hdfs_namenode *, enum hdfs_kerb);
 
 // Connect to the given host/port. You should only use this on a freshly
 // initialized namenode object (don't re-use the same object until it's been

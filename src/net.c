@@ -130,17 +130,34 @@ _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 }
 
 const char *
+_read_all(int fd, void *vbuf, size_t len)
+{
+	char *buf = vbuf;
+	int rc;
+	while (len > 0) {
+		rc = read(fd, buf, len);
+		if (rc == -1)
+			return strerror(errno);
+		if (rc == 0)
+			return "EOF reading from fd; bailing";
+		len -= rc;
+		buf += rc;
+	}
+	return NULL;
+}
+
+const char *
 _writev_all(int s, struct iovec *iov, int iovcnt)
 {
 	int rc = 0;
 	while (iovcnt > 0) {
-		if (rc >= iov->iov_len) {
+		if (rc >= (int)iov->iov_len) {
 			rc -= iov->iov_len;
 			iov++;
 			iovcnt--;
 			continue;
 		} else if (rc > 0) {
-			iov->iov_base += rc;
+			iov->iov_base = (char*)iov->iov_base + rc;
 			iov->iov_len -= rc;
 		}
 

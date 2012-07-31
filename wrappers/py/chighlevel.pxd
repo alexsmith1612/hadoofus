@@ -1,11 +1,11 @@
 from libc.stdint cimport int64_t, uint16_t, int16_t
 from libc.string cimport const_char
 
-from clowlevel cimport hdfs_namenode, hdfs_datanode, const_char
+from clowlevel cimport hdfs_namenode, hdfs_datanode, const_char, hdfs_kerb
 from cobjects cimport hdfs_object, hdfs_object_type
 
 cdef extern from "hadoofus/highlevel.h":
-    hdfs_namenode *hdfs_namenode_new(const_char *host, const_char *port, const_char *username, const_char **error_out)
+    hdfs_namenode *hdfs_namenode_new(const_char *host, const_char *port, const_char *username, hdfs_kerb, const_char **error_out)
     void hdfs_namenode_delete(hdfs_namenode *n)
     bint hdfs_object_is_null(hdfs_object *o)
     hdfs_object_type hdfs_null_type(hdfs_object *o)

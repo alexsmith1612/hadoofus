@@ -82,7 +82,7 @@ static struct {
 enum hdfs_object_type
 _string_to_type(const char *otype)
 {
-	for (int i = 0; i < nelem(object_types); i++)
+	for (unsigned i = 0; i < nelem(object_types); i++)
 		if (streq(otype, object_types[i].type))
 			return _H_START + i;
 
@@ -92,7 +92,7 @@ _string_to_type(const char *otype)
 static enum hdfs_object_type
 _string_to_etype(const char *etype)
 {
-	for (int i = 1/*skip proto exception; never matches*/;
+	for (unsigned i = 1/*skip proto exception; never matches*/;
 	    i < nelem(exception_types); i++)
 		if (streq(etype, exception_types[i].type))
 			return H_PROTOCOL_EXCEPTION + i;
@@ -124,7 +124,7 @@ _timespec_to_ms(struct timespec ts)
 	    (((int64_t)ts.tv_nsec / 1000000ULL) % 1000UL);
 }
 
-static inline void *
+static void *
 _objmalloc(void)
 {
 	void *r = malloc(sizeof(struct hdfs_object));
@@ -198,7 +198,7 @@ hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 	copy_strs[3] = strdup(s4);
 
 	r->ob_type = H_TOKEN;
-	for (int i = 0; i < nelem(copy_strs); i++) {
+	for (unsigned i = 0; i < nelem(copy_strs); i++) {
 		assert(copy_strs[i]);
 		r->ob_val._token._strings[i] = copy_strs[i];
 	}
@@ -611,7 +611,7 @@ hdfs_array_byte_copy(struct hdfs_object *src)
 struct hdfs_object *
 hdfs_rpc_invocation_new(const char *name, ...)
 {
-	int i;
+	unsigned i;
 	char *meth_copy = strdup(name);
 	struct hdfs_object *r = _objmalloc();
 	va_list ap;
@@ -850,7 +850,7 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._authheader._username);
 		break;
 	case H_TOKEN:
-		for (int i = 0; i < nelem(obj->ob_val._token._strings); i++)
+		for (unsigned i = 0; i < nelem(obj->ob_val._token._strings); i++)
 			free(obj->ob_val._token._strings[i]);
 		break;
 	case H_PROTOCOL_EXCEPTION:

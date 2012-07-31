@@ -239,7 +239,6 @@ hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	bool verifycrc)
 {
 	assert(buf);
-	assert(off >= 0);
 
 	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf,
 	    verifycrc);
@@ -385,7 +384,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	// we're good to write. start sending packets.
 	pstate.sock = d->dn_sock;
 	pstate.sendcrcs = sendcrcs;
-	pstate.buf = (void*)buf;
+	pstate.buf = __DECONST(void*, buf);
 	pstate.fd = fd;
 	pstate.remains = len;
 	pstate.fdoffset = offset;
@@ -408,7 +407,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	// Write final zero-len packet; error here doesn't always matter. I
 	// think some HDFS versions drop the connection at this point, so we
 	// want to be lenient.
-	_write_all(d->dn_sock, (void*)&zero, sizeof zero);
+	_write_all(d->dn_sock, __DECONST(void*, &zero), sizeof zero);
 
 out:
 	if (header.buf)
@@ -642,7 +641,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 	ps->remains -= c_len;
 	ps->fdoffset += c_len;
 	if (ps->buf)
-		ps->buf += c_len;
+		ps->buf = (char*)ps->buf + c_len;
 
 	if (ps->remains > 0 && lastpacket) {
 		err = "Got last packet before read completed; aborting read";
@@ -683,7 +682,7 @@ _send_packet(struct _packet_state *ps)
 		tosend = _min(tosend, remaining_in_chunk);
 	}
 
-	last = (tosend == ps->remains);
+	last = (tosend == (size_t)ps->remains);
 
 	// Delay sending data while N packets remain unacknowledged.
 	// Apache Hadoop default is N=80, for a 5MB window.
@@ -732,7 +731,7 @@ _send_packet(struct _packet_state *ps)
 		assert(crcdata);
 
 		crcinit = crc32(0L, Z_NULL, 0);
-		for (int i = 0; i < crclen; i++) {
+		for (unsigned i = 0; i < crclen; i++) {
 			uint32_t chunklen = _min(CHUNK_SIZE, tosend - i * CHUNK_SIZE);
 			uint32_t crc = crc32(crcinit, data + i * CHUNK_SIZE, chunklen);
 			crcdata[i] = htonl(crc);
@@ -788,7 +787,7 @@ _send_packet(struct _packet_state *ps)
 	ps->seqno++;
 	ps->offset += tosend;
 	if (ps->buf)
-		ps->buf += tosend;
+		ps->buf = (char*)ps->buf + tosend;
 
 out:
 	if (datamalloced)
@@ -804,13 +803,14 @@ static const char *
 _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 {
 	uint32_t crcinit;
-	void *data = crcdata + crcdlen;
+	void *data = (char*)crcdata + crcdlen;
 
 	crcinit = crc32(0L, Z_NULL, 0);
 
 	for (int i = 0; i < (dlen + chunksize - 1) / chunksize; i++) {
 		int32_t chunklen = _min(chunksize, dlen - i*chunksize);
-		uint32_t crc = crc32(crcinit, data + i*chunksize, chunklen),
+		uint32_t crc = crc32(crcinit,
+		    (uint8_t*)data + i*chunksize, chunklen),
 			 pcrc;
 
 		pcrc = (((uint32_t) (*((uint8_t *)crcdata + i*4))) << 24) +
@@ -834,7 +834,7 @@ _wait_ack(struct _packet_state *ps)
 	int64_t seqno;
 	int16_t nacks, ack;
 
-	size_t acksz;
+	int acksz;
 
 	assert(ps->proto == HDFS_DATANODE_AP_1_0 ||
 	    ps->proto == HDFS_DATANODE_CDH3);
@@ -888,7 +888,7 @@ _wait_ack(struct _packet_state *ps)
 	}
 
 	if (ack != STATUS_SUCCESS) {
-		if (ack < 0 || ack > nelem(dn_error_msgs)) {
+		if (ack < 0 || ack > (int)nelem(dn_error_msgs)) {
 			err = "Bogus ack number, aborting write";
 			fprintf(stderr, "libhadoofus: Got bogus ack status %"
 			    PRIi16 ", aborting write", ack);

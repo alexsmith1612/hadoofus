@@ -12,14 +12,19 @@ cdef extern from "hadoofus/lowlevel.h":
         pass
     cdef struct hdfs_datanode:
         pass
+    cdef enum hdfs_kerb:
+        pass
     cdef struct hdfs_rpc_response_future:
         pass
     cdef int DATANODE_AP_1_0 "HDFS_DATANODE_AP_1_0"
     cdef int DATANODE_CDH3 "HDFS_DATANODE_CDH3"
     cdef const_char *DATANODE_ERR_NO_CRCS "HDFS_DATANODE_ERR_NO_CRCS"
+    cdef hdfs_kerb HDFS_NO_KERB "HDFS_NO_KERB"
+    cdef hdfs_kerb HDFS_TRY_KERB "HDFS_TRY_KERB"
+    cdef hdfs_kerb HDFS_REQUIRE_KERB "HDFS_REQUIRE_KERB"
 
     void hdfs_rpc_response_future_init(hdfs_rpc_response_future *future) nogil
-    void hdfs_namenode_init(hdfs_namenode *n) nogil
+    void hdfs_namenode_init(hdfs_namenode *n, hdfs_kerb) nogil
     const_char *hdfs_namenode_connect(hdfs_namenode *n, const_char *host, const_char *port) nogil
     const_char *hdfs_namenode_authenticate(hdfs_namenode *n, const_char *username) nogil
     int64_t hdfs_namenode_get_msgno(hdfs_namenode *n) nogil

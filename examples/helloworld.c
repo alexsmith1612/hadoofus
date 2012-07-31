@@ -29,7 +29,7 @@ main(int argc, char **argv)
 	}
 
 	// Initialize the connection object and connect to the local namenode
-	hdfs_namenode_init(&namenode);
+	hdfs_namenode_init(&namenode, HDFS_NO_KERB);
 	err = hdfs_namenode_connect(&namenode, host, port);
 	if (err)
 		goto out;

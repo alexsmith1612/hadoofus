@@ -1,17 +1,23 @@
 PREFIX=/usr/local
 DISTDIR=
+LIB = src/libhadoofus.so
 
-all: build all-wrappers
+all: build all-wrappers all-examples
 
-all-wrappers: wrappers
+all-wrappers: wrappers $(LIB)
 	make -C wrappers all
 
-build: src/libhadoofus.so all-wrappers
+all-examples: examples $(LIB)
+	make -C examples all
 
-test: test-build
+all-test: tests $(LIB)
+	make -C tests all
+
+build: src
+	make -C src all
+
+test: all-test
 	make -C tests check
-
-test-build: tests/check_hadoofus
 
 clean: cov-clean
 	make -C src clean
@@ -27,7 +33,7 @@ cov-html: clean cov-clean
 	CFLAGS="$(CFLAGS) -fprofile-arcs -ftest-coverage" \
 		  LDFLAGS="-lgcov" \
 		  make -C . build
-	LDFLAGS="-lgcov" make -C . test-build
+	LDFLAGS="-lgcov" make -C . all-test
 	lcov --directory src --zerocounters
 	CK_FORK=no make -C tests check
 	lcov --directory src --capture --output-file hadoofus.info
@@ -36,19 +42,7 @@ cov-html: clean cov-clean
 	make -C tests clean
 	rm -f hadoofus.info
 
-
-tests/check_hadoofus: src/libhadoofus.so tests/*.c tests/*.h
-	make -C tests check_hadoofus
-
-src/libhadoofus.so: src/*.c
-	make -C src
-
-examples/helloworld: src/libhadoofus.so examples/helloworld.c
-	make -C examples helloworld
-
-examples/hl-hello: src/libhadoofus.so examples/hl-hello.c
-	make -C examples hl-hello
-
+$(LIB): build
 
 install:
 	[ -d "$(DISTDIR)$(PREFIX)" ] || exit 1

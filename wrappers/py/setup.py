@@ -28,5 +28,5 @@ implementations.
         license = 'MIT',
         cmdclass = {'build_ext': build_ext},
         ext_modules = [Extension("hadoofus", ["hadoofus.pyx"],
-            libraries=["hadoofus", "z"])]
+            libraries=["hadoofus", "z", "sasl2"])]
 )

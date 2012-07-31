@@ -12,8 +12,17 @@
 
 // Creates a new namenode connection. On error, returns NULL and sets
 // *error_out to a description of the problem.
+//
+// Kerb setting one of:
+//   HDFS_NO_KERB      -- "Authenticate" with plaintext username (hadoop default)
+//   HDFS_TRY_KERB     -- attempt kerb, but allow fallback to plaintext
+//   HDFS_REQUIRE_KERB -- fail if server attempts to fallback to plaintext
+//
+// N.B.: TRY_KERB or REQUIRE_KERB mean the caller has already initialized SASL,
+// using sasl_client_init().
 struct hdfs_namenode *	hdfs_namenode_new(const char *host, const char *port,
-				const char *username, const char **error_out);
+				const char *username, enum hdfs_kerb,
+				const char **error_out);
 
 // Tears down the connection and frees memory.
 void			hdfs_namenode_delete(struct hdfs_namenode *);

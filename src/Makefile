@@ -5,10 +5,18 @@ OBJS=\
 	 highlevel.o \
 	 namenode.o \
 	 net.o \
-	 objects.o
+	 objects.o \
+	 pthread_wrappers.o \
+	 util.o \
 
-FLAGS = -Wall -Werror -fPIC $(CFLAGS) -g
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
+WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
+		-Wformat -Werror -Wno-missing-field-initializers -Wextra \
+		-Wno-unused-parameter -Wstrict-prototypes -Wpointer-arith \
+		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
+		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
+		-Wnested-externs -Wredundant-decls
+FLAGS = $(WARNS) -fPIC $(CFLAGS) -g
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2
 LIB = libhadoofus.so
 LIBDIR = $(PREFIX)/lib
 

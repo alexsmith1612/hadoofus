@@ -118,7 +118,7 @@ hdfsConnectAsUser(const char* host, tPort port, const char *user)
 	if (!port_set)
 		sprintf(sport, "%d", port);
 
-	nn = hdfs_namenode_new(host, sport, user, &err);
+	nn = hdfs_namenode_new(host, sport, user, HDFS_NO_KERB, &err);
 	if (!nn) {
 		ERR(ECONNABORTED, "%s", err);
 		return NULL;

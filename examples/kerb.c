@@ -8,17 +8,24 @@ struct hdfs_namenode *h;
 const char *err = NULL,
       *host = "localhost",
       *port = "8020",
-      *user = "root";
+      *user = "hdfs/host.name";
 
 int
 main(int argc, char **argv)
 {
+	int r;
 	int64_t res;
 	struct hdfs_object *exception = NULL;
 
+	r = sasl_client_init(NULL);
+	if (r != SASL_OK) {
+		fprintf(stderr, "Error initializing sasl: %d\n", r);
+		return -1;
+	}
+
 	if (argc > 1) {
 		if (strcmp(argv[1], "-h") == 0) {
-			printf("Usage: ./hl-hello [host [port [user]]]\n");
+			printf("Usage: ./kerb [host [port [kerb_principal]]]\n");
 			exit(0);
 		}
 		host = argv[1];
@@ -30,7 +37,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	h = hdfs_namenode_new(host, port, user, HDFS_NO_KERB, &err);
+	h = hdfs_namenode_new(host, port, user, HDFS_REQUIRE_KERB, &err);
 	if (!h)
 		goto out;
 
@@ -51,5 +58,6 @@ out:
 		fprintf(stderr, "hadoofus error: %s\n", err);
 	if (h)
 		hdfs_namenode_delete(h);
+	sasl_done();
 	return 0;
 }

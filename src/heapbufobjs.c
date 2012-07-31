@@ -129,7 +129,7 @@ _oslurp_token(struct hdfs_heap_buf *b)
 	char *s[4] = { 0 };
 	struct hdfs_object *res = NULL;
 
-	for (int i = 0; i < nelem(s); i++) {
+	for (unsigned i = 0; i < nelem(s); i++) {
 		s[i] = _bslurp_text(b);
 		if (b->used < 0)
 			goto out;
@@ -138,7 +138,7 @@ _oslurp_token(struct hdfs_heap_buf *b)
 	res = hdfs_token_new(s[0], s[1], s[2], s[3]);
 
 out:
-	for (int i = 0; i < nelem(s); i++)
+	for (unsigned i = 0; i < nelem(s); i++)
 		if (s[i])
 			free(s[i]);
 	return res;
@@ -149,7 +149,7 @@ _oslurp_block(struct hdfs_heap_buf *b)
 {
 	int64_t values[3]; // blkid, len, generation
 
-	for (int i = 0; i < nelem(values); i++) {
+	for (unsigned i = 0; i < nelem(values); i++) {
 		values[i] = _bslurp_s64(b);
 		if (b->used < 0)
 			return NULL;
@@ -481,7 +481,7 @@ _oslurp_content_summary(struct hdfs_heap_buf *b)
 {
 	int64_t v[6];
 
-	for (int i = 0; i < nelem(v); i++) {
+	for (unsigned i = 0; i < nelem(v); i++) {
 		v[i] = _bslurp_s64(b);
 		if (b->used < 0)
 			return NULL;

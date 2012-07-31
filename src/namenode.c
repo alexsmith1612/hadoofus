@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -14,6 +15,7 @@
 #include "net.h"
 #include "objects.h"
 #include "pthread_wrappers.h"
+#include "util.h"
 
 static struct hdfs_namenode *	_namenode_copyref_unlocked(struct hdfs_namenode *);
 static void			_namenode_decref(struct hdfs_namenode *);
@@ -30,8 +32,12 @@ static void	_future_complete(struct hdfs_rpc_response_future *future,
 static void	_future_complete_unlocked(struct hdfs_rpc_response_future *f,
 		struct hdfs_object *o);
 
+// SASL helpers
+static int	_getssf(sasl_conn_t *);
+static void	_sasl_interacts(sasl_interact_t *);
+
 void
-hdfs_namenode_init(struct hdfs_namenode *n)
+hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
 	n->nn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 	n->nn_sendlock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
@@ -45,6 +51,10 @@ hdfs_namenode_init(struct hdfs_namenode *n)
 	n->nn_pending_len = 0;
 	n->nn_worked = false;
 
+	n->nn_kerb = kerb_prefs;
+	n->nn_sasl_ctx = NULL;
+	n->nn_sasl_ssf = 0;
+
 	n->nn_recvbuf = NULL;
 	n->nn_recvbuf_used = 0;
 	n->nn_recvbuf_size = 0;
@@ -57,6 +67,15 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 
 	_lock(&n->nn_lock);
 	assert(n->nn_sock == -1);
+
+	if (n->nn_kerb == HDFS_TRY_KERB || n->nn_kerb == HDFS_REQUIRE_KERB) {
+		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
+		    NULL/*remoteip*/, NULL/*CBs*/, 0/*sec flags*/, &n->nn_sasl_ctx);
+		if (r != SASL_OK) {
+			err = sasl_errstring(r, NULL, NULL);
+			goto out;
+		}
+	}
 
 	err = _connect(&n->nn_sock, host, port);
 	if (err)
@@ -73,6 +92,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	const char *err = NULL, *preamble = "hrpc\x04\x50";
 	struct hdfs_object *header;
 	struct hdfs_heap_buf hbuf = { 0 };
+	char *inh = NULL;
 
 	_lock(&n->nn_lock);
 	assert(!n->nn_authed);
@@ -83,20 +103,138 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	hdfs_object_serialize(&hbuf, header);
 	hdfs_object_free(header);
 
-	// Prefix the header object with the protocol preamble
-	hbuf.buf = realloc(hbuf.buf, hbuf.size + strlen(preamble));
-	assert(hbuf.buf);
-	memmove(hbuf.buf + strlen(preamble), hbuf.buf, hbuf.used);
-	memcpy(hbuf.buf, preamble, strlen(preamble));
-	hbuf.used += strlen(preamble);
-	hbuf.size += strlen(preamble);
+	if (n->nn_kerb == HDFS_NO_KERB) {
+		// Prefix the header object with the protocol preamble
+		hbuf.buf = realloc(hbuf.buf, hbuf.size + strlen(preamble));
+		assert(hbuf.buf);
+		memmove(hbuf.buf + strlen(preamble), hbuf.buf, hbuf.used);
+		memcpy(hbuf.buf, preamble, strlen(preamble));
+		hbuf.used += strlen(preamble);
+		hbuf.size += strlen(preamble);
 
-	// Write the entire thing to the socket. Honestly, the first write
-	// should succeed (we have the entire outbound sockbuf) but we call it
-	// in a loop for correctness.
-	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
-	n->nn_authed = true;
+		// Write the entire thing to the socket. Honestly, the first write
+		// should succeed (we have the entire outbound sockbuf) but we call it
+		// in a loop for correctness.
+		err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+		n->nn_authed = true;
+	} else {
+		int r;
+		sasl_interact_t *interactions = NULL;
+		const char *out, *mechusing, *prefix = "hrpc\x04\x51";
+		unsigned outlen;
+		struct iovec iov[3];
+		uint32_t inlen;
+		const uint32_t SWITCH_TO_SIMPLE_AUTH = (uint32_t)-1;
 
+		uint8_t in[4], zero[4] = { 0 };
+
+		do {
+			r = sasl_client_start(n->nn_sasl_ctx, "GSSAPI",
+			    &interactions, &out, &outlen, &mechusing);
+
+			if (r == SASL_INTERACT)
+				_sasl_interacts(interactions);
+		} while (r == SASL_INTERACT);
+
+		if (r != SASL_CONTINUE) {
+			err = sasl_errstring(r, NULL, NULL);
+			goto out;
+		}
+
+		// Send prefix, first auth token
+		_be32enc(in, outlen);
+		iov[0].iov_base = __DECONST(void *, prefix);
+		iov[0].iov_len = strlen(prefix);
+		iov[1].iov_base = in;
+		iov[1].iov_len = 4;
+		iov[2].iov_base = __DECONST(void *, out);
+		iov[2].iov_len = outlen;
+
+		err = _writev_all(n->nn_sock, iov, 3);
+		if (err)
+			goto out;
+
+		do {
+			// read success / error status
+			err = _read_all(n->nn_sock, in, 4);
+			if (err)
+				goto out;
+
+			if (memcmp(in, zero, 4)) {
+				// error. exception will be next on the wire,
+				// but let's skip it.
+				err = "Got error from server, bailing";
+				goto out;
+			}
+
+			// read token len
+			err = _read_all(n->nn_sock, in, 4);
+			if (err)
+				goto out;
+			inlen = _be32dec(in);
+
+			if (inlen == SWITCH_TO_SIMPLE_AUTH) {
+				if (n->nn_kerb == HDFS_REQUIRE_KERB) {
+					err = "Server tried to drop kerberos but "
+					    "client requires it";
+					goto out;
+				}
+				goto send_header;
+			}
+
+			// read token
+			if (inh)
+				free(inh);
+			inh = NULL;
+			if (inlen > 0) {
+				inh = malloc(inlen);
+				assert(inh);
+				err = _read_all(n->nn_sock, inh, inlen);
+				if (err)
+					goto out;
+			}
+
+			out = NULL;
+			outlen = 0;
+			r = sasl_client_step(n->nn_sasl_ctx, inh,
+			    inlen, &interactions, &out, &outlen);
+
+			if (r == SASL_INTERACT)
+				_sasl_interacts(interactions);
+
+			if (r == SASL_CONTINUE ||
+			    (r == SASL_OK && out != NULL)) {
+				_be32enc(in, outlen);
+				iov[0].iov_base = in;
+				iov[0].iov_len = 4;
+				iov[1].iov_base = __DECONST(void *, out);
+				iov[1].iov_len = outlen;
+
+				err = _writev_all(n->nn_sock, iov, 2);
+				if (err)
+					goto out;
+			}
+		} while (r == SASL_INTERACT || r == SASL_CONTINUE);
+
+		if (r != SASL_OK) {
+			err = sasl_errstring(r, NULL, NULL);
+			goto out;
+		}
+
+		// sasl connection established
+		n->nn_sasl_ssf = _getssf(n->nn_sasl_ctx);
+send_header:
+		if (n->nn_sasl_ssf > 0)
+			_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
+
+		// send auth header
+		err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+		n->nn_authed = true;
+	}
+
+out:
+	if (inh)
+		free(inh);
 	_unlock(&n->nn_lock);
 	free(hbuf.buf);
 
@@ -158,6 +296,9 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	// Serialize rpc and transmit
 	_rpc_invocation_set_msgno(rpc, msgno);
 	hdfs_object_serialize(&hbuf, rpc);
+
+	if (n->nn_sasl_ssf > 0)
+		_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
 
 	_lock(&n->nn_sendlock);
 	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
@@ -242,6 +383,8 @@ _namenode_decref(struct hdfs_namenode *n)
 			free(n->nn_recvbuf);
 		if (n->nn_destroy_cb)
 			dcb = n->nn_destroy_cb;
+		if (n->nn_sasl_ctx)
+			sasl_dispose(&n->nn_sasl_ctx);
 		memset(n, 0, sizeof *n);
 		if (dcb)
 			dcb(n);
@@ -306,6 +449,19 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 				if (r == 0)
 					goto out;
 				if (r > 0) {
+					if (n->nn_sasl_ssf > 0) {
+						r = _sasl_decode_at_offset(
+						    n->nn_sasl_ctx,
+						    &n->nn_recvbuf,
+						    n->nn_recvbuf_used,
+						    r, &remain);
+						if (r < 0) {
+							fprintf(stderr, "sasl_decode:"
+							    " %s",
+							    sasl_errstring(r, NULL, NULL));
+							abort();
+						}
+					}
 					n->nn_recvbuf_used += r;
 					break;
 				}
@@ -455,4 +611,27 @@ _future_complete_unlocked(struct hdfs_rpc_response_future *f, struct hdfs_object
 
 	assert(!f->fu_res);
 	f->fu_res = o;
+}
+
+static int
+_getssf(sasl_conn_t *ctx)
+{
+	int *ssfp, r;
+
+	r = sasl_getprop(ctx, SASL_SSF, (const void **)&ssfp);
+	assert(r == SASL_OK);
+
+	return *ssfp;
+}
+
+static void
+_sasl_interacts(sasl_interact_t *in)
+{
+	// Fill in default values...
+	while (in->id != SASL_CB_LIST_END) {
+		in->result = (in->defresult && *in->defresult) ?
+		    in->defresult : __DECONST(char *, "");
+		in->len = strlen(in->result);
+		in++;
+	}
 }

@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <sasl/sasl.h>
+
 #include <hadoofus/objects.h>
 
 // Append serialized data to the passed buf. Resizes the underlying (malloc'd)
@@ -31,5 +33,8 @@ char *		_bslurp_text(struct hdfs_heap_buf *);
 // Helper for string slurpers. For their purposes, allocates an extra byte at
 // the end of the returned buf.
 void		_bslurp_mem1(struct hdfs_heap_buf *, int, char **);
+
+void	_sasl_encode_inplace(sasl_conn_t *, struct hdfs_heap_buf *);
+int	_sasl_decode_at_offset(sasl_conn_t *, char **bufp, size_t offset, int r, int *remain);
 
 #endif

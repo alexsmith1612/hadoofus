@@ -14,6 +14,8 @@ TEST_PRGM = check_hadoofus
 LINK_FLAGS = $(LDFLAGS) -lcheck -L../src -lhadoofus -lz -lrt
 FLAGS = -Wall -Werror -fPIC -g $(CFLAGS)
 
+all: $(TEST_PRGM)
+
 $(TEST_PRGM): $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
 	gcc -o $@ $(FLAGS) $(LINK_FLAGS) $(TEST_OBJS)
 

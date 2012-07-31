@@ -2,15 +2,21 @@ LIBS = -L../src -lhadoofus -lpthread -lz
 FLAGS = -Wall -Werror $(CFLAGS) -g -I../include
 BIN = \
 	  helloworld \
-	  hl-hello
+	  hl-hello \
+	  kerb \
+
+LIB = ../src/libhadoofus.so
 
 all: $(BIN)
 
-helloworld: helloworld.c
-	gcc $(FLAGS) $^ -o $@ $(LIBS)
+helloworld: helloworld.c $(LIB)
+	gcc $(FLAGS) $< -o $@ $(LIBS)
 
-hl-hello: hl-hello.c
-	gcc $(FLAGS) $^ -o $@ $(LIBS)
+hl-hello: hl-hello.c $(LIB)
+	gcc $(FLAGS) $< -o $@ $(LIBS)
+
+kerb: kerb.c $(LIB)
+	gcc $(FLAGS) $< -o $@ $(LIBS) -lsasl2
 
 clean:
 	rm -f $(BIN)
