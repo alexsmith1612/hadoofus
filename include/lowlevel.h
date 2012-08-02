@@ -30,7 +30,8 @@ enum hdfs_kerb {
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
-	char *nn_recvbuf;
+	char *nn_recvbuf,
+	     *nn_objbuf;
 	hdfs_namenode_destroy_cb nn_destroy_cb;
 	struct _hdfs_pending *nn_pending;
 	sasl_conn_t *nn_sasl_ctx;
@@ -44,7 +45,9 @@ struct hdfs_namenode {
 	     nn_worked;
 	pthread_mutex_t nn_sendlock;
 	size_t nn_recvbuf_used,
-	       nn_recvbuf_size;
+	       nn_recvbuf_size,
+	       nn_objbuf_used,
+	       nn_objbuf_size;
 };
 
 struct hdfs_datanode {

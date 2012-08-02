@@ -33,6 +33,7 @@ static void	_future_complete_unlocked(struct hdfs_rpc_response_future *f,
 		struct hdfs_object *o);
 
 // SASL helpers
+static void	_conn_try_desasl(struct hdfs_namenode *n);
 static int	_getssf(sasl_conn_t *);
 static void	_sasl_interacts(sasl_interact_t *);
 
@@ -58,6 +59,10 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_recvbuf = NULL;
 	n->nn_recvbuf_used = 0;
 	n->nn_recvbuf_size = 0;
+
+	n->nn_objbuf = NULL;
+	n->nn_objbuf_used = 0;
+	n->nn_objbuf_size = 0;
 }
 
 const char *
@@ -381,6 +386,8 @@ _namenode_decref(struct hdfs_namenode *n)
 			free(n->nn_pending);
 		if (n->nn_recvbuf)
 			free(n->nn_recvbuf);
+		if (n->nn_objbuf)
+			free(n->nn_objbuf);
 		if (n->nn_destroy_cb)
 			dcb = n->nn_destroy_cb;
 		if (n->nn_sasl_ctx)
@@ -420,6 +427,9 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 
 	// only one thread should be able to enter this section at a time:
 	while (true) {
+		char *objbuffer;
+		size_t *objused;
+
 		_lock(&n->nn_lock);
 		nnlocked = true;
 		sock = n->nn_sock;
@@ -433,7 +443,15 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 
 		assert(sock != -1);
 
-		result = _hdfs_result_deserialize(n->nn_recvbuf, n->nn_recvbuf_used, &obj_size);
+		if (n->nn_sasl_ssf > 0) {
+			objbuffer = n->nn_objbuf;
+			objused = &n->nn_objbuf_used;
+		} else {
+			objbuffer = n->nn_recvbuf;
+			objused = &n->nn_recvbuf_used;
+		}
+
+		result = _hdfs_result_deserialize(objbuffer, *objused, &obj_size);
 		if (!result) {
 			int r, remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 
@@ -444,27 +462,14 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 				remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 			}
 
-			while (true) {
-				r = read(sock, n->nn_recvbuf + n->nn_recvbuf_used, remain);
-				if (r == 0)
-					goto out;
-				if (r > 0) {
-					if (n->nn_sasl_ssf > 0) {
-						r = _sasl_decode_at_offset(
-						    n->nn_sasl_ctx,
-						    &n->nn_recvbuf,
-						    n->nn_recvbuf_used,
-						    r, &remain);
-						if (r < 0) {
-							fprintf(stderr, "sasl_decode:"
-							    " %s",
-							    sasl_errstring(r, NULL, NULL));
-							abort();
-						}
-					}
-					n->nn_recvbuf_used += r;
-					break;
-				}
+			r = read(sock, n->nn_recvbuf + n->nn_recvbuf_used, remain);
+			if (r == 0)
+				goto out;
+			if (r > 0) {
+				n->nn_recvbuf_used += r;
+				if (n->nn_sasl_ssf > 0)
+					_conn_try_desasl(n);
+			} else {
 
 				// bail on socket errors
 				_lock(&n->nn_lock);
@@ -475,9 +480,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 
 				// We need to do something more intelligent if
 				// we want to handle socket errors gracefully.
-				assert(false);
-
-				break;
+				abort();
 			}
 
 			continue;
@@ -493,16 +496,16 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 
 			// We should do something more intelligent if we want
 			// to handle bad protocol data gracefully.
-			assert(false);
+			abort();
 			break;
 		}
 
 		// if we got here, we have read a valid / complete hdfs result
 		// off the wire; skip the buffer forward:
 
-		n->nn_recvbuf_used -= obj_size;
-		if (n->nn_recvbuf_used)
-			memmove(n->nn_recvbuf, n->nn_recvbuf + obj_size, n->nn_recvbuf_used);
+		*objused -= obj_size;
+		if (*objused)
+			memmove(objbuffer, objbuffer + obj_size, *objused);
 
 		future = _namenode_pending_remove(n, result->rs_msgno);
 		assert(future); // got a response to a msgno we didn't request
@@ -633,5 +636,46 @@ _sasl_interacts(sasl_interact_t *in)
 		    in->defresult : __DECONST(char *, "");
 		in->len = strlen(in->result);
 		in++;
+	}
+}
+
+// Attempt to de-sasl data from recvbuf to objbuf. Assume ssf > 0. On bad data,
+// aborts.
+static void
+_conn_try_desasl(struct hdfs_namenode *n)
+{
+	size_t o = 0;
+	while (o + 4 <= n->nn_recvbuf_used) {
+		uint32_t clen;
+		int r;
+		const char *out;
+		unsigned outlen;
+
+		clen = _be32dec(n->nn_recvbuf);
+		assert(clen <= INT32_MAX);
+
+		// did we get an incomplete sasl chunk?
+		if (clen > n->nn_recvbuf_used - o - 4)
+			break;
+
+		r = sasl_decode(n->nn_sasl_ctx, n->nn_recvbuf + o + 4, clen,
+		    &out, &outlen);
+		if (r != SASL_OK)
+			abort();
+
+		if (outlen > n->nn_objbuf_size - n->nn_objbuf_used) {
+			n->nn_objbuf_size = n->nn_objbuf_used + outlen + 4*1024;
+			n->nn_objbuf = realloc(n->nn_objbuf, n->nn_objbuf_size);
+			assert(n->nn_objbuf);
+		}
+
+		memcpy(n->nn_objbuf + n->nn_objbuf_used, out, outlen);
+		n->nn_objbuf_used += outlen;
+	}
+
+	if (o > 0) {
+		n->nn_recvbuf_used -= o;
+		if (n->nn_recvbuf_used > 0)
+			memmove(n->nn_recvbuf, n->nn_recvbuf + o, n->nn_recvbuf_used);
 	}
 }

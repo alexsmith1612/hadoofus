@@ -15,7 +15,7 @@ main(int argc, char **argv)
 {
 	int r;
 	int64_t res;
-	struct hdfs_object *exception = NULL;
+	struct hdfs_object *exception = NULL, *dl;
 
 	r = sasl_client_init(NULL);
 	if (r != SASL_OK) {
@@ -52,6 +52,15 @@ main(int argc, char **argv)
 		fprintf(stderr, "protocol version != 61: %ld\n", res);
 	else
 		fprintf(stderr, "success\n");
+
+	dl = hdfs_getListing(h, "/", NULL, &exception);
+	if (exception) {
+		err = exception->ob_val._exception._msg;
+		goto out;
+	}
+
+	hdfs_object_free(dl);
+	fprintf(stderr, "dl: success\n");
 
 out:
 	if (err)
