@@ -352,3 +352,14 @@ _HDFS_PRIM_RPC_BODY(recoverLease,
 	hdfs_string_new(path),
 	hdfs_string_new(client)
 )
+
+_HDFS_PRIM_RPC_DECL(void, concat,
+	const char *target, struct hdfs_object *srcs)
+_HDFS_PRIM_RPC_BODY(concat,
+	H_VOID,
+	,
+	,
+	,
+	hdfs_string_new(target),
+	(srcs? srcs : hdfs_array_string_new(0, NULL))
+)

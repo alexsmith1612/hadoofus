@@ -1,3 +1,7 @@
+CFLAGS?=\
+		-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
+		-mtune=generic
+
 OBJS=\
 	 datanode.o \
 	 heapbuf.o \

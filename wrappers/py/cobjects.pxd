@@ -31,6 +31,7 @@ cdef extern from "hadoofus/objects.h":
         H_STRING,
         H_FSPERMS,
         H_SHORT,
+        H_ARRAY_STRING,
         H_PROTOCOL_EXCEPTION,
         H_ACCESS_CONTROL_EXCEPTION,
         H_ALREADY_BEING_CREATED_EXCEPTION,
@@ -60,6 +61,8 @@ cdef extern from "hadoofus/objects.h":
     cdef struct hdfs_string:
         pass
     cdef struct hdfs_fsperms:
+        pass
+    cdef struct hdfs_array_string:
         pass
 
     cdef struct hdfs_null:
@@ -144,6 +147,7 @@ cdef extern from "hadoofus/objects.h":
         hdfs_token _token "ob_val._token"
         hdfs_string _string "ob_val._string"
         hdfs_fsperms _fsperms "ob_val._fsperms"
+        hdfs_array_string _array_string "ob_val._array_string"
         hdfs_object_type ob_type
 
     cdef struct hdfs_heap_buf:
@@ -185,6 +189,8 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_token_copy(hdfs_object *)
     hdfs_object *hdfs_string_new(const_char *)
     hdfs_object *hdfs_fsperms_new(int16_t)
+    hdfs_object *hdfs_array_string_new(int32_t len, const_char **values)
+    void hdfs_array_string_add(hdfs_object *, const_char *value)
 
     void hdfs_located_block_append_datanode_info(hdfs_object *located_block, hdfs_object *datanode_info)
     void hdfs_located_blocks_append_located_block(hdfs_object *located_blocks, hdfs_object *located_block)

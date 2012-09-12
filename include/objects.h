@@ -33,6 +33,7 @@ enum hdfs_object_type {
 	H_STRING,
 	H_FSPERMS,
 	H_SHORT,
+	H_ARRAY_STRING,
 	H_PROTOCOL_EXCEPTION,
 	H_ACCESS_CONTROL_EXCEPTION,
 	H_ALREADY_BEING_CREATED_EXCEPTION,
@@ -163,6 +164,11 @@ struct hdfs_string {
 	char *_val;
 };
 
+struct hdfs_array_string {
+	int32_t _len;
+	char **_val;
+};
+
 struct hdfs_fsperms {
 	int16_t _perms;
 };
@@ -196,6 +202,7 @@ struct hdfs_object {
 		struct hdfs_token _token;
 		struct hdfs_string _string;
 		struct hdfs_fsperms _fsperms;
+		struct hdfs_array_string _array_string;
 	} ob_val;
 	enum hdfs_object_type ob_type;
 };
@@ -232,6 +239,8 @@ struct hdfs_object *	hdfs_content_summary_new(int64_t length, int64_t files, int
 			int64_t quota);
 struct hdfs_object *	hdfs_array_byte_new(int32_t len, int8_t *bytes);
 struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_array_string_new(int32_t len, const char **strings); /* copies */
+void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);

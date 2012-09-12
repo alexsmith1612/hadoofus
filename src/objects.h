@@ -26,6 +26,7 @@
 #define ARRAYBYTE_TYPE "[B"
 #define STRING_TYPE "java.lang.String"
 #define FSPERMS_TYPE "org.apache.hadoop.fs.permission.FsPermission"
+#define ARRAYSTRING_TYPE "[Ljava.lang.String;"
 
 #define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 

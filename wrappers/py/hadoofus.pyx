@@ -10,7 +10,7 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_mkdirs, hdfs_getListing, hdfs_renewLease, hdfs_getStats, \
         hdfs_getPreferredBlockSize, hdfs_getFileInfo, hdfs_getContentSummary, \
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
-        hdfs_datanode_new, hdfs_datanode_delete
+        hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -24,7 +24,8 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
-        hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new
+        hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
+        hdfs_array_string_new, hdfs_array_string_add
 cimport clowlevel
 cimport csasl2
 
@@ -751,7 +752,7 @@ cdef class rpc:
         with nogil:
             hdfs_namenode_destroy(&self.nn, NULL)
 
-    def __init__(self, addr, protocol=HADOOP_1_0, user=None, kerb=NO_KERB):
+    def __init__(self, addr, protocol=HADOOP_1_0, user=None, kerb=NO_KERB, **kwargs):
         """
         Create a connection to an HDFS namenode
 
@@ -797,7 +798,8 @@ cdef class rpc:
             raise socket.error(errno.EPIPE, py_err)
 
         # pydoofus checks getProtocolVersion(), we should too.
-        assert 61 == self.getProtocolVersion(61)
+        pv = kwargs.get('protocol_version', 61)
+        assert pv == self.getProtocolVersion(pv)
 
     def __repr__(self):
         return generic_repr(self)
@@ -1386,6 +1388,44 @@ cdef class rpc:
             raise_protocol_error(ex)
 
         return res
+
+    def concat(self, char *target, object srcs):
+        """
+        Concatenates several files together into 'target'.
+
+        targ:
+            Absolute path of the target file; should exist
+        srcs:
+            Array of paths of files to concatenate to target
+
+        raises AccessControlException:
+            if permission is denied
+        raises IOException:
+            for other errors
+        """
+
+        cdef hdfs_object* ex = NULL
+        cdef hdfs_object* c_srcs = NULL
+
+        cdef bytes py_s_src
+        cdef char* c_src
+
+        if srcs is None:
+            pass
+        elif isinstance(srcs, list):
+            c_srcs = hdfs_array_string_new(0, NULL)
+            for src in srcs:
+                py_s_src = bytes(src)
+                c_src = py_s_src
+
+                hdfs_array_string_add(c_srcs, c_src)
+        else:
+            raise TypeError("srcs should be a list or None")
+
+        with nogil:
+            hdfs_concat(&self.nn, target, c_srcs, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
 
 
 rpcproto = rpc

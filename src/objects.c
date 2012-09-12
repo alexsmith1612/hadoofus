@@ -62,6 +62,8 @@ static struct {
 		.slurper = _oslurp_fsperms, },
 	[H_SHORT - _H_START] = { .type = SHORT_TYPE, .objtype = false,
 		.slurper = _oslurp_short, },
+	[H_ARRAY_STRING - _H_START] = { .type = ARRAYSTRING_TYPE, .objtype = false,
+		.slurper = /*_oslurp_array_string*/NULL, },
 };
 
 static struct {
@@ -711,6 +713,19 @@ hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
 	return r;
 }
 
+struct hdfs_object *
+hdfs_array_string_new(int32_t len, const char **strings)
+{
+	struct hdfs_object *r = _objmalloc();
+
+	r->ob_type = H_ARRAY_STRING;
+
+	for (int32_t i = 0; i < len; i++)
+		hdfs_array_string_add(r, strings[i]);
+
+	return r;
+}
+
 // Caller loses references to objects that are being appended into other
 // objects.
 #define H_ARRAY_RESIZE 8
@@ -781,8 +796,23 @@ hdfs_array_datanode_info_append_datanode_info(struct hdfs_object *array, struct 
 	    datanode_info);
 }
 
+void
+hdfs_array_string_add(struct hdfs_object *o, const char *s)
+{
+	char *copy;
+
+	assert(s);
+	assert(o);
+	assert(o->ob_type == H_ARRAY_STRING);
+
+	copy = strdup(s);
+	assert(copy);
+
+	H_ARRAY_APPEND(o->ob_val._array_string._val, o->ob_val._array_string._len, copy);
+}
+
 #define FREE_H_ARRAY_ELMS(array, array_len) do { \
-	for (int i = 0; i < array_len; i++) { \
+	for (int32_t i = 0; i < array_len; i++) { \
 		hdfs_object_free(array[i]); \
 	} \
 } while (0)
@@ -859,6 +889,12 @@ hdfs_object_free(struct hdfs_object *obj)
 		break;
 	case H_STRING:
 		free(obj->ob_val._string._val);
+		break;
+	case H_ARRAY_STRING:
+		for (int32_t i = 0; i < obj->ob_val._array_string._len; i++)
+			free(obj->ob_val._array_string._val[i]);
+		if (obj->ob_val._array_string._val)
+			free(obj->ob_val._array_string._val);
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
@@ -1097,6 +1133,16 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_TOKEN:
 		for (int i = 0; i < 4; i++)
 			_bappend_text(dest, obj->ob_val._token._strings[i]);
+		break;
+	case H_ARRAY_STRING:
+		{
+		int32_t len = obj->ob_val._array_string._len;
+		_bappend_s32(dest, len);
+		for (int32_t i = 0; i < len; i++) {
+			_bappend_string(dest, _rawtypestring(H_STRING));
+			_bappend_string(dest, obj->ob_val._array_string._val[i]);
+		}
+		}
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:

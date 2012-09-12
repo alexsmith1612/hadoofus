@@ -155,6 +155,9 @@ void			hdfs_setTimes(struct hdfs_namenode *, const char *path,
 bool			hdfs_recoverLease(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
+void			hdfs_concat(struct hdfs_namenode *, const char *target,
+			struct hdfs_object *srcs, struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
