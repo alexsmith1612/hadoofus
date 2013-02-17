@@ -94,7 +94,7 @@ HDFS protocol exceptions are presented as Python exceptions descended from
 #include <hadoofus/highlevel.h>
 
 int64_t res;
-const chat *err = NULL;
+const char *err = NULL;
 struct hdfs_namenode *h;
 struct hdfs_object *exception = NULL;
 
