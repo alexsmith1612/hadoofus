@@ -27,11 +27,15 @@ main(int argc, char **argv)
 		t_hl_rpc_basics_suite,
 		t_datanode_basics_suite,
 	};
+	int rc;
 
 	if (!getenv(HDFS_T_ENV))
 		errx(EXIT_FAILURE,
 		    "Please set %s to an HDFS host before running tests!",
 		    HDFS_T_ENV);
+
+	rc = sasl_client_init(NULL);
+	assert(rc == SASL_OK);
 
 	H_ADDR = strdup(getenv(HDFS_T_ENV));
 	assert(H_ADDR);
@@ -42,7 +46,7 @@ main(int argc, char **argv)
 	}
 
 	// Test basic connectivity
-	nn = hdfs_namenode_new(H_ADDR, "8020", "root", HDFS_TRY_KERB, &err);
+	nn = hdfs_namenode_new(H_ADDR, "8020", "root", HDFS_NO_KERB, &err);
 	if (!nn)
 		errx(EXIT_FAILURE,
 		    "Could not connect to namenode %s: %s",

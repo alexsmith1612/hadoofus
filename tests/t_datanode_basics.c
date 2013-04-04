@@ -48,7 +48,7 @@ setup_buf(void)
 		rbuf[i] = 0;
 	}
 
-	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_TRY_KERB, &err);
+	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_NO_KERB, &err);
 	fail_if(h == NULL, "Could not connect to %s=%s (port 8020): %s",
 	    HDFS_T_ENV, H_ADDR, err);
 }
