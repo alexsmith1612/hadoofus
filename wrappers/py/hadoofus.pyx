@@ -30,10 +30,13 @@ cimport clowlevel
 cimport csasl2
 
 import errno
+import os
+import random
 import socket
 import sys
 import time
 import types
+import urlparse
 
 # Public constants from pydoofus
 HADOOP_1_0 = 0x50
@@ -752,7 +755,7 @@ cdef class rpc:
         with nogil:
             hdfs_namenode_destroy(&self.nn, NULL)
 
-    def __init__(self, addr, protocol=HADOOP_1_0, user=None, kerb=NO_KERB, **kwargs):
+    def __init__(self, addr, protocol=HADOOP_1_0, user=None, port=None, kerb=NO_KERB, **kwargs):
         """
         Create a connection to an HDFS namenode
 
@@ -782,6 +785,10 @@ cdef class rpc:
         cdef char* c_port = "8020"
         cdef const_char* err
         cdef bytes py_err
+
+        if port is not None:
+            port = str(port)
+            c_port = port
 
         with nogil:
             err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
@@ -1128,7 +1135,7 @@ cdef class rpc:
         """
         Delete an entity from the HDFS namespace. Returns False if the file or
         directory was not removed.
-        
+
         path:
             Absolute path to remove
         can_recurse (optional):
@@ -1623,3 +1630,174 @@ cdef class data:
 
 dataproto = data
 datanode = data
+
+
+def _easy_connect(path, user):
+    pr = urlparse.urlparse(path, scheme='hdfs', allow_fragments=False)
+    port = "8020"
+    if pr.port is not None:
+        port = str(pr.port)
+    if pr.hostname is None:
+        raise ValueError("HDFS URL '%s' lacks a hostname!" % path)
+    if pr.query != '':
+        raise ValueError("Query components are invalid in HDFS URLs")
+
+    return (rpc(pr.hostname, user=user, port=port), pr.path)
+
+
+class hdfs_file(object):
+    """
+    File-like objects with basic reading / writing for HDFS.
+    """
+
+    def __init__(self, conn, fn, perms):
+        if perms not in ("r", "w"):
+            raise ValueError("perms not 'r' nor 'w'")
+
+        self._conn = conn
+        self._fn = fn
+        self._perms = perms
+        self._buf = ''
+        self._client = None
+        self._tell = 0
+        self._eof = None
+
+    def _openfile(self):
+        if self._client is None:
+            self._client = "hadoofus/py+" + random.randrange(1000000)
+            if self._perms == 'w':
+                self._conn.create(self._fn, 0644, self._client, can_overwrite=True, replication=3)
+
+    def _get_eof(self):
+        if self._eof is None:
+            fs = self._conn.getFileInfo(self._fn)
+            self._eof = fs.size
+        return self._eof
+
+    def close(self):
+        if self._conn is not None and self._perms == 'w' and self._client is not None:
+            self.flush()
+            self._conn.complete(self._fn, self._client)
+        self._conn = None
+
+    def flush(self):
+        if self._conn is None:
+            raise ValueError("closed")
+
+        if self._perms == 'r':
+            return
+
+        self._openfile()
+        if len(self._buf) > 0:
+            lb = self._conn.addBlock(self._fn, self._client)
+            dn = data(lb, self._client)
+            dn.write(self._buf)
+
+            self._buf = ''
+
+    def write(self, s):
+        if self._conn is None:
+            raise ValueError("closed")
+
+        if self._perms == 'r':
+            raise ValueError("read-only file")
+
+        self._tell += len(s)
+
+        while len(self._buf) + len(s) >= _WRITE_BLOCK_SIZE:
+            aux = s[:_WRITE_BLOCK_SIZE - len(self._buf)]
+            s = s[_WRITE_BLOCK_SIZE - len(self._buf):]
+            self._buf += aux
+
+            self.flush()
+
+        self._buf = s
+
+    def tell(self):
+        if self._conn is None:
+            raise ValueError("closed")
+
+        return self._tell
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        if self._conn is None:
+            raise ValueError("closed")
+
+        if self._perms == 'w':
+            raise ValueError("can't seek files for writing")
+
+        if whence not in (os.SEEK_SET, os.SEEK_CUR, os.SEEK_END):
+            raise ValueError("bad whence value")
+
+        self._buf = ''
+
+        if whence == os.SEEK_SET:
+            self._tell = offset
+        elif whence == os.SEEK_CUR:
+            self._tell += offset
+        elif whence == os.SEEK_END:
+            self._tell = offset + self._get_eof()
+
+    def read(self, size=None):
+        if self._conn is None:
+            raise ValueError("closed")
+
+        if self._perms == 'w':
+            raise ValueError("can't read files open for writing")
+
+        if size is None:
+            size = 9999999999
+
+        res = ''
+
+        if len(self._buf) > 0:
+            l = min(len(self._buf), size)
+
+            res += self._buf[:l]
+            self._buf = self._buf[l:]
+
+            self._tell += l
+            size -= l
+
+            if size == 0:
+                return res
+
+        if self._tell >= self._get_eof():
+            return ''
+
+        self._openfile()
+
+        while size > 0 and self._tell < self._get_eof():
+            blks = self._conn.getBlockLocations(self._fn, offset=self._tell,
+                    length=size)
+            for blk in blks:
+                blk_data = data(blk, self._client).read()
+                if self._tell > blk.offset:
+                    blk_data = blk_data[self._tell - blk.offset:]
+                self._buf += blk_data
+
+            l = min(len(self._buf), size)
+
+            res += self._buf[:l]
+            self._buf = self._buf[l:]
+
+            self._tell += l
+            size -= l
+
+        return res
+
+
+class easy(object):
+    @staticmethod
+    def open(path, perms="r", user="hadoop"):
+        """
+        hadoofus.easy.open('hdfs://my_namenode/a/b/c.txt', 'r') opens a file-
+        like object for reading from 'c.txt'.
+
+        Similarly, easy.open(..., 'w') opens a file-like object for writing.
+        """
+
+        conn, fn = _easy_connect(path, user)
+        return hdfs_file(conn, fn, perms)
+
+    # TODO other useful operations (see: os.utimes(), etc)

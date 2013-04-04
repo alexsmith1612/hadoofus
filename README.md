@@ -40,6 +40,21 @@ client code).
 
 #### Using libhadoofus (python wrappers)
 
+```py
+import hadoofus
+
+myfile = hadoofus.easy.open("hdfs://namenode.mycorp.com/important/data.txt")
+myfile.seek(512)
+print myfile.read(200)  #=> "12345…"
+myfile.close()
+
+mywfile = hadoofus.easy.open("hdfs://namenode/new/file.txt", "w")
+mywfile.write("Hello, world!")
+mywfile.close()
+```
+
+#### Using libhadoofus (low-level python wrappers)
+
 Connecting:
 
 ```py
