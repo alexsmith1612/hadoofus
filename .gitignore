@@ -17,3 +17,4 @@ wrappers/c/*.a
 wrappers/c/*.so
 wrappers/c/.*.swp
 wrappers/c/hdfs_test
+TAGS

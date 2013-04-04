@@ -11,7 +11,7 @@ setup(void)
 {
 	const char *err = NULL;
 
-	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, &err);
+	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_TRY_KERB, &err);
 	fail_if(h == NULL, "Could not connect to %s=%s (port 8020): %s",
 	    HDFS_T_ENV, H_ADDR, err);
 }

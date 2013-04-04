@@ -42,7 +42,7 @@ main(int argc, char **argv)
 	}
 
 	// Test basic connectivity
-	nn = hdfs_namenode_new(H_ADDR, "8020", "root", &err);
+	nn = hdfs_namenode_new(H_ADDR, "8020", "root", HDFS_TRY_KERB, &err);
 	if (!nn)
 		errx(EXIT_FAILURE,
 		    "Could not connect to namenode %s: %s",
