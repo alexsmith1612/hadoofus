@@ -1664,7 +1664,7 @@ class hdfs_file(object):
 
     def _openfile(self):
         if self._client is None:
-            self._client = "hadoofus/py+" + random.randrange(1000000)
+            self._client = "hadoofus_py_" + str(random.randrange(10000))
             if self._perms == 'w':
                 self._conn.create(self._fn, 0644, self._client, can_overwrite=True, replication=3)
 
@@ -1675,7 +1675,7 @@ class hdfs_file(object):
         return self._eof
 
     def close(self):
-        if self._conn is not None and self._perms == 'w' and self._client is not None:
+        if self._conn is not None and self._perms == 'w':
             self.flush()
             self._conn.complete(self._fn, self._client)
         self._conn = None
