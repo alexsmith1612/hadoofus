@@ -1,4 +1,4 @@
-LIBS = -L../src -lhadoofus -lpthread -lz
+LIBS = -L../src -lhadoofus -lpthread -lz -lsasl2
 FLAGS = -Wall -Werror $(CFLAGS) -g -I../include
 BIN = \
 	  helloworld \
