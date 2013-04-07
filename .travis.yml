@@ -1,7 +1,9 @@
 language: c
 compiler: gcc
 before_install:
-  - sudo apt-get -y install cython check
+  - sudo apt-get -y install python python-dev check
+  - wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.3-1_i386.deb
+  - sudo dpkg -i cython_0.17.3-1_i386.deb
 # TODO:
 # make test requires live HDFS cluster...
 # For now, just compile everything.
