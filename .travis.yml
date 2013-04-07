@@ -1,7 +1,7 @@
 language: c
 compiler: gcc
 before_install:
-  - sudo apt-get -y install python python-dev check
+  - sudo apt-get -y install check libsasl2-dev libsasl2-2
   - >
       if [ "x`uname -m`" = "xx86_64" ]; then
         wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.3-1_amd64.deb ;
