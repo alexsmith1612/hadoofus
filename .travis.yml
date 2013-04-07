@@ -1,0 +1,9 @@
+language: c
+compiler: gcc
+before_install:
+  - sudo apt-get -y install cython check
+# TODO:
+# make test requires live HDFS cluster...
+# For now, just compile everything.
+script: >
+  make all all-test

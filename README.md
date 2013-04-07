@@ -1,5 +1,5 @@
-hadoofus
-========
+hadoofus [![Build Status](https://travis-ci.org/cemeyer/hadoofus.png?branch=master)](https://travis-ci.org/cemeyer/hadoofus)
+==============
 
 #### JRE-free HDFS client library
 
