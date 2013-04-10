@@ -13,7 +13,7 @@
 #include <hadoofus/lowlevel.h>
 
 #include "net.h"
-#include "objects.h"
+#include "objects-internal.h"
 #include "pthread_wrappers.h"
 #include "util.h"
 

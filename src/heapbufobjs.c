@@ -3,7 +3,7 @@
 
 #include "heapbuf.h"
 #include "heapbufobjs.h"
-#include "objects.h"
+#include "objects-internal.h"
 #include "util.h"
 
 struct hdfs_object *

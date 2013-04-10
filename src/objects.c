@@ -10,7 +10,7 @@
 
 #include "heapbuf.h"
 #include "heapbufobjs.h"
-#include "objects.h"
+#include "objects-internal.h"
 #include "util.h"
 
 static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
