@@ -25,7 +25,8 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
-        hdfs_array_string_new, hdfs_array_string_add
+        hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
+        hdfs_located_block_new
 cimport clowlevel
 cimport csasl2
 
@@ -206,12 +207,10 @@ cdef bint generic_richcmp(object o1, object o2, int op) except *:
 cdef class located_blocks:
     cdef hdfs_object* lbs
 
-    cpdef readonly int size
-    cpdef readonly bint being_written
     cpdef readonly list blocks
 
-    def __init__(self):
-        raise TypeError("This class cannot be instantiated from Python")
+    def __init__(self, being_created=False, size=0):
+        self.init(hdfs_located_blocks_new(being_created, size))
 
     def __cinit__(self):
         self.lbs = NULL
@@ -222,8 +221,6 @@ cdef class located_blocks:
         assert self.lbs is NULL
 
         self.lbs = o
-        self.size = o._located_blocks._size
-        self.being_written = o._located_blocks._being_written
         self.blocks = []
         for lb in self:
             self.blocks.append(lb)
@@ -238,8 +235,7 @@ cdef class located_blocks:
         cdef hdfs_object* lb
 
         for i in range(lbs._num_blocks):
-            with nogil:
-                lb = hdfs_located_block_copy(lbs._blocks[i])
+            lb = hdfs_located_block_copy(lbs._blocks[i])
             py_lb = located_block_build(lb)
             yield py_lb
 
@@ -251,6 +247,27 @@ cdef class located_blocks:
 
     def __len__(self):
         return self.lbs._located_blocks._num_blocks
+
+    property being_created:
+        "If this file has been created, but not yet complete()"
+
+        def __get__(self):
+            return bool(self.lbs._located_blocks._being_written)
+
+        def __set__(self, being_created):
+            cdef bint bc = bool(being_created)
+            self.lbs._located_blocks._being_written = bc
+
+    property size:
+        "Total size of the file described by this LocatedBlocks object"
+
+        def __get__(self):
+            return self.lbs._located_blocks._size
+
+        def __set__(self, size):
+            cdef int64_t csize = int(size)
+            self.lbs._located_blocks._size = csize
+
 
 # Note: caller loses their C-level ref to the object
 cdef located_blocks located_blocks_build(hdfs_object* o):
@@ -268,14 +285,11 @@ cdef located_blocks located_blocks_build(hdfs_object* o):
 cdef class located_block:
     cdef hdfs_object* lb
 
-    cpdef readonly int64_t offset
-    cpdef readonly int64_t blockid
-    cpdef readonly int64_t generation
-    cpdef readonly int64_t len
     cpdef readonly list locations
 
-    def __init__(self):
-        raise TypeError("This class cannot be instantiated from Python")
+    def __init__(self, blkid=0, len_=0, generation=0, offset=0):
+        self.init(hdfs_located_block_new(int(blkid), int(len_),
+            int(generation), int(offset)))
 
     def __cinit__(self):
         self.lb = NULL
@@ -286,10 +300,6 @@ cdef class located_block:
         assert self.lb is NULL
 
         self.lb = o
-        self.offset = o._located_block._offset
-        self.blockid = o._located_block._blockid
-        self.generation = o._located_block._generation
-        self.len = o._located_block._len
         self.locations = []
         for loc in self:
             self.locations.append(loc)
@@ -320,6 +330,35 @@ cdef class located_block:
 
     def __repr__(self):
         return generic_repr(self)
+
+    property offset:
+        def __get__(self):
+            return self.lb._located_block._offset
+
+        def __set__(self, offset):
+            self.lb._located_block._offset = int(offset)
+
+    property blockid:
+        def __get__(self):
+            return self.lb._located_block._blockid
+
+        def __set__(self, blockid):
+            self.lb._located_block._blockid = int(blockid)
+
+    property generation:
+        def __get__(self):
+            return self.lb._located_block._generation
+
+        def __set__(self, generation):
+            self.lb._located_block._generation = generation
+
+    property len:
+        def __get__(self):
+            return self.lb._located_block._len
+
+        def __set__(self, len):
+            self.lb._located_block._len = int(len)
+
 
 # Note: caller loses their C-level ref to the object
 cdef located_block located_block_build(hdfs_object* o):

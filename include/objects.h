@@ -88,7 +88,7 @@ struct hdfs_located_block {
 };
 
 struct hdfs_located_blocks {
-	int64_t _size;
+	int64_t _size;  /* total size of the file */
 	struct hdfs_object **_blocks/* type: hdfs_located_block[] */;
 	int _num_blocks;
 	bool _being_written;

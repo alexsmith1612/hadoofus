@@ -167,7 +167,7 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_block_new(int64_t blkid, int64_t len, int64_t generation)
     hdfs_object *hdfs_block_copy(hdfs_object *)
     hdfs_object *hdfs_block_from_located_block(hdfs_object *)
-    hdfs_object *hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation)
+    hdfs_object *hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
     hdfs_object *hdfs_located_block_copy(hdfs_object*) nogil
     hdfs_object *hdfs_located_blocks_new(bint beingcreated, int64_t size)
     hdfs_object *hdfs_directory_listing_new()
