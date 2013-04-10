@@ -383,18 +383,15 @@ cdef hdfs_object* convert_located_block_to_block(located_block lb):
 cdef class block:
     cdef hdfs_object* c_block
 
-    cpdef readonly int64_t len
-    cpdef readonly int64_t blockid
-    cpdef readonly int64_t generation
-
-    def __init__(self, copy):
-        assert copy is not None
-        assert type(copy) is located_block
-
-        self.c_block = convert_located_block_to_block(copy)
-        self.len = self.c_block._block._length
-        self.blockid = self.c_block._block._blkid
-        self.generation = self.c_block._block._generation
+    def __init__(self, lb_or_len=None, blockid=0, generation=0):
+        if type(lb_or_len) not in (type(None), int):
+            assert type(lb_or_len) is located_block
+            self.c_block = convert_located_block_to_block(lb_or_len)
+        else:
+            if lb_or_len is None:
+                lb_or_len = 0
+            self.c_block = hdfs_block_new(int(blockid), int(lb_or_len),
+                    int(generation))
 
     def __cinit__(self):
         self.c_block = NULL
@@ -405,6 +402,27 @@ cdef class block:
 
     def __repr__(self):
         return generic_repr(self)
+
+    property len:
+        def __get__(self):
+            return self.c_block._block._length
+
+        def __set__(self, len_):
+            self.c_block._block._length = int(len_)
+
+    property blockid:
+        def __get__(self):
+            return self.c_block._block._blkid
+
+        def __set__(self, blkid):
+            self.c_block._block._blkid = int(blkid)
+
+    property generation:
+        def __get__(self):
+            return self.c_block._block._generation
+
+        def __set__(self, generation):
+            self.c_block._block._generation = int(generation)
 
 
 cdef class datanode_info:
