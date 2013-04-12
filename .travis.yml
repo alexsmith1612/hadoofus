@@ -4,11 +4,11 @@ before_install:
   - sudo apt-get -y install check libsasl2-dev libsasl2-2
   - >
       if [ "x`uname -m`" = "xx86_64" ]; then
-        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.3-1_amd64.deb ;
-        sudo dpkg -i cython_0.17.3-1_amd64.deb ;
+        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.4-0ubuntu1_amd64.deb ;
+        sudo dpkg -i cython_0.17.4-0ubuntu1_amd64.deb ;
       else
-        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.3-1_i386.deb ;
-        sudo dpkg -i cython_0.17.3-1_i386.deb ;
+        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.17.4-0ubuntu1_i386.deb ;
+        sudo dpkg -i cython_0.17.4-0ubuntu1_i386.deb ;
       fi
 # TODO:
 # make test requires live HDFS cluster...
