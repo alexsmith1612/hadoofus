@@ -26,7 +26,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
-        hdfs_located_block_new, hdfs_datanode_info_new
+        hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex
 cimport clowlevel
 cimport csasl2
 
@@ -80,6 +80,11 @@ cdef char* xstrdup(char* s):
     if r == NULL:
         raise AssertionError("OOM")
     return r
+
+cdef char* pydup(object o):
+    cdef bytes py_s
+    py_s = bytes(str(o))
+    return xstrdup(py_s)
 
 # Exceptions from pydoofus
 class DisconnectException(Exception):
@@ -464,24 +469,30 @@ cdef class datanode_info:
             return self.c_di._datanode_info._location
 
         def __set__(self, location):
-            loc_s = str(location)
-            self.c_di._datanode_info._location = xstrdup(loc_s)
+            cdef char* cp = pydup(location)
+            if self.c_di._datanode_info._location != NULL:
+                free(self.c_di._datanode_info._location)
+            self.c_di._datanode_info._location = cp
 
     property hostname:
         def __get__(self):
             return self.c_di._datanode_info._hostname
 
         def __set__(self, hostname):
-            host_s = str(hostname)
-            self.c_di._datanode_info._hostname = xstrdup(host_s)
+            cdef char* cp = pydup(hostname)
+            if self.c_di._datanode_info._hostname != NULL:
+                free(self.c_di._datanode_info._hostname)
+            self.c_di._datanode_info._hostname = cp
 
     property port:
         def __get__(self):
             return self.c_di._datanode_info._port
 
         def __set__(self, port):
-            port_s = str(port)
-            self.c_di._datanode_info._port = xstrdup(port_s)
+            cdef char* cp = pydup(port)
+            if self.c_di._datanode_info._port != NULL:
+                free(self.c_di._datanode_info._port)
+            self.c_di._datanode_info._port = cp
 
     property ipc_port:
         def __get__(self):
@@ -605,19 +616,9 @@ cdef str format_repl(bint isdir, int repl):
 cdef class file_status:
     cdef hdfs_object* c_fs
 
-    cpdef readonly int64_t size
-    cpdef readonly int64_t block_size
-    cpdef readonly int64_t mtime
-    cpdef readonly int64_t atime
-    cpdef readonly char* name
-    cpdef readonly char* owner
-    cpdef readonly char* group
-    cpdef readonly int16_t replication
-    cpdef readonly int16_t permissions
-    cpdef readonly bint is_directory
-
     def __init__(self):
-        raise TypeError("This class cannot be instantiated from Python")
+        self.c_fs = hdfs_file_status_new_ex("", 0, False, 0, 0, 0, 0, 0, "",
+                "")
 
     def __cinit__(self):
         self.c_fs = NULL
@@ -628,16 +629,6 @@ cdef class file_status:
         assert self.c_fs is NULL
 
         self.c_fs = o
-        self.size = o._file_status._size
-        self.block_size = o._file_status._block_size
-        self.mtime = o._file_status._mtime
-        self.atime = o._file_status._atime
-        self.name = o._file_status._file
-        self.owner = o._file_status._owner
-        self.group = o._file_status._group
-        self.replication = o._file_status._replication
-        self.permissions = o._file_status._permissions
-        self.is_directory = o._file_status._directory
 
     def __dealloc__(self):
         if self.c_fs is not NULL:
@@ -655,6 +646,85 @@ cdef class file_status:
 
     def __richcmp__(self, object o, int n):
         return generic_richcmp(self, o, n)
+
+    property size:
+        def __get__(self):
+            return self.c_fs._file_status._size
+
+        def __set__(self, sz):
+            self.c_fs._file_status._size = int(sz)
+
+    property block_size:
+        def __get__(self):
+            return self.c_fs._file_status._block_size
+
+        def __set__(self, sz):
+            self.c_fs._file_status._block_size = int(sz)
+
+    property mtime:
+        def __get__(self):
+            return self.c_fs._file_status._mtime
+
+        def __set__(self, mtime):
+            self.c_fs._file_status._mtime = int(mtime)
+
+    property atime:
+        def __get__(self):
+            return self.c_fs._file_status._atime
+
+        def __set__(self, atime):
+            self.c_fs._file_status._atime = int(atime)
+
+    property name:
+        def __get__(self):
+            return self.c_fs._file_status._file
+
+        def __set__(self, name):
+            cdef char* cp = pydup(name)
+            if self.c_fs._file_status._file != NULL:
+                free(self.c_fs._file_status._file)
+            self.c_fs._file_status._file = cp
+
+    property owner:
+        def __get__(self):
+            return self.c_fs._file_status._owner
+
+        def __set__(self, owner):
+            cdef char* cp = pydup(owner)
+            if self.c_fs._file_status._owner != NULL:
+                free(self.c_fs._file_status._owner)
+            self.c_fs._file_status._owner = cp
+
+    property group:
+        def __get__(self):
+            return self.c_fs._file_status._group
+
+        def __set__(self, group):
+            cdef char* cp = pydup(group)
+            if self.c_fs._file_status._group != NULL:
+                free(self.c_fs._file_status._group)
+            self.c_fs._file_status._group = cp
+
+    property replication:
+        def __get__(self):
+            return self.c_fs._file_status._replication
+
+        def __set__(self, replication):
+            self.c_fs._file_status._replication = int(replication)
+
+    property permissions:
+        def __get__(self):
+            return self.c_fs._file_status._permissions
+
+        def __set__(self, permissions):
+            self.c_fs._file_status._permissions = int(permissions)
+
+    property is_directory:
+        def __get__(self):
+            return self.c_fs._file_status._directory
+
+        def __set__(self, isdir):
+            self.c_fs._file_status._directory = bool(isdir)
 
 
 # Note: caller loses their C-level ref to the object
