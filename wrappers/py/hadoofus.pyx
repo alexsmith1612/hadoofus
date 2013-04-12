@@ -1,6 +1,6 @@
 from libc.stdint cimport int64_t, intptr_t, int16_t, uint16_t, INT64_MIN, INT64_MAX
 from libc.stdlib cimport malloc, free
-from libc.string cimport const_char
+from libc.string cimport const_char, strdup
 
 from cpython.bytes cimport PyBytes_FromStringAndSize
 
@@ -26,7 +26,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
-        hdfs_located_block_new
+        hdfs_located_block_new, hdfs_datanode_info_new
 cimport clowlevel
 cimport csasl2
 
@@ -73,6 +73,13 @@ def sasl_done():
 
 cdef bytes const_str_to_py(const_char* s):
     return <char*>s
+
+cdef char* xstrdup(char* s):
+    cdef char* r
+    r = strdup(s)
+    if r == NULL:
+        raise AssertionError("OOM")
+    return r
 
 # Exceptions from pydoofus
 class DisconnectException(Exception):
@@ -428,13 +435,12 @@ cdef class block:
 cdef class datanode_info:
     cdef hdfs_object* c_di
 
-    cpdef readonly char* location
-    cpdef readonly char* hostname
-    cpdef readonly char* port
-    cpdef readonly uint16_t ipc_port
-
-    def __init__(self):
-        raise TypeError("This class cannot be instantiated from Python")
+    def __init__(self, hostname, port, location, ipc_port):
+        host_s = str(hostname)
+        port_s = str(port)
+        loc_s = str(location)
+        self.c_di = hdfs_datanode_info_new(host_s, port_s, loc_s,
+                int(ipc_port))
 
     def __cinit__(self):
         self.c_di = NULL
@@ -445,10 +451,6 @@ cdef class datanode_info:
         assert self.c_di is NULL
 
         self.c_di = o
-        self.location = o._datanode_info._location
-        self.hostname = o._datanode_info._hostname
-        self.port = o._datanode_info._port
-        self.ipc_port = o._datanode_info._namenodeport
 
     def __dealloc__(self):
         if self.c_di is not NULL:
@@ -456,6 +458,37 @@ cdef class datanode_info:
 
     def __repr__(self):
         return generic_repr(self)
+
+    property location:
+        def __get__(self):
+            return self.c_di._datanode_info._location
+
+        def __set__(self, location):
+            loc_s = str(location)
+            self.c_di._datanode_info._location = xstrdup(loc_s)
+
+    property hostname:
+        def __get__(self):
+            return self.c_di._datanode_info._hostname
+
+        def __set__(self, hostname):
+            host_s = str(hostname)
+            self.c_di._datanode_info._hostname = xstrdup(host_s)
+
+    property port:
+        def __get__(self):
+            return self.c_di._datanode_info._port
+
+        def __set__(self, port):
+            port_s = str(port)
+            self.c_di._datanode_info._port = xstrdup(port_s)
+
+    property ipc_port:
+        def __get__(self):
+            return self.c_di._datanode_info._namenodeport
+
+        def __set__(self, port):
+            self.c_di._datanode_info._namenodeport = int(port)
 
 # Note: caller loses their C-level ref to the object
 cdef datanode_info datanode_info_build(hdfs_object* o):
