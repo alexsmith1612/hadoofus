@@ -26,7 +26,8 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
-        hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex
+        hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex, \
+        hdfs_content_summary_new
 cimport clowlevel
 cimport csasl2
 
@@ -470,8 +471,7 @@ cdef class datanode_info:
 
         def __set__(self, location):
             cdef char* cp = pydup(location)
-            if self.c_di._datanode_info._location != NULL:
-                free(self.c_di._datanode_info._location)
+            free(self.c_di._datanode_info._location)
             self.c_di._datanode_info._location = cp
 
     property hostname:
@@ -480,8 +480,7 @@ cdef class datanode_info:
 
         def __set__(self, hostname):
             cdef char* cp = pydup(hostname)
-            if self.c_di._datanode_info._hostname != NULL:
-                free(self.c_di._datanode_info._hostname)
+            free(self.c_di._datanode_info._hostname)
             self.c_di._datanode_info._hostname = cp
 
     property port:
@@ -490,8 +489,7 @@ cdef class datanode_info:
 
         def __set__(self, port):
             cdef char* cp = pydup(port)
-            if self.c_di._datanode_info._port != NULL:
-                free(self.c_di._datanode_info._port)
+            free(self.c_di._datanode_info._port)
             self.c_di._datanode_info._port = cp
 
     property ipc_port:
@@ -681,8 +679,7 @@ cdef class file_status:
 
         def __set__(self, name):
             cdef char* cp = pydup(name)
-            if self.c_fs._file_status._file != NULL:
-                free(self.c_fs._file_status._file)
+            free(self.c_fs._file_status._file)
             self.c_fs._file_status._file = cp
 
     property owner:
@@ -691,8 +688,7 @@ cdef class file_status:
 
         def __set__(self, owner):
             cdef char* cp = pydup(owner)
-            if self.c_fs._file_status._owner != NULL:
-                free(self.c_fs._file_status._owner)
+            free(self.c_fs._file_status._owner)
             self.c_fs._file_status._owner = cp
 
     property group:
@@ -701,8 +697,7 @@ cdef class file_status:
 
         def __set__(self, group):
             cdef char* cp = pydup(group)
-            if self.c_fs._file_status._group != NULL:
-                free(self.c_fs._file_status._group)
+            free(self.c_fs._file_status._group)
             self.c_fs._file_status._group = cp
 
     property replication:
@@ -743,13 +738,9 @@ cdef file_status file_status_build(hdfs_object* o):
 cdef class content_summary:
     cdef hdfs_object* c_cs
 
-    cpdef readonly int64_t length
-    cpdef readonly int64_t files
-    cpdef readonly int64_t directories
-    cpdef readonly int64_t quota
-
-    def __init__(self):
-        raise TypeError("This class cannot be instantiated from Python")
+    def __init__(self, length=0, files=0, dirs=0, quota=0):
+        self.c_cs = hdfs_content_summary_new(int(length), int(files),
+                int(dirs), int(quota))
 
     def __cinit__(self):
         self.c_cs = NULL
@@ -759,10 +750,6 @@ cdef class content_summary:
         assert o.ob_type == H_CONTENT_SUMMARY
 
         self.c_cs = o
-        self.length = o._content_summary._length
-        self.files = o._content_summary._files
-        self.directories = o._content_summary._dirs
-        self.quota = o._content_summary._quota
 
     def __dealloc__(self):
         if self.c_cs is not NULL:
@@ -770,6 +757,34 @@ cdef class content_summary:
 
     def __repr__(self):
         return generic_repr(self)
+
+    property length:
+        def __get__(self):
+            return self.c_cs._content_summary._length
+
+        def __set__(self, length):
+            self.c_cs._content_summary._length = int(length)
+
+    property files:
+        def __get__(self):
+            return self.c_cs._content_summary._files
+
+        def __set__(self, files):
+            self.c_cs._content_summary._files = int(files)
+
+    property directories:
+        def __get__(self):
+            return self.c_cs._content_summary._dirs
+
+        def __set__(self, dirs):
+            self.c_cs._content_summary._dirs = int(dirs)
+
+    property quota:
+        def __get__(self):
+            return self.c_cs._content_summary._quota
+
+        def __set__(self, quota):
+            self.c_cs._content_summary._quota = int(quota)
 
 # Note: caller loses their C-level ref to the object
 cdef content_summary content_summary_build(hdfs_object* o):
