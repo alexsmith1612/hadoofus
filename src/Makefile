@@ -27,7 +27,7 @@ LIBDIR = $(PREFIX)/lib
 CC = gcc
 
 $(LIB): libhadoofus.version $(OBJS)
-	$(CC) -o $@ $(LIBFLAGS) -Wl,--version-script=libhadoofus.version $(OBJS)
+	$(CC) -o $@ $(LIBFLAGS) $(OBJS)
 
 all: $(LIB)
 
