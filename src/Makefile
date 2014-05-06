@@ -14,7 +14,7 @@ OBJS=\
 	 util.o \
 
 WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
-		-Wformat -Werror -Wno-missing-field-initializers -Wextra \
+		-Wformat -Werror -Wextra -Wno-missing-field-initializers \
 		-Wno-unused-parameter -Wstrict-prototypes -Wpointer-arith \
 		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
