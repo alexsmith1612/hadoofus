@@ -11,7 +11,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -254,7 +253,7 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 
 	client = malloc(clientlen);
 	assert(client);
-	snprintf(client, clientlen-1, "DFSClient_" PRId64, client_u.num);
+	snprintf(client, clientlen-1, "DFSClient_%zd", (intmax_t) client_u.num);
 	client[clientlen-1] = '\0';
 
 	if (mode == FILE_WRITE) {

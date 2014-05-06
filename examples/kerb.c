@@ -49,7 +49,7 @@ main(int argc, char **argv)
 	}
 
 	if (res != 61)
-		fprintf(stderr, "protocol version != 61\n");
+		fprintf(stderr, "protocol version != 61: %zd\n", (intmax_t) res);
 	else
 		fprintf(stderr, "success\n");
 
