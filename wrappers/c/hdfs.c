@@ -253,7 +253,7 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 
 	client = malloc(clientlen);
 	assert(client);
-	snprintf(client, clientlen-1, "DFSClient_%ld", client_u.num);
+	snprintf(client, clientlen-1, "DFSClient_%lld", client_u.num);
 	client[clientlen-1] = '\0';
 
 	if (mode == FILE_WRITE) {

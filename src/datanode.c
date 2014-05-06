@@ -834,7 +834,7 @@ _wait_ack(struct _packet_state *ps)
 	int64_t seqno;
 	int16_t nacks, ack;
 
-	int acksz;
+	int acksz = 0;
 
 	assert(ps->proto == HDFS_DATANODE_AP_1_0 ||
 	    ps->proto == HDFS_DATANODE_CDH3);
@@ -843,6 +843,10 @@ _wait_ack(struct _packet_state *ps)
 		acksz = 8 + 2 + 2;
 	else if (ps->proto == HDFS_DATANODE_CDH3)
 		acksz = 8 + 2;
+
+	if (acksz == 0) {
+		goto out; // Should never be hit, caught by the assertion above
+	}
 
 	while (ps->recvbuf->used < acksz) {
 		err = _read_to_hbuf(ps->sock, ps->recvbuf);
@@ -885,6 +889,8 @@ _wait_ack(struct _packet_state *ps)
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
 		ack = _bslurp_s16(&obuf);
 		assert(obuf.used >= 0);
+	} else {
+		goto out; // Should never be hit, caught by the assertion above
 	}
 
 	if (ack != STATUS_SUCCESS) {

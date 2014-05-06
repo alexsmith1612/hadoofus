@@ -42,7 +42,7 @@ main(int argc, char **argv)
 	}
 
 	if (res != 61)
-		fprintf(stderr, "protocol version != 61: %ld\n", res);
+		fprintf(stderr, "protocol version != 61: %lld\n", res);
 	else
 		fprintf(stderr, "success\n");
 
