@@ -832,8 +832,11 @@ _wait_ack(struct _packet_state *ps)
 	struct hdfs_heap_buf obuf = { 0 };
 
 	int64_t seqno;
-	int16_t nacks, ack;
+	int16_t nacks;
 
+	// Initialize these with a zero value, to avoid compiler errors. The assert() below
+	// will ensure these never have the initialized value, but this is far from ideal.
+	int16_t ack = 0;
 	int acksz = 0;
 
 	assert(ps->proto == HDFS_DATANODE_AP_1_0 ||
@@ -843,10 +846,6 @@ _wait_ack(struct _packet_state *ps)
 		acksz = 8 + 2 + 2;
 	else if (ps->proto == HDFS_DATANODE_CDH3)
 		acksz = 8 + 2;
-
-	if (acksz == 0) {
-		goto out; // Should never be hit, caught by the assertion above
-	}
 
 	while (ps->recvbuf->used < acksz) {
 		err = _read_to_hbuf(ps->sock, ps->recvbuf);
@@ -889,8 +888,6 @@ _wait_ack(struct _packet_state *ps)
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
 		ack = _bslurp_s16(&obuf);
 		assert(obuf.used >= 0);
-	} else {
-		goto out; // Should never be hit, caught by the assertion above
 	}
 
 	if (ack != STATUS_SUCCESS) {
