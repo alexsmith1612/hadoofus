@@ -17,13 +17,13 @@ FLAGS = -Wall -Werror -fPIC -g $(CFLAGS)
 all: $(TEST_PRGM)
 
 $(TEST_PRGM): $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
-	gcc -o $@ $(FLAGS) $(TEST_OBJS) $(LINK_FLAGS)
+	$(CC) -o $@ $(FLAGS) $(TEST_OBJS) $(LINK_FLAGS)
 
 check: $(TEST_PRGM)
 	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src" ./$(TEST_PRGM)
 
 %.o: %.c
-	gcc $(FLAGS) -I../include -std=gnu99 -c $<
+	$(CC) $(FLAGS) -I../include -std=gnu99 -c $<
 
 clean:
 	rm -f $(TEST_PRGM) *.o
