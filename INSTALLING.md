@@ -15,6 +15,7 @@ Aside from `CFLAGS`, you can configure `PREFIX`, `LIBDIR`, and `INCLUDEDIR`.
 These default to `/usr/local`, `$PREFIX/lib`, and `$PREFIX/include`,
 respectively. For distribution packaging, you can also set `DISTDIR` to an
 alternative root directory (you probably also want to set `PREFIX` to `/usr`).
+`CC` can be used to specify a compiler; the default is `gcc`.
 
 #### Running post-build tests
 

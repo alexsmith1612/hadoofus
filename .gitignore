@@ -4,6 +4,7 @@
 examples/helloworld
 examples/hl-hello
 examples/kerb
+examples/*.dSYM
 tests/check_hadoofus
 all_rpcs.list
 .*.swp

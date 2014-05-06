@@ -6,6 +6,8 @@ SRCS = \
 HDR = hdfs.h
 OBJS = $(SRCS:%.c=%.o)
 
+CC = gcc
+
 LIBDIR = $(PREFIX)/lib
 INCLUDEDIR = $(PREFIX)/include
 
@@ -17,13 +19,13 @@ LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
 all: $(LIB) $(SLIB)
 
 $(LIB): $(OBJS)
-	gcc -o $@ $(LIBFLAGS) $(OBJS)
+	$(CC) -o $@ $(LIBFLAGS) $(LINKFLAGS) $(OBJS)
 
 $(SLIB): $(OBJS)
 	ar rcs $@ $(OBJS)
 
 %.o: %.c $(HDR)
-	gcc $(FLAGS) -fPIC -std=gnu99 -c $<
+	$(CC) $(FLAGS) -fPIC -std=gnu99 -c $<
 
 clean:
 	rm -f $(LIB) $(OBJS)
@@ -32,7 +34,7 @@ test: hdfs_test
 	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../../src" ./hdfs_test
 
 hdfs_test: hdfs_test.c $(SLIB)
-	gcc $(FLAGS) -I. -o $@ -std=gnu99 $(LINKFLAGS) $< $(SLIB)
+	$(CC) $(FLAGS) -I. -o $@ -std=gnu99 $(LINKFLAGS) $< $(SLIB)
 
 
 install: all
