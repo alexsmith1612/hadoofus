@@ -1,5 +1,5 @@
 CFLAGS?=\
-		-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
+		-O2 -g -pipe -Wall -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
 		-mtune=generic
 
 OBJS=\
@@ -14,23 +14,25 @@ OBJS=\
 	 util.o \
 
 WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
-		-Wformat -Werror -Wno-missing-field-initializers -Wextra \
+		-Wformat -Werror -Wextra -Wno-missing-field-initializers \
 		-Wno-unused-parameter -Wstrict-prototypes -Wpointer-arith \
 		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
 		-Wnested-externs -Wredundant-decls
 FLAGS = $(WARNS) -fPIC $(CFLAGS) -g
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz
 LIB = libhadoofus.so
 LIBDIR = $(PREFIX)/lib
 
+CC = gcc
+
 $(LIB): libhadoofus.version $(OBJS)
-	gcc -o $@ $(LIBFLAGS) -Wl,--version-script=libhadoofus.version $(OBJS)
+	$(CC) -o $@ $(LIBFLAGS) $(OBJS)
 
 all: $(LIB)
 
 %.o: %.c
-	gcc -I../include -std=gnu99 $(FLAGS) -c $<
+	$(CC) -I../include -std=gnu99 $(FLAGS) -c $<
 
 clean:
 	rm -f *.o $(LIB)

@@ -6,17 +6,18 @@ BIN = \
 	  kerb \
 
 LIB = ../src/libhadoofus.so
+CC = gcc
 
 all: $(BIN)
 
 helloworld: helloworld.c $(LIB)
-	gcc $(FLAGS) $< -o $@ $(LIBS)
+	$(CC) $(FLAGS) $< -o $@ $(LIBS)
 
 hl-hello: hl-hello.c $(LIB)
-	gcc $(FLAGS) $< -o $@ $(LIBS)
+	$(CC) $(FLAGS) $< -o $@ $(LIBS)
 
 kerb: kerb.c $(LIB)
-	gcc $(FLAGS) $< -o $@ $(LIBS) -lsasl2
+	$(CC) $(FLAGS) $< -o $@ $(LIBS) -lsasl2
 
 clean:
 	rm -f $(BIN)

@@ -445,7 +445,7 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 	int mode = (S_ISDIR(sb->st_mode))? (sb->st_mode & 0777) :
 	    (sb->st_mode & 0666);
 
-#ifndef __ISILON__
+#if !defined(__ISILON__) && !defined(__APPLE__)
 # define st_mtimespec st_mtim
 # define st_atimespec st_atim
 #endif
@@ -467,12 +467,13 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 		._owner = owner_copy,
 		._group = group_copy,
 	};
-	return r;
 
-#ifndef __ISILON__
+#if !defined(__ISILON__) && !defined(__APPLE__)
 # undef st_mtimespec
 # undef st_atimespec
 #endif
+
+	return r;
 }
 
 struct hdfs_object *
