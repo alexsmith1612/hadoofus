@@ -20,7 +20,7 @@ WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
 		-Wnested-externs -Wredundant-decls
 FLAGS = $(WARNS) -fPIC $(CFLAGS) -g
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz
 LIB = libhadoofus.so
 LIBDIR = $(PREFIX)/lib
 
