@@ -1,6 +1,32 @@
 from distutils.core import setup
 from distutils.extension import Extension
-from Cython.Distutils import build_ext
+from os import getcwd
+from os.path import abspath, dirname, realpath
+
+try:
+    from Cython.Build import cythonize
+except ImportError:
+    def cythonize(extensions, **_ignore):
+        for extension in extensions:
+            sources = []
+            for sfile in extension.sources:
+                path, ext = os.path.splitext(sfile)
+                if ext in ('.pyx', '.py'):
+                    if extension.language == 'c++':
+                        ext = '.cpp'
+                    else:
+                        ext = '.c'
+                    sfile = path + ext
+                sources.append(sfile)
+            extension.sources[:] = sources
+        return extensions
+
+include_dirs = [realpath(dirname(abspath(__file__)) + "/../../include")]
+ext_modules = cythonize([
+    Extension("hadoofus", ["hadoofus.pyx"],
+              libraries=["z", "sasl2"],
+              include_dirs=include_dirs)
+])
 
 setup(
         name = "hadoofus",
@@ -26,7 +52,5 @@ implementations.
             ],
         platforms = ['Posix'],
         license = 'MIT',
-        cmdclass = {'build_ext': build_ext},
-        ext_modules = [Extension("hadoofus", ["hadoofus.pyx"],
-            libraries=["hadoofus", "z", "sasl2"])]
+        ext_modules = ext_modules
 )
