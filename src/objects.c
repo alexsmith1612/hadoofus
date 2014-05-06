@@ -446,7 +446,7 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 	    (sb->st_mode & 0666);
 
 #ifndef __ISILON__
-# ifndef __APPLE_CC__
+# ifndef __APPLE__
 #  define st_mtimespec st_mtim
 #  define st_atimespec st_atim
 # endif
@@ -471,7 +471,7 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 	};
 
 #ifndef __ISILON__
-# ifndef __APPLE_CC__
+# ifndef __APPLE__
 #  undef st_mtimespec
 #  undef st_atimespec
 # endif
