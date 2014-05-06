@@ -1,6 +1,7 @@
 PREFIX=/usr/local
 DISTDIR=
 LIB = src/libhadoofus.so
+CC = gcc
 
 all: build all-wrappers all-examples
 
