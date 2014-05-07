@@ -31,7 +31,7 @@ static void	_conn_try_desasl(struct hdfs_namenode *n);
 static int	_getssf(sasl_conn_t *);
 static void	_sasl_interacts(sasl_interact_t *);
 
-void
+EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
 	n->nn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
@@ -59,7 +59,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_objbuf_size = 0;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
 {
 	const char *err = NULL;
@@ -85,7 +85,7 @@ out:
 	return err;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
 	const char *err = NULL, *preamble = "hrpc\x04\x50";
@@ -240,7 +240,7 @@ out:
 	return err;
 }
 
-int64_t
+EXPORT_SYM int64_t
 hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 {
 	int64_t res;
@@ -252,7 +252,7 @@ hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 	return res;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
@@ -311,7 +311,7 @@ out:
 	return err;
 }
 
-void
+EXPORT_SYM void
 hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
 {
 	bool found;
@@ -338,7 +338,7 @@ hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **ob
 // Caller *must not* use the namenode object after this. If 'cb' is non-null,
 // they will receive a callback when the memory is no longer used, which they
 // can use to free memory or whatever.
-void
+EXPORT_SYM void
 hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 {
 	_lock(&n->nn_lock);

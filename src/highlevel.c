@@ -14,7 +14,7 @@ _assert_not_err(const char *err)
 	}
 }
 
-struct hdfs_namenode *
+EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new(const char *host, const char *port, const char *username,
 	enum hdfs_kerb kerb_pref, const char **error_out)
 {
@@ -42,7 +42,7 @@ out:
 	return h;
 }
 
-void
+EXPORT_SYM void
 hdfs_namenode_delete(struct hdfs_namenode *h)
 {
 	hdfs_namenode_destroy(h, (hdfs_namenode_destroy_cb)free);
@@ -51,7 +51,7 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 // RPC implementations
 
 #define _HDFS_PRIM_RPC_DECL(type, name, args...) \
-type \
+EXPORT_SYM type \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
 #define _HDFS_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
@@ -96,7 +96,7 @@ _HDFS_PRIM_RPC_BODY(getProtocolVersion,
 )
 
 #define _HDFS_OBJ_RPC_DECL(name, args...) \
-struct hdfs_object * \
+EXPORT_SYM struct hdfs_object * \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
 #define _HDFS_OBJ_RPC_BODY(name, htype, args...) \

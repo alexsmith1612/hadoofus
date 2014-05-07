@@ -17,7 +17,7 @@
 #include "pthread_wrappers.h"
 #include "util.h"
 
-const char *HDFS_DATANODE_ERR_NO_CRCS =
+EXPORT_SYM const char *HDFS_DATANODE_ERR_NO_CRCS =
     "Server doesn't send CRCs, can't verify. Aborting read";
 
 #define OP_WRITE 0x50
@@ -99,7 +99,7 @@ static const char *	_wait_ack(struct _packet_state *ps);
 // high-level api
 //
 
-struct hdfs_datanode *
+EXPORT_SYM struct hdfs_datanode *
 hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	int proto, const char **error_out)
 {
@@ -139,7 +139,7 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	return NULL;
 }
 
-void
+EXPORT_SYM void
 hdfs_datanode_delete(struct hdfs_datanode *d)
 {
 	hdfs_datanode_destroy(d);
@@ -150,7 +150,7 @@ hdfs_datanode_delete(struct hdfs_datanode *d)
 // low-level api
 //
 
-void
+EXPORT_SYM void
 hdfs_datanode_init(struct hdfs_datanode *d,
 	int64_t blkid, int64_t size, int64_t gen, /* block */
 	int64_t offset, const char *client, struct hdfs_object *token,
@@ -180,7 +180,7 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 	d->dn_proto = proto;
 }
 
-void
+EXPORT_SYM void
 hdfs_datanode_destroy(struct hdfs_datanode *d)
 {
 	ASSERT(d);
@@ -195,7 +195,7 @@ hdfs_datanode_destroy(struct hdfs_datanode *d)
 	memset(d, 0, sizeof *d);
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *port)
 {
 	const char *err;
@@ -214,7 +214,7 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 
 // Datanode write operations
 
-const char *
+EXPORT_SYM const char *
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
 {
 	ASSERT(buf);
@@ -222,7 +222,7 @@ hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool s
 	return _datanode_write(d, buf, -1, len, -1, sendcrcs);
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
 	bool sendcrcs)
 {
@@ -234,7 +234,7 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 
 // Datanode read operations
 
-const char *
+EXPORT_SYM const char *
 hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	bool verifycrc)
 {
@@ -244,7 +244,7 @@ hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	    verifycrc);
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 	int fd, off_t fdoff, bool verifycrc)
 {

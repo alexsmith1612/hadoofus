@@ -131,7 +131,7 @@ _objmalloc(void)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_void_new()
 {
 	struct hdfs_object *r = _objmalloc();
@@ -139,7 +139,7 @@ hdfs_void_new()
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_null_new(enum hdfs_object_type type)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -148,7 +148,7 @@ hdfs_null_new(enum hdfs_object_type type)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_boolean_new(bool val)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -157,7 +157,7 @@ hdfs_boolean_new(bool val)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_short_new(int16_t val)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -166,7 +166,7 @@ hdfs_short_new(int16_t val)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_int_new(int32_t val)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -175,7 +175,7 @@ hdfs_int_new(int32_t val)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_long_new(int64_t val)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -184,7 +184,7 @@ hdfs_long_new(int64_t val)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -204,7 +204,7 @@ hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_token_new_empty()
 {
 	struct hdfs_object *r = _objmalloc();
@@ -219,7 +219,7 @@ hdfs_token_new_empty()
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_token_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -237,7 +237,7 @@ hdfs_token_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_long_new(int len, const int64_t *values)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -253,7 +253,7 @@ hdfs_array_long_new(int len, const int64_t *values)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -267,7 +267,7 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_located_block_copy(struct hdfs_object *src)
 {
 	int nlocs;
@@ -301,7 +301,7 @@ hdfs_located_block_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_located_blocks_new(bool beingcreated, int64_t size)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -322,19 +322,19 @@ _hdfs_directory_listing_new(bool has_locations)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_located_directory_listing_new()
 {
 	return _hdfs_directory_listing_new(true/*locations*/);
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_directory_listing_new()
 {
 	return _hdfs_directory_listing_new(false/*locations*/);
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_datanode_info_new(const char *host, const char *port, const char *rack,
 	uint16_t namenodeport) // "/default-rack"
 {
@@ -357,7 +357,7 @@ hdfs_datanode_info_new(const char *host, const char *port, const char *rack,
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_datanode_info_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -388,7 +388,7 @@ hdfs_datanode_info_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_datanode_info_new()
 {
 	struct hdfs_object *r = _objmalloc();
@@ -396,7 +396,7 @@ hdfs_array_datanode_info_new()
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_datanode_info_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r;
@@ -429,7 +429,7 @@ hdfs_array_datanode_info_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_file_status_new(const char *logical_name, const struct stat *sb,
     const char *owner, const char *group)
 {
@@ -471,7 +471,7 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 	int replication, int64_t block_size, int64_t mtime_ms, int64_t atime_ms,
 	int perms, const char *owner, const char *group)
@@ -501,7 +501,7 @@ hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs, int64_t quota)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -515,7 +515,7 @@ hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs, int64_t qu
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_block_new(int64_t blkid, int64_t len, int64_t generation)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -528,7 +528,7 @@ hdfs_block_new(int64_t blkid, int64_t len, int64_t generation)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_block_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r;
@@ -545,7 +545,7 @@ hdfs_block_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_block_from_located_block(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -562,7 +562,7 @@ hdfs_block_from_located_block(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_byte_new(int len, int8_t *bytes)
 {
 	int8_t *bytes_copy = NULL;
@@ -582,7 +582,7 @@ hdfs_array_byte_new(int len, int8_t *bytes)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_byte_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r;
@@ -607,7 +607,7 @@ hdfs_array_byte_copy(struct hdfs_object *src)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_rpc_invocation_new(const char *name, ...)
 {
 	unsigned i;
@@ -649,7 +649,7 @@ _rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
 	rpc->ob_val._rpc_invocation._msgno = msgno;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_authheader_new(const char *user)
 {
 	char *user_copy = strdup(user);
@@ -664,7 +664,7 @@ hdfs_authheader_new(const char *user)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_string_new(const char *s)
 {
 	char *str_copy;
@@ -686,7 +686,7 @@ hdfs_string_new(const char *s)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_fsperms_new(int16_t perms)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -695,7 +695,7 @@ hdfs_fsperms_new(int16_t perms)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
 {
 	char *msg_copy = strdup(msg);
@@ -709,7 +709,7 @@ hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_array_string_new(int32_t len, const char **strings)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -734,7 +734,7 @@ hdfs_array_string_new(int32_t len, const char **strings)
 	array_len += 1; \
 } while (0)
 
-void
+EXPORT_SYM void
 hdfs_located_block_append_datanode_info(struct hdfs_object *located_block,
 	struct hdfs_object *datanode_info)
 {
@@ -746,7 +746,7 @@ hdfs_located_block_append_datanode_info(struct hdfs_object *located_block,
 	    datanode_info);
 }
 
-void
+EXPORT_SYM void
 hdfs_located_blocks_append_located_block(struct hdfs_object *located_blocks,
 	struct hdfs_object *located_block)
 {
@@ -757,7 +757,7 @@ hdfs_located_blocks_append_located_block(struct hdfs_object *located_blocks,
 	    located_blocks->ob_val._located_blocks._num_blocks, located_block);
 }
 
-void
+EXPORT_SYM void
 hdfs_directory_listing_append_file_status(struct hdfs_object *directory_listing,
 	struct hdfs_object *file_status, struct hdfs_object *located_blocks)
 {
@@ -781,7 +781,7 @@ hdfs_directory_listing_append_file_status(struct hdfs_object *directory_listing,
 	}
 }
 
-void
+EXPORT_SYM void
 hdfs_array_datanode_info_append_datanode_info(struct hdfs_object *array, struct hdfs_object *datanode_info)
 {
 	ASSERT(array->ob_type == H_ARRAY_DATANODE_INFO);
@@ -792,7 +792,7 @@ hdfs_array_datanode_info_append_datanode_info(struct hdfs_object *array, struct 
 	    datanode_info);
 }
 
-void
+EXPORT_SYM void
 hdfs_array_string_add(struct hdfs_object *o, const char *s)
 {
 	char *copy;
@@ -819,7 +819,7 @@ hdfs_array_string_add(struct hdfs_object *o, const char *s)
 } while (0)
 
 // Recursively frees an object:
-void
+EXPORT_SYM void
 hdfs_object_free(struct hdfs_object *obj)
 {
 	switch (obj->ob_type) {
@@ -925,7 +925,7 @@ _is_type_objtype(enum hdfs_object_type t)
 
 // Serializes an hdfs_object into a buffer. dest must be non-NULL and
 // initialized to zero.
-void
+EXPORT_SYM void
 hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 {
 	switch (obj->ob_type) {
@@ -1255,7 +1255,7 @@ out:
 	return r;
 }
 
-struct hdfs_object *
+EXPORT_SYM struct hdfs_object *
 hdfs_object_slurp(struct hdfs_heap_buf *rbuf, enum hdfs_object_type realtype)
 {
 	struct hdfs_object *(*slurper)(struct hdfs_heap_buf *);
