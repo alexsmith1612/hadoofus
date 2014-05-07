@@ -29,7 +29,7 @@ static uint64_t _now(void)
 	int rc;
 	struct timespec ts;
 	rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-	fail_if(rc == -1, "clock_gettime: %s", strerror(errno));
+	ck_assert_msg(rc != -1, "clock_gettime: %s", strerror(errno));
 	return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec/1000000;
 }
 
@@ -39,9 +39,9 @@ setup_buf(void)
 	const char *err = NULL;
 
 	buf = malloc(towrite);
-	fail_unless((intptr_t)buf);
+	ck_assert((intptr_t)buf);
 	rbuf = malloc(towrite);
-	fail_unless((intptr_t)rbuf);
+	ck_assert((intptr_t)rbuf);
 
 	for (int i = 0; i < towrite; i++) {
 		buf[i] = '0' + (i%10);
@@ -49,7 +49,7 @@ setup_buf(void)
 	}
 
 	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_NO_KERB, &err);
-	fail_if(h == NULL, "Could not connect to %s=%s (port 8020): %s",
+	ck_assert_msg((intptr_t)h, "Could not connect to %s=%s (port 8020): %s",
 	    HDFS_T_ENV, H_ADDR, err);
 }
 
@@ -73,13 +73,13 @@ setup_file(void)
 	setup_buf();
 
 	fd = open(localtf, O_RDWR|O_CREAT, 0600);
-	fail_if(fd == -1, "open failed: %s", strerror(errno));
+	ck_assert_msg(fd != -1, "open failed: %s", strerror(errno));
 	ofd = open(localtf2, O_RDWR|O_CREAT, 0600);
-	fail_if(fd == -1, "open failed: %s", strerror(errno));
+	ck_assert_msg(fd != -1, "open failed: %s", strerror(errno));
 
 	while (written < towrite) {
 		rc = write(fd, buf + written, towrite - written);
-		fail_if(rc <= 0, "write failed: %s", strerror(errno));
+		ck_assert_msg(rc > 0, "write failed: %s", strerror(errno));
 		written += rc;
 	}
 }
@@ -123,7 +123,7 @@ START_TEST(test_dn_write_buf)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 	hdfs_object_free(bl);
 
@@ -138,7 +138,7 @@ START_TEST(test_dn_write_buf)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 	hdfs_object_free(bl);
 
@@ -155,13 +155,13 @@ START_TEST(test_dn_write_buf)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(fs->ob_val._file_status._size == towrite);
+	ck_assert(fs->ob_val._file_status._size == towrite);
 	hdfs_object_free(fs);
 
 	s = hdfs_complete(h, tf, client, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(s, "did not complete");
+	ck_assert_msg(s, "did not complete");
 
 	bls = hdfs_getBlockLocations(h, tf, 0, towrite, &e);
 	if (e)
@@ -172,7 +172,7 @@ START_TEST(test_dn_write_buf)
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
 		dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-		fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
 		    bl->ob_val._located_block._len,
@@ -189,7 +189,7 @@ START_TEST(test_dn_write_buf)
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
 			dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-			fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
 			    bl->ob_val._located_block._len,
@@ -212,7 +212,7 @@ START_TEST(test_dn_write_buf)
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(s, "delete returned false");
+	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
 
@@ -243,7 +243,7 @@ START_TEST(test_dn_write_file)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 	hdfs_object_free(bl);
 
@@ -258,7 +258,7 @@ START_TEST(test_dn_write_file)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 	hdfs_object_free(bl);
 
@@ -275,13 +275,13 @@ START_TEST(test_dn_write_file)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(fs->ob_val._file_status._size == towrite);
+	ck_assert(fs->ob_val._file_status._size == towrite);
 	hdfs_object_free(fs);
 
 	s = hdfs_complete(h, tf, client, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(s, "did not complete");
+	ck_assert_msg(s, "did not complete");
 
 	bls = hdfs_getBlockLocations(h, tf, 0, towrite, &e);
 	if (e)
@@ -292,7 +292,7 @@ START_TEST(test_dn_write_file)
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
 		dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-		fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 		err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
 		    bl->ob_val._located_block._len,
@@ -310,7 +310,7 @@ START_TEST(test_dn_write_file)
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
 			dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-			fail_unless((intptr_t)dn, "error connecting to datanode: %s", err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
 
 			err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
 			    bl->ob_val._located_block._len,
@@ -334,7 +334,7 @@ START_TEST(test_dn_write_file)
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
-	fail_unless(s, "delete returned false");
+	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
 
