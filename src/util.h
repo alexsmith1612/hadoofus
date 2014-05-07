@@ -11,6 +11,18 @@
 # define __DECONST(t, v) ((t)(intptr_t)(v))
 #endif
 
+#define ASSERT(cond) do {					\
+	if ((intptr_t)(cond))					\
+		break;						\
+								\
+	assert_fail(#cond, __func__, __FILE__, __LINE__);	\
+} while (false)
+
+void	assert_fail(const char *an, const char *fn, const char *file, unsigned line)
+	__attribute__((noreturn));
+
+#define EXPORT_SYM __attribute__((visibility("default")))
+
 static inline off_t
 _min(off_t a, off_t b)
 {

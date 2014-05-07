@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <stdlib.h>
 
 #include "heapbuf.h"
@@ -95,7 +94,7 @@ _oslurp_array_long(struct hdfs_heap_buf *b)
 
 	if (n > 0) {
 		longs = malloc(n * sizeof *longs);
-		assert(longs);
+		ASSERT(longs);
 
 		for (int32_t i = 0; i < n; i++) {
 			bool eq;
@@ -179,7 +178,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 	corrupt = _bslurp_s8(b);
 	if (b->used < 0)
 		return NULL;
-	assert(!corrupt); // TODO keep corrupt info around
+	ASSERT(!corrupt); // TODO keep corrupt info around
 
 	offset = _bslurp_s64(b);
 	if (b->used < 0)
@@ -367,7 +366,7 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 		hdfs_object_free(res);
 		return NULL;
 	}
-	assert(remaining == 0);
+	ASSERT(remaining == 0);
 
 	return res;
 }

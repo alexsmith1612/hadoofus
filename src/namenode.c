@@ -1,9 +1,3 @@
-// This will fail horribly if asserts are disabled:
-#ifdef NDEBUG
-# undef NDEBUG
-#endif
-
-#include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -37,7 +31,7 @@ static void	_conn_try_desasl(struct hdfs_namenode *n);
 static int	_getssf(sasl_conn_t *);
 static void	_sasl_interacts(sasl_interact_t *);
 
-void
+EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
 	n->nn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
@@ -65,13 +59,13 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_objbuf_size = 0;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
 {
 	const char *err = NULL;
 
 	_lock(&n->nn_lock);
-	assert(n->nn_sock == -1);
+	ASSERT(n->nn_sock == -1);
 
 	if (n->nn_kerb == HDFS_TRY_KERB || n->nn_kerb == HDFS_REQUIRE_KERB) {
 		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
@@ -91,7 +85,7 @@ out:
 	return err;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
 	const char *err = NULL, *preamble = "hrpc\x04\x50";
@@ -100,8 +94,8 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	char *inh = NULL;
 
 	_lock(&n->nn_lock);
-	assert(!n->nn_authed);
-	assert(n->nn_sock != -1);
+	ASSERT(!n->nn_authed);
+	ASSERT(n->nn_sock != -1);
 
 	// Create / serialize the connection header object
 	header = hdfs_authheader_new(username);
@@ -111,7 +105,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 	if (n->nn_kerb == HDFS_NO_KERB) {
 		// Prefix the header object with the protocol preamble
 		hbuf.buf = realloc(hbuf.buf, hbuf.size + strlen(preamble));
-		assert(hbuf.buf);
+		ASSERT(hbuf.buf);
 		memmove(hbuf.buf + strlen(preamble), hbuf.buf, hbuf.used);
 		memcpy(hbuf.buf, preamble, strlen(preamble));
 		hbuf.used += strlen(preamble);
@@ -193,7 +187,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 			inh = NULL;
 			if (inlen > 0) {
 				inh = malloc(inlen);
-				assert(inh);
+				ASSERT(inh);
 				err = _read_all(n->nn_sock, inh, inlen);
 				if (err)
 					goto out;
@@ -246,7 +240,7 @@ out:
 	return err;
 }
 
-int64_t
+EXPORT_SYM int64_t
 hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 {
 	int64_t res;
@@ -258,7 +252,7 @@ hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 	return res;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
@@ -267,17 +261,17 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	int64_t msgno;
 	struct hdfs_heap_buf hbuf = { 0 };
 
-	assert(future);
-	assert(!future->fu_namenode);
+	ASSERT(future);
+	ASSERT(!future->fu_namenode);
 
-	assert(rpc);
-	assert(rpc->ob_type == H_RPC_INVOCATION);
+	ASSERT(rpc);
+	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
 
 	_lock(&n->nn_lock);
 	nnlocked = true;
 
-	assert(n->nn_refs >= 1);
-	assert(!n->nn_dead);
+	ASSERT(n->nn_refs >= 1);
+	ASSERT(!n->nn_dead);
 
 	if (n->nn_sock == -1) {
 		err = "Not connected";
@@ -317,7 +311,7 @@ out:
 	return err;
 }
 
-void
+EXPORT_SYM void
 hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
 {
 	bool found;
@@ -326,7 +320,7 @@ hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **ob
 	while (!future->fu_res) {
 		found = _namenode_recv(future);
 		if (found) {
-			assert(future->fu_res);
+			ASSERT(future->fu_res);
 			break;
 		}
 
@@ -344,12 +338,12 @@ hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **ob
 // Caller *must not* use the namenode object after this. If 'cb' is non-null,
 // they will receive a callback when the memory is no longer used, which they
 // can use to free memory or whatever.
-void
+EXPORT_SYM void
 hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 {
 	_lock(&n->nn_lock);
-	assert(n->nn_refs >= 1);
-	assert(!n->nn_dead);
+	ASSERT(n->nn_refs >= 1);
+	ASSERT(!n->nn_dead);
 	n->nn_dead = true;
 	n->nn_destroy_cb = cb;
 	_unlock(&n->nn_lock);
@@ -361,7 +355,7 @@ hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 static struct hdfs_namenode *
 _namenode_copyref_unlocked(struct hdfs_namenode *n)
 {
-	assert(n->nn_refs >= 1);
+	ASSERT(n->nn_refs >= 1);
 	n->nn_refs++;
 	return n;
 }
@@ -372,7 +366,7 @@ _namenode_decref(struct hdfs_namenode *n)
 	bool lastref = false;
 
 	_lock(&n->nn_lock);
-	assert(n->nn_refs >= 1);
+	ASSERT(n->nn_refs >= 1);
 	n->nn_refs--;
 	if (n->nn_refs == 0)
 		lastref = true;
@@ -441,7 +435,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 		_unlock(&n->nn_lock);
 		nnlocked = false;
 
-		assert(sock != -1);
+		ASSERT(sock != -1);
 
 		if (n->nn_sasl_ssf > 0) {
 			objbuffer = n->nn_objbuf;
@@ -458,7 +452,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 			if (remain < 4*1024) {
 				n->nn_recvbuf_size += RESIZE;
 				n->nn_recvbuf = realloc(n->nn_recvbuf, n->nn_recvbuf_size);
-				assert(n->nn_recvbuf);
+				ASSERT(n->nn_recvbuf);
 				remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 			}
 
@@ -508,7 +502,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 			memmove(objbuffer, objbuffer + obj_size, *objused);
 
 		future = _namenode_pending_remove(n, result->rs_msgno);
-		assert(future); // got a response to a msgno we didn't request
+		ASSERT(future); // got a response to a msgno we didn't request
 
 		if (future == goal_future)
 			_future_complete_unlocked(future, result->rs_obj);
@@ -529,7 +523,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 	// End the critical section:
 	if (!nnlocked)
 		_lock(&n->nn_lock);
-	assert(n->nn_worked);
+	ASSERT(n->nn_worked);
 	n->nn_worked = false;
 
 	// If any thread is pending, wake it
@@ -563,7 +557,7 @@ _namenode_pending_insert_unlocked(struct hdfs_namenode *n, int64_t msgno,
 	if (n->nn_pending_len % RESIZE_FACTOR == 0) {
 		n->nn_pending = realloc(n->nn_pending,
 		    (n->nn_pending_len + RESIZE_FACTOR) * sizeof *n->nn_pending);
-		assert(n->nn_pending);
+		ASSERT(n->nn_pending);
 	}
 
 	n->nn_pending[n->nn_pending_len].pd_msgno = msgno;
@@ -596,11 +590,11 @@ _namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno)
 static void
 _future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
 {
-	assert(o);
+	ASSERT(o);
 
 	_lock(&f->fu_lock);
 
-	assert(!f->fu_res);
+	ASSERT(!f->fu_res);
 	f->fu_res = o;
 	_notifyall(&f->fu_cond);
 
@@ -610,9 +604,9 @@ _future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
 static void
 _future_complete_unlocked(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
 {
-	assert(o);
+	ASSERT(o);
 
-	assert(!f->fu_res);
+	ASSERT(!f->fu_res);
 	f->fu_res = o;
 }
 
@@ -622,7 +616,7 @@ _getssf(sasl_conn_t *ctx)
 	int *ssfp, r;
 
 	r = sasl_getprop(ctx, SASL_SSF, (const void **)&ssfp);
-	assert(r == SASL_OK);
+	ASSERT(r == SASL_OK);
 
 	return *ssfp;
 }
@@ -652,7 +646,7 @@ _conn_try_desasl(struct hdfs_namenode *n)
 		unsigned outlen;
 
 		clen = _be32dec(n->nn_recvbuf);
-		assert(clen <= INT32_MAX);
+		ASSERT(clen <= INT32_MAX);
 
 		// did we get an incomplete sasl chunk?
 		if (clen > n->nn_recvbuf_used - o - 4)
@@ -666,7 +660,7 @@ _conn_try_desasl(struct hdfs_namenode *n)
 		if (outlen > n->nn_objbuf_size - n->nn_objbuf_used) {
 			n->nn_objbuf_size = n->nn_objbuf_used + outlen + 4*1024;
 			n->nn_objbuf = realloc(n->nn_objbuf, n->nn_objbuf_size);
-			assert(n->nn_objbuf);
+			ASSERT(n->nn_objbuf);
 		}
 
 		memcpy(n->nn_objbuf + n->nn_objbuf_used, out, outlen);

@@ -3,16 +3,18 @@
 
 #include <hadoofus/highlevel.h>
 
+#include "util.h"
+
 static void
 _assert_not_err(const char *err)
 {
 	if (err) {
 		fprintf(stderr, "libhadoofus: Got error, bailing: %s\n", err);
-		assert(!err);
+		ASSERT(!err);
 	}
 }
 
-struct hdfs_namenode *
+EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new(const char *host, const char *port, const char *username,
 	enum hdfs_kerb kerb_pref, const char **error_out)
 {
@@ -20,7 +22,7 @@ hdfs_namenode_new(const char *host, const char *port, const char *username,
 	struct hdfs_namenode *h;
 
 	h = malloc(sizeof *h);
-	assert(h);
+	ASSERT(h);
 
 	hdfs_namenode_init(h, kerb_pref);
 	err = hdfs_namenode_connect(h, host, port);
@@ -40,7 +42,7 @@ out:
 	return h;
 }
 
-void
+EXPORT_SYM void
 hdfs_namenode_delete(struct hdfs_namenode *h)
 {
 	hdfs_namenode_destroy(h, (hdfs_namenode_destroy_cb)free);
@@ -49,7 +51,7 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 // RPC implementations
 
 #define _HDFS_PRIM_RPC_DECL(type, name, args...) \
-type \
+EXPORT_SYM type \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
 #define _HDFS_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
@@ -69,7 +71,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	hdfs_future_get(&future, &object); \
 \
-	assert(object->ob_type == htype || \
+	ASSERT(object->ob_type == htype || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \
 	if (object->ob_type == H_PROTOCOL_EXCEPTION) { \
@@ -94,7 +96,7 @@ _HDFS_PRIM_RPC_BODY(getProtocolVersion,
 )
 
 #define _HDFS_OBJ_RPC_DECL(name, args...) \
-struct hdfs_object * \
+EXPORT_SYM struct hdfs_object * \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
 #define _HDFS_OBJ_RPC_BODY(name, htype, args...) \
@@ -114,7 +116,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	hdfs_future_get(&future, &object); \
 \
-	assert(object->ob_type == htype || \
+	ASSERT(object->ob_type == htype || \
 	    (object->ob_type == H_NULL && object->ob_val._null._type == htype ) || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \

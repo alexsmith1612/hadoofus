@@ -19,14 +19,14 @@ WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
 		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
 		-Wnested-externs -Wredundant-decls
-FLAGS = $(WARNS) -fPIC $(CFLAGS) -g
+FLAGS = $(WARNS) -fPIC $(CFLAGS) -g -fvisibility=hidden
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz
 LIB = libhadoofus.so
 LIBDIR = $(PREFIX)/lib
 
 CC = gcc
 
-$(LIB): libhadoofus.version $(OBJS)
+$(LIB): $(OBJS)
 	$(CC) -o $@ $(LIBFLAGS) $(OBJS)
 
 all: $(LIB)

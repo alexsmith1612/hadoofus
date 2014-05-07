@@ -156,8 +156,9 @@ Found a bug? Please file it on github. Thanks!
 
 #### Contributors
 
-Tom Arnfeld &lt;tarnfeld@me.com&gt;
-Conrad Meyer &lt;conrad.meyer@isilon.com&gt;
+* Tom Arnfeld &lt;tarnfeld@me.com&gt;
+* Conrad Meyer &lt;conrad.meyer@isilon.com&gt;
+* Paul Scott &lt;paul@duedil.com&gt;
 
 #### License
 

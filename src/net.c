@@ -1,14 +1,9 @@
-#ifdef NDEBUG
-# undef NDEBUG
-#endif
-
 #include <netinet/tcp.h>
 #ifdef __linux__
 # include <sys/sendfile.h>
 #endif
 #include <sys/uio.h>
 
-#include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +51,7 @@ _connect(int *s, const char *host, const char *port)
 	freeaddrinfo(ai);
 
 	if (!err) {
-		assert(sfd != -1);
+		ASSERT(sfd != -1);
 		_setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, 1);
 		_setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, 1024*1024);
 		_setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, 1024*1024);
@@ -97,7 +92,7 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 	if (remain < RESIZE_AT) {
 		h->size += RESIZE_BY;
 		h->buf = realloc(h->buf, h->size);
-		assert(h->buf);
+		ASSERT(h->buf);
 		remain = h->size - h->used;
 	}
 
@@ -240,5 +235,5 @@ _setsockopt(int s, int level, int optname, int optval)
 {
 	int rc;
 	rc = setsockopt(s, level, optname, &optval, sizeof(optval));
-	assert(rc == 0);
+	ASSERT(rc == 0);
 }
