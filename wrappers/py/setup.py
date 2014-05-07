@@ -23,9 +23,22 @@ except ImportError:
 
 include_dirs = [realpath(dirname(abspath(__file__)) + "/../../include")]
 ext_modules = cythonize([
-    Extension("hadoofus", ["hadoofus.pyx"],
-              libraries=["z", "sasl2"],
-              include_dirs=include_dirs)
+    Extension(
+        "hadoofus",
+        ["hadoofus.pyx",
+         realpath(dirname(abspath(__file__)) + "/../../src/datanode.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/heapbuf.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/heapbufobjs.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/highlevel.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/namenode.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/net.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/objects.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/pthread_wrappers.c"),
+         realpath(dirname(abspath(__file__)) + "/../../src/util.c")],
+        libraries=["z", "sasl2"],
+        include_dirs=include_dirs,
+        extra_link_args=['-static']
+    )
 ])
 
 setup(
