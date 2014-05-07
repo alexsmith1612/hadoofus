@@ -32,12 +32,8 @@ _be32enc(void *void_p, uint32_t v)
 }
 
 void
-assert_(bool cond, const char *an, const char *fn, const char *file,
-    unsigned line)
+assert_fail(const char *an, const char *fn, const char *file, unsigned line)
 {
-
-	if (cond)
-		return;
 
 	fprintf(stderr, "ASSERTION `%s' FAILED in %s (%s:%u)\n", an, fn, file,
 	    line);
