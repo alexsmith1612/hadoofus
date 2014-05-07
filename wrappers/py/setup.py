@@ -1,4 +1,5 @@
 from distutils.core import setup
+from distutils.command.build_clib import build_clib
 from distutils.extension import Extension
 from distutils.sysconfig import parse_makefile
 from os.path import abspath, dirname, realpath, splitext
@@ -24,21 +25,13 @@ except ImportError:
 
 include_dirs = [realpath(dirname(abspath(__file__)) + "/../../include")]
 
+# Also build the libhadoofus C library
 make_vars = parse_makefile(realpath(dirname(abspath(__file__)) + "/../../src/Makefile"))
-ext_modules = cythonize([
-    Extension(
-        name="libhadoofus",
-        sources=[realpath(p) for p in glob("%s/../../src/*.c" % dirname(abspath(__file__)))],
-        include_dirs=include_dirs,
-        extra_compile_args=make_vars["FLAGS"].split()
-    ),
-    Extension(
-        name="hadoofus",
-        sources=["hadoofus.pyx"],
-        libraries=["z", "sasl2"],
-        include_dirs=include_dirs
-    )
-])
+libhadoofus = ("hadoofus", {
+    "sources": [realpath(p) for p in glob("%s/../../src/*.c" % dirname(abspath(__file__)))],
+    "include_dirs": include_dirs,
+    "extra_compile_args": make_vars["FLAGS"].split()
+})
 
 
 setup(
@@ -65,5 +58,16 @@ implementations.
     ],
     platforms=['Posix'],
     license='MIT',
-    ext_modules=ext_modules
+    ext_modules=cythonize([
+        Extension(
+            name="hadoofus",
+            sources=["hadoofus.pyx"],
+            libraries=["z", "sasl2"],
+            include_dirs=include_dirs
+        )
+    ]),
+    libraries=[libhadoofus],
+    cmdclass={
+        'build_clib': build_clib
+    }
 )
