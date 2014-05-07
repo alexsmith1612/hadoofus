@@ -3,12 +3,14 @@
 
 #include <hadoofus/highlevel.h>
 
+#include "util.h"
+
 static void
 _assert_not_err(const char *err)
 {
 	if (err) {
 		fprintf(stderr, "libhadoofus: Got error, bailing: %s\n", err);
-		assert(!err);
+		ASSERT(!err);
 	}
 }
 
@@ -20,7 +22,7 @@ hdfs_namenode_new(const char *host, const char *port, const char *username,
 	struct hdfs_namenode *h;
 
 	h = malloc(sizeof *h);
-	assert(h);
+	ASSERT(h);
 
 	hdfs_namenode_init(h, kerb_pref);
 	err = hdfs_namenode_connect(h, host, port);
@@ -69,7 +71,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	hdfs_future_get(&future, &object); \
 \
-	assert(object->ob_type == htype || \
+	ASSERT(object->ob_type == htype || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \
 	if (object->ob_type == H_PROTOCOL_EXCEPTION) { \
@@ -114,7 +116,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	hdfs_future_get(&future, &object); \
 \
-	assert(object->ob_type == htype || \
+	ASSERT(object->ob_type == htype || \
 	    (object->ob_type == H_NULL && object->ob_val._null._type == htype ) || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \

@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +19,7 @@ _hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
 	toalloc = _MAX(32, space - remain + 16);
 
 	h->buf = realloc(h->buf, h->size + toalloc);
-	assert(h->buf);
+	ASSERT(h->buf);
 	h->size += toalloc;
 }
 
@@ -79,8 +78,8 @@ _bappend_string(struct hdfs_heap_buf *h, const char *arg)
 {
 	int len = strlen(arg);
 
-	assert(len >= 0);
-	assert(len <= INT16_MAX);
+	ASSERT(len >= 0);
+	ASSERT(len <= INT16_MAX);
 
 	_bappend_u16(h, (uint16_t)len);
 	_bappend_mem(h, len, arg);
@@ -93,8 +92,8 @@ _bappend_text(struct hdfs_heap_buf *h, const char *arg)
 
 	// a limited form of the variable length int format, but usually we
 	// don't need more for "text" fields:
-	assert(len >= 0);
-	assert(len < 127);
+	ASSERT(len >= 0);
+	ASSERT(len < 127);
 
 	_bappend_s8(h, (int8_t)len);
 	_bappend_mem(h, len, arg);
@@ -103,7 +102,7 @@ _bappend_text(struct hdfs_heap_buf *h, const char *arg)
 void
 _bappend_mem(struct hdfs_heap_buf *h, int arglen, const void *arg)
 {
-	assert(arglen >= 0);
+	ASSERT(arglen >= 0);
 
 	_hbuf_reserve(h, arglen);
 	memcpy(h->buf + h->used, arg, arglen);
@@ -178,13 +177,13 @@ _bslurp_mem1(struct hdfs_heap_buf *b, int len, char **obuf)
 {
 	char *res;
 
-	assert(len >= 0);
+	ASSERT(len >= 0);
 
 	if (_eos(b, len))
 		return;
 
 	res = malloc(len + 1);
-	assert(res);
+	ASSERT(res);
 	memcpy(res, b->buf + b->used, len);
 	b->used += len;
 	*obuf = res;
@@ -247,7 +246,7 @@ _bslurp_text(struct hdfs_heap_buf *b)
 		return NULL;
 
 	// we don't handle "text" objects longer than 127 bytes right now
-	assert(len >= 0);
+	ASSERT(len >= 0);
 
 	_bslurp_mem1(b, len, &res);
 	if (b->used < 0)
@@ -273,7 +272,7 @@ _sasl_encode_inplace(sasl_conn_t *ctx, struct hdfs_heap_buf *b)
 
 	free(b->buf);
 	b->buf = malloc(4 + outlen);
-	assert(b->buf);
+	ASSERT(b->buf);
 
 	// copy in length-prefixed encoded bits
 	_be32enc(b->buf, outlen);
@@ -309,7 +308,7 @@ _sasl_decode_at_offset(sasl_conn_t *ctx, char **bufp, size_t offset, int r, int 
 	if (outlen > (unsigned)*remain) {
 		*remain = outlen + 4*1024;
 		*bufp = realloc(*bufp, offset + *remain);
-		assert(*bufp);
+		ASSERT(*bufp);
 	}
 
 	memcpy(*bufp + offset, out, outlen);

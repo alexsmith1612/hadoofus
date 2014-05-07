@@ -107,9 +107,9 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	struct hdfs_datanode *d = malloc(sizeof *d);
 	int32_t n;
 
-	assert(d);
-	assert(located_block);
-	assert(located_block->ob_type == H_LOCATED_BLOCK);
+	ASSERT(d);
+	ASSERT(located_block);
+	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
 
 	hdfs_datanode_init(d,
 	    located_block->ob_val._located_block._blockid,
@@ -156,8 +156,8 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 	int64_t offset, const char *client, struct hdfs_object *token,
 	int proto)
 {
-	assert(d);
-	assert(proto == HDFS_DATANODE_AP_1_0 || proto == HDFS_DATANODE_CDH3);
+	ASSERT(d);
+	ASSERT(proto == HDFS_DATANODE_AP_1_0 || proto == HDFS_DATANODE_CDH3);
 
 	d->dn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 	d->dn_sock = -1;
@@ -173,9 +173,9 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 	else
 		d->dn_token = hdfs_token_new_empty();
 
-	assert(client);
+	ASSERT(client);
 	d->dn_client = strdup(client);
-	assert(d->dn_client);
+	ASSERT(d->dn_client);
 
 	d->dn_proto = proto;
 }
@@ -183,7 +183,7 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 void
 hdfs_datanode_destroy(struct hdfs_datanode *d)
 {
-	assert(d);
+	ASSERT(d);
 
 	_lock(&d->dn_lock);
 	if (d->dn_sock != -1)
@@ -200,11 +200,11 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 {
 	const char *err;
 
-	assert(d);
+	ASSERT(d);
 
 	_lock(&d->dn_lock);
 
-	assert(d->dn_sock == -1);
+	ASSERT(d->dn_sock == -1);
 	err = _connect(&d->dn_sock, host, port);
 
 	_unlock(&d->dn_lock);
@@ -217,7 +217,7 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 const char *
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
 {
-	assert(buf);
+	ASSERT(buf);
 
 	return _datanode_write(d, buf, -1, len, -1, sendcrcs);
 }
@@ -226,8 +226,8 @@ const char *
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
 	bool sendcrcs)
 {
-	assert(offset >= 0);
-	assert(fd >= 0);
+	ASSERT(offset >= 0);
+	ASSERT(fd >= 0);
 
 	return _datanode_write(d, NULL, fd, len, offset, sendcrcs);
 }
@@ -238,7 +238,7 @@ const char *
 hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	bool verifycrc)
 {
-	assert(buf);
+	ASSERT(buf);
 
 	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf,
 	    verifycrc);
@@ -248,9 +248,9 @@ const char *
 hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 	int fd, off_t fdoff, bool verifycrc)
 {
-	assert(bloff >= 0);
-	assert(fdoff >= 0);
-	assert(fd >= 0);
+	ASSERT(bloff >= 0);
+	ASSERT(fdoff >= 0);
+	ASSERT(fd >= 0);
 
 	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/, verifycrc);
 }
@@ -300,12 +300,12 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 	struct _packet_state pstate = { 0 };
 	struct _read_state rinfo = { 0 };
 
-	assert(d);
-	assert(len > 0);
+	ASSERT(d);
+	ASSERT(len > 0);
 
 	_lock(&d->dn_lock);
 
-	assert(!d->dn_used);
+	ASSERT(!d->dn_used);
 	d->dn_used = true;
 
 	_compose_read_header(&header, d, bloff, len);
@@ -364,12 +364,12 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	struct _packet_state pstate = { 0 };
 	const int32_t zero = 0;
 
-	assert(d);
-	assert(len > 0);
+	ASSERT(d);
+	ASSERT(len > 0);
 
 	_lock(&d->dn_lock);
 
-	assert(!d->dn_used);
+	ASSERT(!d->dn_used);
 	d->dn_used = true;
 
 	_compose_write_header(&header, d, sendcrcs);
@@ -439,7 +439,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	obuf.size = h->used;
 
 	status = _bslurp_s16(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 
 	if (status != STATUS_SUCCESS) {
 		err = "Server reported error with read request; aborting read";
@@ -455,11 +455,11 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	obuf.size = h->used;
 
 	crcs = _bslurp_s8(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	chunk_size = _bslurp_s32(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	server_offset = _bslurp_s64(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 
 	rs->server_offset = server_offset;
 	rs->chunk_size = chunk_size;
@@ -531,7 +531,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 		goto out;
 	}
 
-	assert(strlen(statusmsg) == 0); /* no message on success */
+	ASSERT(strlen(statusmsg) == 0); /* no message on success */
 
 	// Skip the recv buffer past the read objects
 	h->used -= statussz;
@@ -568,15 +568,15 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 	obuf.size = recvbuf->used;
 
 	plen = _bslurp_s32(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	offset = _bslurp_s64(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	/*seqno = */_bslurp_s64(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	lastpacket = _bslurp_s8(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 	dlen = _bslurp_s32(&obuf);
-	assert(obuf.used > 0);
+	ASSERT(obuf.used > 0);
 
 	crcdlen = plen - dlen - 4;
 	if (plen < 0 || dlen < 0 || dlen > ONEGB || plen > ONEGB)
@@ -715,7 +715,7 @@ _send_packet(struct _packet_state *ps)
 
 	if (datamalloced) {
 		data = malloc(tosend);
-		assert(data);
+		ASSERT(data);
 		err = _pread_all(ps->fd, data, tosend, ps->fdoffset);
 		if (err)
 			goto out;
@@ -728,7 +728,7 @@ _send_packet(struct _packet_state *ps)
 
 		crclen = (tosend + CHUNK_SIZE - 1) / CHUNK_SIZE;
 		crcdata = malloc(4*crclen);
-		assert(crcdata);
+		ASSERT(crcdata);
 
 		crcinit = crc32(0L, Z_NULL, 0);
 		for (unsigned i = 0; i < crclen; i++) {
@@ -777,7 +777,7 @@ _send_packet(struct _packet_state *ps)
 #else
 		// !data => freebsd or linux. this branch should never be taken
 		// on other platforms.
-		assert(false);
+		ASSERT(false);
 #endif
 	}
 
@@ -834,12 +834,12 @@ _wait_ack(struct _packet_state *ps)
 	int64_t seqno;
 	int16_t nacks;
 
-	// Initialize these with a zero value, to avoid compiler errors. The assert() below
+	// Initialize these with a zero value, to avoid compiler errors. The ASSERT() below
 	// will ensure these never have the initialized value, but this is far from ideal.
 	int16_t ack = 0;
 	int acksz = 0;
 
-	assert(ps->proto == HDFS_DATANODE_AP_1_0 ||
+	ASSERT(ps->proto == HDFS_DATANODE_AP_1_0 ||
 	    ps->proto == HDFS_DATANODE_CDH3);
 
 	if (ps->proto == HDFS_DATANODE_AP_1_0)
@@ -858,7 +858,7 @@ _wait_ack(struct _packet_state *ps)
 	obuf.size = ps->recvbuf->used;
 
 	seqno = _bslurp_s64(&obuf);
-	assert(obuf.used >= 0);
+	ASSERT(obuf.used >= 0);
 
 	if (seqno != ps->first_unacked) {
 		err = "Got unexpected ACK";
@@ -870,12 +870,12 @@ _wait_ack(struct _packet_state *ps)
 
 	ps->first_unacked++;
 
-	assert(ps->proto == HDFS_DATANODE_AP_1_0 ||
+	ASSERT(ps->proto == HDFS_DATANODE_AP_1_0 ||
 	    ps->proto == HDFS_DATANODE_CDH3);
 
 	if (ps->proto == HDFS_DATANODE_AP_1_0) {
 		nacks = _bslurp_s16(&obuf);
-		assert(obuf.used >= 0);
+		ASSERT(obuf.used >= 0);
 
 		// We only connect to one datanode, we should only get one ack:
 		if (nacks != 1) {
@@ -884,10 +884,10 @@ _wait_ack(struct _packet_state *ps)
 		}
 
 		ack = _bslurp_s16(&obuf);
-		assert(obuf.used >= 0);
+		ASSERT(obuf.used >= 0);
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
 		ack = _bslurp_s16(&obuf);
-		assert(obuf.used >= 0);
+		ASSERT(obuf.used >= 0);
 	}
 
 	if (ack != STATUS_SUCCESS) {

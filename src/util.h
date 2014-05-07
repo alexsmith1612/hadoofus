@@ -11,6 +11,9 @@
 # define __DECONST(t, v) ((t)(intptr_t)(v))
 #endif
 
+#define ASSERT(cond) assert_((intptr_t)(cond), #cond, __func__, __FILE__, __LINE__)
+void	assert_(bool cond, const char *an, const char *fn, const char *file, unsigned line);
+
 static inline off_t
 _min(off_t a, off_t b)
 {
