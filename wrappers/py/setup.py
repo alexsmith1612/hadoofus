@@ -36,8 +36,7 @@ ext_modules = cythonize([
          realpath(dirname(abspath(__file__)) + "/../../src/pthread_wrappers.c"),
          realpath(dirname(abspath(__file__)) + "/../../src/util.c")],
         libraries=["z", "sasl2"],
-        include_dirs=include_dirs,
-        extra_link_args=['-static']
+        include_dirs=include_dirs
     )
 ])
 
