@@ -1,10 +1,35 @@
+"""
+This 'hadoofus' python module provides a client API for accessing instances
+of the Apache Hadoop Distributed File System, as well as compatible
+implementations.
+"""
+
 from distutils import log
 from distutils.core import setup
 from distutils.command.build_clib import build_clib
+from distutils.errors import DistutilsSetupError
 from distutils.extension import Extension
 from distutils.sysconfig import parse_makefile
 from os.path import abspath, dirname, realpath, splitext
 from glob import glob
+
+try:
+    from Cython.Build import cythonize
+except ImportError:
+    def cythonize(extensions, **_ignore):
+        for extension in extensions:
+            sources = []
+            for sfile in extension.sources:
+                path, ext = splitext(sfile)
+                if ext in ('.pyx', '.py'):
+                    if extension.language == 'c++':
+                        ext = '.cpp'
+                    else:
+                        ext = '.c'
+                    sfile = path + ext
+                sources.append(sfile)
+            extension.sources[:] = sources
+        return extensions
 
 
 class build_libhadoofus_clib(build_clib):
@@ -12,9 +37,9 @@ class build_libhadoofus_clib(build_clib):
         sources = build_info.get('sources')
         if sources is None or not isinstance(sources, (list, tuple)):
             raise DistutilsSetupError(
-                   "in 'libraries' option (library '%s'), "
-                   "'sources' must be present and must be "
-                   "a list of source filenames" % lib_name)
+                "in 'libraries' option (library '%s'), "
+                "'sources' must be present and must be "
+                "a list of source filenames" % lib_name)
         sources = list(sources)
 
         log.info("building '%s' library", lib_name)
@@ -43,34 +68,26 @@ class build_libhadoofus_clib(build_clib):
         for (lib_name, build_info) in libraries:
             self.build_library(lib_name, build_info)
 
+# The root directory of the project
+root_dir = realpath(dirname(abspath(__file__)) + "/../..")
+# The C headers files shared between libhadoofus and the hadoofus.pyx
+include_dirs = ["%s/include" % root_dir]
+# Environment variables for compiling libhadoofus
+make_vars = parse_makefile("%s/src/Makefile" % root_dir)
 
-try:
-    from Cython.Build import cythonize
-except ImportError:
-    def cythonize(extensions, **_ignore):
-        for extension in extensions:
-            sources = []
-            for sfile in extension.sources:
-                path, ext = splitext(sfile)
-                if ext in ('.pyx', '.py'):
-                    if extension.language == 'c++':
-                        ext = '.cpp'
-                    else:
-                        ext = '.c'
-                    sfile = path + ext
-                sources.append(sfile)
-            extension.sources[:] = sources
-        return extensions
-
-include_dirs = [realpath(dirname(abspath(__file__)) + "/../../include")]
-
-# Also build the libhadoofus C library
-make_vars = parse_makefile(realpath(dirname(abspath(__file__)) + "/../../src/Makefile"))
+# The libhadoofus C library
 libhadoofus = ("hadoofus", {
-    "sources": [realpath(p) for p in glob("%s/../../src/*.c" % dirname(abspath(__file__)))],
+    "sources": glob("%s/src/*.c" % root_dir),
     "include_dirs": include_dirs,
     "extra_compile_preargs": make_vars["FLAGS"].split()
 })
+# The hadoofus python extension, compiled by Cython
+hadoofus = Extension(
+    name="hadoofus",
+    sources=["hadoofus.pyx"],
+    libraries=["z", "sasl2"],
+    include_dirs=include_dirs,
+)
 
 
 setup(
@@ -79,11 +96,7 @@ setup(
     description="Python client API for HDFS",
     author="Conrad Meyer",
     author_email="conrad.meyer@isilon.com",
-    long_description="""
-This 'hadoofus' python module provides a client API for accessing instances
-of the Apache Hadoop Distributed File System, as well as compatible
-implementations.
-""",
+    long_description=__doc__,
     url="https://github.com/cemeyer/hadoofus",
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
@@ -97,14 +110,7 @@ implementations.
     ],
     platforms=['Posix'],
     license='MIT',
-    ext_modules=cythonize([
-        Extension(
-            name="hadoofus",
-            sources=["hadoofus.pyx"],
-            libraries=["z", "sasl2"],
-            include_dirs=include_dirs,
-        )
-    ]),
+    ext_modules=cythonize([hadoofus]),
     libraries=[libhadoofus],
     cmdclass={
         'build_clib': build_libhadoofus_clib,
