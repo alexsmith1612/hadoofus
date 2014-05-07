@@ -832,11 +832,8 @@ _wait_ack(struct _packet_state *ps)
 	struct hdfs_heap_buf obuf = { 0 };
 
 	int64_t seqno;
-	int16_t nacks;
+	int16_t nacks, ack = STATUS_ERROR;
 
-	// Initialize these with a zero value, to avoid compiler errors. The ASSERT() below
-	// will ensure these never have the initialized value, but this is far from ideal.
-	int16_t ack = 0;
 	int acksz = 0;
 
 	ASSERT(ps->proto == HDFS_DATANODE_AP_1_0 ||
