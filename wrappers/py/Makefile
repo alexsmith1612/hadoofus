@@ -10,12 +10,15 @@ SRCS = \
 # Python API code. (The Python object model is built on a system of type-
 # punning; it is unsafe for the compiler to make strict aliasing assumptions.)
 FLAGS = $(CFLAGS) -I../../include -fno-strict-aliasing
-LINKFLAGS = $(LDFLAGS) -L../../src
+
+# Link to libhadoofus statically by default. If you want dynamic linking, use:
+#   make LINKCLIB=dynamic
+LINKCLIB = static
 
 all: $(LIB)
 
 $(LIB): $(SRCS) setup.py
-	CFLAGS="$(FLAGS)" LDFLAGS="$(LINKFLAGS)" \
+	CFLAGS="$(FLAGS)" LDFLAGS="$(LDFLAGS)" LINKCLIB="$(LINKCLIB)" \
 		   python setup.py build_ext -i
 
 clean:
@@ -24,5 +27,5 @@ clean:
 
 
 install: all setup.py
-	CFLAGS="$(FLAGS)" LDFLAGS="$(LINKFLAGS)" \
+	CFLAGS="$(FLAGS)" LDFLAGS="$(LDFLAGS)" LINKCLIB="$(LINKCLIB)" \
 		python setup.py install --root="$(DISTDIR)/" --prefix="$(PREFIX)"

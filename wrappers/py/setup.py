@@ -2,6 +2,7 @@ from distutils.core import setup
 from distutils.extension import Extension
 from os import getcwd
 from os.path import abspath, dirname, realpath
+import os
 
 try:
     from Cython.Build import cythonize
@@ -21,11 +22,24 @@ except ImportError:
             extension.sources[:] = sources
         return extensions
 
+extra_objs = []
+libraries = ["z", "sasl2"]
+library_dirs = []
+
+if os.environ["LINKCLIB"] == "static":
+    extra_objs.append("../../src/libhadoofus.a")
+else:
+    library_dirs.append("../../src")
+    libraries.append("hadoofus")
+
 include_dirs = [realpath(dirname(abspath(__file__)) + "/../../include")]
 ext_modules = cythonize([
     Extension("hadoofus", ["hadoofus.pyx"],
-              libraries=["z", "sasl2"],
-              include_dirs=include_dirs)
+              libraries=libraries,
+              library_dirs=library_dirs,
+              include_dirs=include_dirs,
+              extra_objects=extra_objs,
+              )
 ])
 
 setup(
