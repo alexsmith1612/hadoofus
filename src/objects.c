@@ -3,6 +3,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * Expose struct timespec atime, mtime in struct stat as st_[am]timespec. On
+ * BSD and OS X, this is the native name. On Glibc, alias.
+ */
+#if defined(__GLIBC__)
+# define st_mtimespec st_mtim
+# define st_atimespec st_atim
+#endif
+
 #include "heapbuf.h"
 #include "heapbufobjs.h"
 #include "objects-internal.h"
@@ -440,11 +449,6 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 	int mode = (S_ISDIR(sb->st_mode))? (sb->st_mode & 0777) :
 	    (sb->st_mode & 0666);
 
-#if !defined(__ISILON__) && !defined(__APPLE__)
-# define st_mtimespec st_mtim
-# define st_atimespec st_atim
-#endif
-
 	ASSERT(name_copy);
 	ASSERT(owner_copy);
 	ASSERT(group_copy);
@@ -462,11 +466,6 @@ hdfs_file_status_new(const char *logical_name, const struct stat *sb,
 		._owner = owner_copy,
 		._group = group_copy,
 	};
-
-#if !defined(__ISILON__) && !defined(__APPLE__)
-# undef st_mtimespec
-# undef st_atimespec
-#endif
 
 	return r;
 }
