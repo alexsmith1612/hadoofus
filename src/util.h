@@ -21,7 +21,11 @@
 void	assert_fail(const char *an, const char *fn, const char *file, unsigned line)
 	__attribute__((noreturn));
 
-#define EXPORT_SYM __attribute__((visibility("default")))
+#ifdef NO_EXPORT_SYMS
+# define EXPORT_SYM
+#else
+# define EXPORT_SYM __attribute__((visibility("default")))
+#endif
 
 static inline off_t
 _min(off_t a, off_t b)
