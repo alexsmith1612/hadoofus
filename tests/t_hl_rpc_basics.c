@@ -186,19 +186,26 @@ START_TEST(test_abandonBlock)
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 
+	mark_point();
+
 	lb = hdfs_addBlock(h, tf, client, NULL, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert(!hdfs_object_is_null(lb));
 
+	mark_point();
+
 	bl = hdfs_block_from_located_block(lb);
 	hdfs_object_free(lb);
+
+	mark_point();
 
 	hdfs_abandonBlock(h, bl, tf, client, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 
 	hdfs_object_free(bl);
+	mark_point();
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
@@ -221,12 +228,15 @@ START_TEST(test_addBlock)
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 
+	mark_point();
+
 	lb = hdfs_addBlock(h, tf, client, NULL, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert(!hdfs_object_is_null(lb));
 
 	hdfs_object_free(lb);
+	mark_point();
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
@@ -399,14 +409,26 @@ END_TEST
 
 START_TEST(test_getContentSummary)
 {
+	bool s;
 	struct hdfs_object *e = NULL, *cs;
+	const char *tf = "/HADOOFUS_TEST_CSDIR";
 
-	cs = hdfs_getContentSummary(h, "/", &e);
+	s = hdfs_mkdirs(h, tf, 0755, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	ck_assert_msg(s, "mkdirs returned false");
+
+	cs = hdfs_getContentSummary(h, tf, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert(!hdfs_object_is_null(cs));
 
 	hdfs_object_free(cs);
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
 
@@ -506,7 +528,7 @@ END_TEST
 Suite *
 t_hl_rpc_basics_suite()
 {
-	Suite *s = suite_create("High-level RPC API basic functionality");
+	Suite *s = suite_create("rpcs");
 
 	TCase *tc = tcase_create("basic");
 	tcase_add_checked_fixture(tc, setup, teardown);
@@ -529,11 +551,17 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_getStats);
 	tcase_add_test(tc, test_getPreferredBlockSize);
 	tcase_add_test(tc, test_getFileInfo);
-	tcase_add_test(tc, test_getContentSummary);
 	tcase_add_test(tc, test_setQuota);
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("slow");
+	tcase_add_checked_fixture(tc, setup, teardown);
+	tcase_set_timeout(tc, 30./*seconds*/);
+	tcase_add_test(tc, test_getContentSummary);
 
 	suite_add_tcase(s, tc);
 	return s;

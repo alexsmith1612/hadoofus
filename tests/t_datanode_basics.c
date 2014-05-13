@@ -123,7 +123,10 @@ START_TEST(test_dn_write_buf)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+	    err,
+	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._hostname,
+	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 	hdfs_object_free(bl);
 
@@ -341,7 +344,7 @@ END_TEST
 Suite *
 t_datanode_basics_suite()
 {
-	Suite *s = suite_create("Datanode API basic functionality");
+	Suite *s = suite_create("datanode");
 
 	TCase *tc = tcase_create("buf"), *tc2;
 	tcase_add_unchecked_fixture(tc, setup_buf, teardown_buf);
