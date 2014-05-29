@@ -1,5 +1,10 @@
-CFLAGS ?= -O2 -g -pipe -Wall -fexceptions -fstack-protector \
-		  --param=ssp-buffer-size=4 -mtune=generic
+# Python reads only the CFLAGS from PY_CFLAGS
+PY_CFLAGS=-std=gnu99
+PY_LDFLAGS=
+PY_CPPFLAGS=
+
+CFLAGS=-O2 -g -pipe -Wall -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
+		-mtune=generic $(PY_CFLAGS)
 
 OBJS = datanode.o \
 	 heapbuf.o \
@@ -19,7 +24,7 @@ WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
 		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
 		-Wnested-externs -Wredundant-decls
-FLAGS = $(WARNS) -fPIC $(CFLAGS) -g -fvisibility=hidden
+FLAGS = $(WARNS) $(CFLAGS) -fPIC -g -fvisibility=hidden
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz
 LIB = libhadoofus.so
 SLIB = libhadoofus.a
