@@ -6,11 +6,11 @@
 #include "util.h"
 
 static void
-_assert_not_err(const char *err)
+_assert_not_err(const char *error)
 {
-	if (err) {
-		fprintf(stderr, "libhadoofus: Got error, bailing: %s\n", err);
-		ASSERT(!err);
+	if (error) {
+		fprintf(stderr, "libhadoofus: Got error, bailing: %s\n", error);
+		ASSERT(!error);
 	}
 }
 
@@ -18,26 +18,26 @@ EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new(const char *host, const char *port, const char *username,
 	enum hdfs_kerb kerb_pref, const char **error_out)
 {
-	const char *err;
+	const char *error;
 	struct hdfs_namenode *h;
 
 	h = malloc(sizeof *h);
 	ASSERT(h);
 
 	hdfs_namenode_init(h, kerb_pref);
-	err = hdfs_namenode_connect(h, host, port);
-	if (err)
+	error = hdfs_namenode_connect(h, host, port);
+	if (error)
 		goto out;
 
-	err = hdfs_namenode_authenticate(h, username);
-	if (err)
+	error = hdfs_namenode_authenticate(h, username);
+	if (error)
 		goto out;
 
 out:
-	if (err) {
+	if (error) {
 		hdfs_namenode_delete(h);
 		h = NULL;
-		*error_out = err;
+		*error_out = error;
 	}
 	return h;
 }
@@ -58,14 +58,14 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 { \
 	struct hdfs_rpc_response_future future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER; \
 	struct hdfs_object *rpc, *object; \
-	const char *err; \
+	const char *error; \
 \
 	rpc = hdfs_rpc_invocation_new( \
 	    #name, \
 	    ##args, \
 	    NULL); \
-	err = hdfs_namenode_invoke(h, rpc, &future); \
-	_assert_not_err(err); \
+	error = hdfs_namenode_invoke(h, rpc, &future); \
+	_assert_not_err(error); \
 \
 	hdfs_object_free(rpc); \
 \
@@ -103,14 +103,14 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 { \
 	struct hdfs_rpc_response_future future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER; \
 	struct hdfs_object *rpc, *object; \
-	const char *err; \
+	const char *error; \
 \
 	rpc = hdfs_rpc_invocation_new( \
 	    #name, \
 	    ##args, \
 	    NULL); \
-	err = hdfs_namenode_invoke(h, rpc, &future); \
-	_assert_not_err(err); \
+	error = hdfs_namenode_invoke(h, rpc, &future); \
+	_assert_not_err(error); \
 \
 	hdfs_object_free(rpc); \
 \

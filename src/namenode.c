@@ -62,7 +62,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 EXPORT_SYM const char *
 hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
 {
-	const char *err = NULL;
+	const char *error = NULL;
 
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_sock == -1);
@@ -71,24 +71,24 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
 		    NULL/*remoteip*/, NULL/*CBs*/, 0/*sec flags*/, &n->nn_sasl_ctx);
 		if (r != SASL_OK) {
-			err = sasl_errstring(r, NULL, NULL);
+			error = sasl_errstring(r, NULL, NULL);
 			goto out;
 		}
 	}
 
-	err = _connect(&n->nn_sock, host, port);
-	if (err)
+	error = _connect(&n->nn_sock, host, port);
+	if (error)
 		goto out;
 
 out:
 	_unlock(&n->nn_lock);
-	return err;
+	return error;
 }
 
 EXPORT_SYM const char *
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
-	const char *err = NULL, *preamble = "hrpc\x04\x50";
+	const char *error = NULL, *preamble = "hrpc\x04\x50";
 	struct hdfs_object *header;
 	struct hdfs_heap_buf hbuf = { 0 };
 	char *inh = NULL;
@@ -114,7 +114,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 		// Write the entire thing to the socket. Honestly, the first write
 		// should succeed (we have the entire outbound sockbuf) but we call it
 		// in a loop for correctness.
-		err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+		error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
 		n->nn_authed = true;
 	} else {
 		int r;
@@ -136,7 +136,7 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 		} while (r == SASL_INTERACT);
 
 		if (r != SASL_CONTINUE) {
-			err = sasl_errstring(r, NULL, NULL);
+			error = sasl_errstring(r, NULL, NULL);
 			goto out;
 		}
 
@@ -149,32 +149,32 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 		iov[2].iov_base = __DECONST(void *, out);
 		iov[2].iov_len = outlen;
 
-		err = _writev_all(n->nn_sock, iov, 3);
-		if (err)
+		error = _writev_all(n->nn_sock, iov, 3);
+		if (error)
 			goto out;
 
 		do {
 			// read success / error status
-			err = _read_all(n->nn_sock, in, 4);
-			if (err)
+			error = _read_all(n->nn_sock, in, 4);
+			if (error)
 				goto out;
 
 			if (memcmp(in, zero, 4)) {
 				// error. exception will be next on the wire,
 				// but let's skip it.
-				err = "Got error from server, bailing";
+				error = "Got error from server, bailing";
 				goto out;
 			}
 
 			// read token len
-			err = _read_all(n->nn_sock, in, 4);
-			if (err)
+			error = _read_all(n->nn_sock, in, 4);
+			if (error)
 				goto out;
 			inlen = _be32dec(in);
 
 			if (inlen == SWITCH_TO_SIMPLE_AUTH) {
 				if (n->nn_kerb == HDFS_REQUIRE_KERB) {
-					err = "Server tried to drop kerberos but "
+					error = "Server tried to drop kerberos but "
 					    "client requires it";
 					goto out;
 				}
@@ -188,8 +188,8 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 			if (inlen > 0) {
 				inh = malloc(inlen);
 				ASSERT(inh);
-				err = _read_all(n->nn_sock, inh, inlen);
-				if (err)
+				error = _read_all(n->nn_sock, inh, inlen);
+				if (error)
 					goto out;
 			}
 
@@ -209,14 +209,14 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 				iov[1].iov_base = __DECONST(void *, out);
 				iov[1].iov_len = outlen;
 
-				err = _writev_all(n->nn_sock, iov, 2);
-				if (err)
+				error = _writev_all(n->nn_sock, iov, 2);
+				if (error)
 					goto out;
 			}
 		} while (r == SASL_INTERACT || r == SASL_CONTINUE);
 
 		if (r != SASL_OK) {
-			err = sasl_errstring(r, NULL, NULL);
+			error = sasl_errstring(r, NULL, NULL);
 			goto out;
 		}
 
@@ -227,7 +227,7 @@ send_header:
 			_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
 
 		// send auth header
-		err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+		error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
 		n->nn_authed = true;
 	}
 
@@ -237,7 +237,7 @@ out:
 	_unlock(&n->nn_lock);
 	free(hbuf.buf);
 
-	return err;
+	return error;
 }
 
 EXPORT_SYM int64_t
@@ -256,7 +256,7 @@ EXPORT_SYM const char *
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
-	const char *err = NULL;
+	const char *error = NULL;
 	bool nnlocked;
 	int64_t msgno;
 	struct hdfs_heap_buf hbuf = { 0 };
@@ -274,11 +274,11 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	ASSERT(!n->nn_dead);
 
 	if (n->nn_sock == -1) {
-		err = "Not connected";
+		error = "Not connected";
 		goto out;
 	}
 	if (!n->nn_authed) {
-		err = "Not authenticated";
+		error = "Not authenticated";
 		goto out;
 	}
 
@@ -300,7 +300,7 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 		_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
 
 	_lock(&n->nn_sendlock);
-	err = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+	error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
 	_unlock(&n->nn_sendlock);
 
 	free(hbuf.buf);
@@ -308,7 +308,7 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 out:
 	if (nnlocked)
 		_unlock(&n->nn_lock);
-	return err;
+	return error;
 }
 
 EXPORT_SYM void

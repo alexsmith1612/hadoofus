@@ -18,7 +18,7 @@ _connect(int *s, const char *host, const char *port)
 	struct addrinfo *ai, *rp,
 			hints = { 0 };
 	int rc, sfd = -1, serrno;
-	const char *err = NULL;
+	const char *error = NULL;
 
 	hints.ai_family = AF_INET/* hadoop is ipv4-only for now */;
 	hints.ai_socktype = SOCK_STREAM;
@@ -46,11 +46,11 @@ _connect(int *s, const char *host, const char *port)
 	}
 
 	if (rp == NULL || sfd == -1)
-		err = strerror(errno);
+		error = strerror(errno);
 
 	freeaddrinfo(ai);
 
-	if (!err) {
+	if (!error) {
 		ASSERT(sfd != -1);
 		_setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, 1);
 		_setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, 1024*1024);
@@ -58,26 +58,26 @@ _connect(int *s, const char *host, const char *port)
 		*s = sfd;
 	}
 
-	return err;
+	return error;
 }
 
 const char *
 _write_all(int s, void *vbuf, int buflen)
 {
 	char *buf = vbuf;
-	const char *err = NULL;
+	const char *error = NULL;
 	while (buflen > 0) {
 		ssize_t w;
 		w = write(s, buf, buflen);
 		if (w == -1) {
-			err = strerror(errno);
+			error = strerror(errno);
 			goto out;
 		}
 		buf += w;
 		buflen -= w;
 	}
 out:
-	return err;
+	return error;
 }
 
 const char *
