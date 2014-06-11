@@ -6,9 +6,13 @@
 // exploit pipelining / out-of-order execution from a single thread.
 //
 
+#include <err.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+#include <sysexits.h>
 
 #include <sasl/sasl.h>
 
@@ -74,17 +78,34 @@ struct hdfs_rpc_response_future {
 // Namenode operations
 //
 
-#define HDFS_RPC_RESPONSE_FUTURE_INITIALIZER \
-    (struct hdfs_rpc_response_future) { \
-	    .fu_lock = PTHREAD_MUTEX_INITIALIZER, \
-	    .fu_cond = PTHREAD_COND_INITIALIZER, \
-	    .fu_res = NULL, \
-	    .fu_namenode = NULL, \
-    }
+#define HDFS_RPC_RESPONSE_FUTURE_INITIALIZER		\
+	(struct hdfs_rpc_response_future) {		\
+		.fu_lock = PTHREAD_MUTEX_INITIALIZER,	\
+		.fu_cond = PTHREAD_COND_INITIALIZER,	\
+		.fu_res = NULL,				\
+		.fu_namenode = NULL,			\
+	}
+
 static inline void
 hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
 {
-	*future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER;
+	int rc;
+
+	memset(future, 0, sizeof(*future));
+
+	/* This really shouldn't fail. Abort hard if it does. */
+	rc = pthread_mutex_init(&future->fu_lock, NULL);
+	if (rc) {
+		errno = rc;
+		err(EX_SOFTWARE, "pthread_mutex_init");
+	}
+	rc = pthread_cond_init(&future->fu_cond, NULL);
+	if (rc) {
+		errno = rc;
+		err(EX_SOFTWARE, "pthread_cond_init");
+	}
+	future->fu_res = NULL;
+	future->fu_namenode = NULL;
 }
 
 // Initialize the connection object. Doesn't actually connect or authenticate

@@ -5,7 +5,7 @@
 #include <hadoofus/highlevel.h>
 
 struct hdfs_namenode *h;
-const char *err = NULL,
+const char *error = NULL,
       *host = "localhost",
       *port = "8020",
       *user = "hdfs/host.name";
@@ -37,14 +37,14 @@ main(int argc, char **argv)
 		}
 	}
 
-	h = hdfs_namenode_new(host, port, user, HDFS_REQUIRE_KERB, &err);
+	h = hdfs_namenode_new(host, port, user, HDFS_REQUIRE_KERB, &error);
 	if (!h)
 		goto out;
 
 	res = hdfs_getProtocolVersion(h, HADOOFUS_CLIENT_PROTOCOL_STR, 61L,
 	    &exception);
 	if (exception) {
-		err = exception->ob_val._exception._msg;
+		error = exception->ob_val._exception._msg;
 		goto out;
 	}
 
@@ -55,7 +55,7 @@ main(int argc, char **argv)
 
 	dl = hdfs_getListing(h, "/", NULL, &exception);
 	if (exception) {
-		err = exception->ob_val._exception._msg;
+		error = exception->ob_val._exception._msg;
 		goto out;
 	}
 
@@ -63,8 +63,8 @@ main(int argc, char **argv)
 	fprintf(stderr, "dl: success\n");
 
 out:
-	if (err)
-		fprintf(stderr, "hadoofus error: %s\n", err);
+	if (error)
+		fprintf(stderr, "hadoofus error: %s\n", error);
 	if (h)
 		hdfs_namenode_delete(h);
 	sasl_done();
