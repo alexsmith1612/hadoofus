@@ -144,7 +144,7 @@ For more information, see [wikipedia's article on Hadoop][0] or the
 [HDFS Architecture Guide][1].
 
 [0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_Distributed_File_System "Hadoop Distributed File System"
-[1]: https://hadoop.apache.org/common/docs/r1.0.0/hdfs_design.html
+[1]: https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html
 
 #### Installing
 
