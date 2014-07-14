@@ -143,7 +143,7 @@ file system metadata. It points clients at Datanode(s) to read/write file data.
 For more information, see [wikipedia's article on Hadoop][0] or the
 [HDFS Architecture Guide][1].
 
-[0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_Distributed_File_System "Hadoop Distributed File System"
+[0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_distributed_file_system "Hadoop distributed file system"
 [1]: https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html
 
 #### Installing
