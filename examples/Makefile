@@ -3,6 +3,7 @@ FLAGS = -Wall -Werror $(CFLAGS) -g -I../include
 BIN = \
 	  helloworld \
 	  hl-hello \
+	  mt-hello \
 	  kerb \
 
 LIB = ../src/libhadoofus.so
@@ -11,6 +12,9 @@ CC = gcc
 all: $(BIN)
 
 helloworld: helloworld.c $(LIB)
+	$(CC) $(FLAGS) $< -o $@ $(LIBS)
+
+mt-hello: mt-hello.c $(LIB)
 	$(CC) $(FLAGS) $< -o $@ $(LIBS)
 
 hl-hello: hl-hello.c $(LIB)
