@@ -142,6 +142,11 @@ const char *	hdfs_namenode_invoke(struct hdfs_namenode *, struct hdfs_object *,
 // object.
 void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
 
+// Returns 'false' if the RPC received no response in the time limit. The
+// Namenode object still references the future.
+// If 'true' is returned, same result as hdfs_future_get.
+bool		hdfs_future_get_timeout(struct hdfs_rpc_response_future *, struct hdfs_object **, uint64_t limitms);
+
 // Destroys the connection. Note that the memory may still be in use by a child
 // thread when this function returns. However, the memory can be freed or
 // re-used when the user's callback is invoked.

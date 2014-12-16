@@ -28,6 +28,17 @@ _wait(pthread_mutex_t *l, pthread_cond_t *c)
 }
 
 void
+_waitlimit(pthread_mutex_t *l, pthread_cond_t *c, uint64_t absms)
+{
+	struct timespec abstime;
+	int rc;
+
+	_ms_to_tspec(absms, &abstime);
+	rc = pthread_cond_timedwait(c, l, &abstime);
+	ASSERT(rc == 0);
+}
+
+void
 _notifyall(pthread_cond_t *c)
 {
 	int rc;

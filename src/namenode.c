@@ -339,6 +339,27 @@ hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **ob
 	memset(future, 0, sizeof *future);
 }
 
+EXPORT_SYM bool
+hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_object **object, uint64_t ms)
+{
+	uint64_t absms;
+
+	absms = _now_ms() + ms;
+	_lock(&future->fu_lock);
+	while (!future->fu_res && _now_ms() < absms)
+		_waitlimit(&future->fu_lock, &future->fu_cond, absms);
+	if (!future->fu_res) {
+		_unlock(&future->fu_lock);
+		return false;
+	}
+	_unlock(&future->fu_lock);
+	*object = future->fu_res;
+
+	_namenode_decref(future->fu_namenode);
+	memset(future, 0, sizeof *future);
+	return true;
+}
+
 // Caller *must not* use the namenode object after this. If 'cb' is non-null,
 // they will receive a callback when the memory is no longer used, which they
 // can use to free memory or whatever.

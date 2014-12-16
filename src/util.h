@@ -4,6 +4,7 @@
 #include <sys/types.h>
 
 #include <stdint.h>
+#include <time.h>
 
 #define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -37,5 +38,15 @@ _min(off_t a, off_t b)
 
 uint32_t	_be32dec(void *);
 void		_be32enc(void *, uint32_t);
+
+uint64_t	_now_ms(void);
+
+static inline void
+_ms_to_tspec(uint64_t ms, struct timespec *ts)
+{
+
+	ts->tv_sec = ms / 1000;
+	ts->tv_nsec = (ms % 1000) * 1000*1000;
+}
 
 #endif

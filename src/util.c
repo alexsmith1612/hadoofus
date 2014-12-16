@@ -31,6 +31,18 @@ _be32enc(void *void_p, uint32_t v)
 	p[3] = (uint8_t)(v & 0xff);
 }
 
+uint64_t
+_now_ms(void)
+{
+	struct timespec ts;
+	int rc;
+
+	rc = clock_gettime(CLOCK_REALTIME, &ts);
+	ASSERT(rc == 0);
+
+	return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / (1000*1000);
+}
+
 void
 assert_fail(const char *an, const char *fn, const char *file, unsigned line)
 {
