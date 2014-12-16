@@ -46,12 +46,15 @@ struct hdfs_namenode {
 	enum hdfs_kerb nn_kerb;
 	bool nn_dead/*user-killed*/,
 	     nn_authed,
-	     nn_worked;
+	     nn_recver_started;
 	pthread_mutex_t nn_sendlock;
 	size_t nn_recvbuf_used,
 	       nn_recvbuf_size,
 	       nn_objbuf_used,
 	       nn_objbuf_size;
+
+	pthread_t nn_recv_thr;
+	int nn_recv_sigpipe[2];
 };
 
 struct hdfs_datanode {

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,7 +14,7 @@
 
 static struct hdfs_namenode *	_namenode_copyref_unlocked(struct hdfs_namenode *);
 static void			_namenode_decref(struct hdfs_namenode *);
-static bool			_namenode_recv(struct hdfs_rpc_response_future *);
+static void *			_namenode_recv_worker(void *);
 
 static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
 		int64_t msgno, struct hdfs_rpc_response_future *future);
@@ -23,8 +24,6 @@ static struct hdfs_rpc_response_future *
 
 static void	_future_complete(struct hdfs_rpc_response_future *future,
 		struct hdfs_object *obj);
-static void	_future_complete_unlocked(struct hdfs_rpc_response_future *f,
-		struct hdfs_object *o);
 
 // SASL helpers
 static void	_conn_try_desasl(struct hdfs_namenode *n);
@@ -44,7 +43,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_destroy_cb = NULL;
 	n->nn_pending = NULL;
 	n->nn_pending_len = 0;
-	n->nn_worked = false;
+	n->nn_recver_started = false;
 
 	n->nn_kerb = kerb_prefs;
 	n->nn_sasl_ctx = NULL;
@@ -257,9 +256,11 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
 	const char *error = NULL;
-	bool nnlocked;
+	bool nnlocked, needs_kick;
 	int64_t msgno;
 	struct hdfs_heap_buf hbuf = { 0 };
+
+	needs_kick = false;
 
 	ASSERT(future);
 	ASSERT(!future->fu_namenode);
@@ -289,8 +290,21 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	future->fu_namenode = _namenode_copyref_unlocked(n);
 	_namenode_pending_insert_unlocked(n, msgno, future);
 
+	if (!n->nn_recver_started)
+		n->nn_recver_started = needs_kick = true;
+
 	_unlock(&n->nn_lock);
 	nnlocked = false;
+
+	if (needs_kick) {
+		int rc;
+
+		rc = pipe(n->nn_recv_sigpipe);
+		ASSERT(rc == 0);
+		rc = pthread_create(&n->nn_recv_thr, NULL,
+		    _namenode_recv_worker, n);
+		ASSERT(rc == 0);
+	}
 
 	// Serialize rpc and transmit
 	_rpc_invocation_set_msgno(rpc, msgno);
@@ -314,20 +328,10 @@ out:
 EXPORT_SYM void
 hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
 {
-	bool found;
 
 	_lock(&future->fu_lock);
-	while (!future->fu_res) {
-		found = _namenode_recv(future);
-		if (found) {
-			ASSERT(future->fu_res);
-			break;
-		}
-
-		/* we can't miss the wake-up here because we're holding fu_lock */
-
+	while (!future->fu_res)
 		_wait(&future->fu_lock, &future->fu_cond);
-	}
 	_unlock(&future->fu_lock);
 	*object = future->fu_res;
 
@@ -364,6 +368,7 @@ static void
 _namenode_decref(struct hdfs_namenode *n)
 {
 	bool lastref = false;
+	int rc;
 
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_refs >= 1);
@@ -374,6 +379,16 @@ _namenode_decref(struct hdfs_namenode *n)
 
 	if (lastref) {
 		hdfs_namenode_destroy_cb dcb = NULL;
+		if (n->nn_recver_started) {
+			rc = write(n->nn_recv_sigpipe[1], "a", 1);
+			ASSERT(rc == 1);
+
+			rc = pthread_join(n->nn_recv_thr, NULL);
+			ASSERT(rc == 0);
+
+			close(n->nn_recv_sigpipe[1]);
+			close(n->nn_recv_sigpipe[0]);
+		}
 		if (n->nn_sock != -1)
 			close(n->nn_sock);
 		if (n->nn_pending)
@@ -397,29 +412,18 @@ struct _hdfs_pending {
 	struct hdfs_rpc_response_future *pd_future;
 };
 
-static bool
-_namenode_recv(struct hdfs_rpc_response_future *goal_future)
+static void *
+_namenode_recv_worker(void *v_nn)
 {
 	const size_t RESIZE = 16*1024;
 
-	bool nnlocked = false, res = false, nnworked;
+	bool nnlocked = false;
 	int sock, obj_size;
 
 	struct _hdfs_result *result;
 	struct hdfs_rpc_response_future *future;
-	struct hdfs_namenode *n = goal_future->fu_namenode;
+	struct hdfs_namenode *n = v_nn;
 
-	_lock(&n->nn_lock);
-	nnworked = n->nn_worked;
-	if (!nnworked)
-		n->nn_worked = true;
-	_unlock(&n->nn_lock);
-
-	// someone else is working this connection for now
-	if (nnworked)
-		goto out;
-
-	// only one thread should be able to enter this section at a time:
 	while (true) {
 		char *objbuffer;
 		size_t *objused;
@@ -447,7 +451,7 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 
 		result = _hdfs_result_deserialize(objbuffer, *objused, &obj_size);
 		if (!result) {
-			int r, remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
+			ssize_t r, remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 
 			if (remain < 4*1024) {
 				n->nn_recvbuf_size += RESIZE;
@@ -456,7 +460,8 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 				remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 			}
 
-			r = read(sock, n->nn_recvbuf + n->nn_recvbuf_used, remain);
+			r = recv(sock, n->nn_recvbuf + n->nn_recvbuf_used,
+			    remain, MSG_DONTWAIT);
 			if (r == 0)
 				goto out;
 			if (r > 0) {
@@ -464,19 +469,32 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 				if (n->nn_sasl_ssf > 0)
 					_conn_try_desasl(n);
 			} else {
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					struct pollfd pfds[] = { {
+						.fd = sock,
+						.events = POLLIN,
+					}, {
+						.fd = n->nn_recv_sigpipe[0],
+						.events = POLLIN,
+					} };
+					int rc;
 
+					do {
+						rc = poll(pfds, nelem(pfds),
+						    -1 /* infinite */);
+					} while (rc < 0 && errno == EINTR);
+					ASSERT(rc > 0);
+
+					continue;
+				}
 				// bail on socket errors
 				_lock(&n->nn_lock);
 				close(n->nn_sock);
 				n->nn_sock = -1;
 				n->nn_dead = true;
 				_unlock(&n->nn_lock);
-
-				// We need to do something more intelligent if
-				// we want to handle socket errors gracefully.
-				abort();
+				break;
 			}
-
 			continue;
 		}
 
@@ -487,10 +505,6 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 			n->nn_sock = -1;
 			n->nn_dead = true;
 			_unlock(&n->nn_lock);
-
-			// We should do something more intelligent if we want
-			// to handle bad protocol data gracefully.
-			abort();
 			break;
 		}
 
@@ -504,48 +518,18 @@ _namenode_recv(struct hdfs_rpc_response_future *goal_future)
 		future = _namenode_pending_remove(n, result->rs_msgno);
 		ASSERT(future); // got a response to a msgno we didn't request
 
-		if (future == goal_future)
-			_future_complete_unlocked(future, result->rs_obj);
-		else
-			_future_complete(future, result->rs_obj);
+		_future_complete(future, result->rs_obj);
 
 		// don't free the object we just handed the user:
 		result->rs_obj = NULL;
 		_hdfs_result_free(result);
-
-		// all done here, we found our response
-		if (future == goal_future) {
-			res = true;
-			break;
-		}
 	}
-
-	// End the critical section:
-	if (!nnlocked)
-		_lock(&n->nn_lock);
-	ASSERT(n->nn_worked);
-	n->nn_worked = false;
-
-	// If any thread is pending, wake it
-	if (n->nn_pending_len > 0) {
-		for (int i = 0; i < n->nn_pending_len; i++) {
-			struct hdfs_rpc_response_future *pf = n->nn_pending[0].pd_future;
-			if (pf == goal_future)
-				continue;
-			_lock(&pf->fu_lock);
-			_notifyall(&pf->fu_cond);
-			_unlock(&pf->fu_lock);
-			break;
-		}
-	}
-	_unlock(&n->nn_lock);
-	nnlocked = false;
 
 out:
 	if (nnlocked)
 		_unlock(&n->nn_lock);
 
-	return res;
+	return NULL;
 }
 
 static void
@@ -599,15 +583,6 @@ _future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
 	_notifyall(&f->fu_cond);
 
 	_unlock(&f->fu_lock);
-}
-
-static void
-_future_complete_unlocked(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
-{
-	ASSERT(o);
-
-	ASSERT(!f->fu_res);
-	f->fu_res = o;
 }
 
 static int
