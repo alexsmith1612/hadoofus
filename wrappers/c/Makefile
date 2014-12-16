@@ -12,7 +12,7 @@ LIBDIR = $(PREFIX)/lib
 INCLUDEDIR = $(PREFIX)/include
 
 FLAGS = $(CFLAGS) -I../../include
-LINKFLAGS = $(LDFLAGS) -L../../src -lhadoofus -lz
+LINKFLAGS = $(LDFLAGS) -L../../src -lhadoofus -lz -lrt
 
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
 

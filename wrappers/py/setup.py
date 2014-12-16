@@ -89,7 +89,7 @@ libhadoofus = ("hadoofus", {
 hadoofus = Extension(
     name="hadoofus",
     sources=["hadoofus.pyx"],
-    libraries=["z", "sasl2"],
+    libraries=["z", "sasl2", "rt"],
     include_dirs=include_dirs,
 )
 
