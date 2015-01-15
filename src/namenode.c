@@ -400,6 +400,8 @@ _namenode_decref(struct hdfs_namenode *n)
 
 	if (lastref) {
 		hdfs_namenode_destroy_cb dcb = NULL;
+
+		ASSERT(n->nn_dead);
 		if (n->nn_recver_started) {
 			rc = write(n->nn_recv_sigpipe[1], "a", 1);
 			ASSERT(rc == 1);
@@ -454,7 +456,7 @@ _namenode_recv_worker(void *v_nn)
 		sock = n->nn_sock;
 
 		// If hdfs_namenode_destroy() happened, die:
-		if (n->nn_dead || n->nn_refs == 1)
+		if (n->nn_dead && n->nn_refs == 0)
 			break;
 
 		_unlock(&n->nn_lock);
