@@ -5,102 +5,15 @@ hadoofus [![Build Status](https://travis-ci.org/cemeyer/hadoofus.png?branch=mast
 
 The `hadoofus` project is an HDFS (Hadoop Distributed File System) client
 library. It is implemented in C and supports RPC pipelining and out-of-order
-execution.
+execution. It does not require Java.
 
 It provides a C API for directly calling Namenode RPCs and performing Datanode
 block read and write operations, as well as a `libhdfs`-compatible interface
-(`libhdfs_hadoofus.so`).
+in a seperate library (`libhdfs_hadoofus.so`).
 
-It also includes a Python wrapper module, implemented in Cython.
-
-Note: This library currently supports the HDFS protocol as spoken by Apache
-Hadoop releases 0.20.203 through 1.0.3. The protocol is expected to stay the
-same for future 1.x.y releases, although Hadoop has been known to change
-semantics slightly between different versions of the software. The protocol has
-no spec; we do the best we can. Hadoop-2 will speak a slightly different
-protocol (but with similar semantics). Currently, libhadoofus does not support
-the Hadoop-2 HDFS protocol.
-
-#### What works
-
-The C library and Python wrappers should work well for the implemented RPCs. We
-use the python library extensively at Isilon, testing our in-house HDFS
-implementation for compatability against Apache HDFS.
-
-Caveat: some RPCs provided by the Hadoop `ClientProtocol` interface are not
-implemented. We don't use these ones and haven't seen the MapReduce client code
-calling them... long story short, if you need a missing RPC, file a bug! I'm
-also happy to accept MIT-licensed patches.
-
-The `libhdfs`-compat library (`libhdfs_hadoofus`) is newer and incompletely
-tested. It is functional enough to run the Apache `hdfs_test.c` tests, and
-the Apache HDFS `fuse_dfs` module mostly works (although it isn't hard to break
-it — I don't know if this is different than `fuse_dfs` with the Java HDFS
-client code).
-
-#### Using libhadoofus (python wrappers)
-
-```py
-import hadoofus
-
-myfile = hadoofus.easy.open("hdfs://namenode.mycorp.com/important/data.txt")
-myfile.seek(512)
-print myfile.read(200)  #=> "12345…"
-myfile.close()
-
-mywfile = hadoofus.easy.open("hdfs://namenode/new/file.txt", "w")
-mywfile.write("Hello, world!")
-mywfile.close()
-```
-
-#### Using libhadoofus (low-level python wrappers)
-
-Connecting:
-
-```py
-import hadoofus
-
-cluster = hadoofus.rpc("namenode.example.com", user="hdfs")
-
-"%r" % cluster # => rpc(address='10.7.176.238', num_calls=1, protocol=80, user='hdfs')
-
-cluster.getProtocolVersion(61) # => 61
-```
-
-Reading from a file `/foo` to stdout:
-
-```py
-blocks = cluster.getBlockLocations("/foo", offset=0,
-    length=cluster.getFileInfo("/foo").size)
-
-for block in blocks:
-  block_data = hadoofus.data(block, "<my_client_name>").read()
-  sys.stdout.write(block_data)
-```
-
-Writing from stdin to `/bar`:
-
-```py
-cluster.create("/bar", 0644, "<my_client_name>")
-
-block_sz = 64*1024*1024
-buffered = b''
-
-while True:
-  input = sys.stdin.read(block_sz - len(buffered))
-  buffered += input
-  if input != '' and len(buffered) < block_sz:
-    continue
-
-  block = cluster.addBlock("/bar", "<my_client_name>")
-  hadoofus.data(block, "<my_client_name>").write(buffered)
-  buffered = b''
-
-cluster.complete("/bar", "<my_client_name>")
-```
-
-HDFS protocol exceptions are presented as Python exceptions descended from
-`hadoofus.ProtocolException`.
+It also includes a Python wrapper module, implemented in Cython. (Cython
+compiles to a C Python module.) For more information on that, see
+`/wrappers/README.md`.
 
 #### Using libhadoofus
 
@@ -129,6 +42,21 @@ if (res != 61)
 
 hdfs_namenode_delete(h);
 ```
+
+#### Caveats
+
+Some RPCs provided by the Hadoop `ClientProtocol` interface are not
+implemented.
+
+Note: This library currently supports the HDFS protocol as spoken by Apache
+Hadoop releases 0.20.203 through 1.0.3. The protocol is expected to stay the
+same for future 1.x.y releases, although Hadoop has been known to change
+semantics slightly between different versions of the software. The protocol has
+no spec; we do the best we can.
+
+Hadoop-2.x speaks a slightly different protocol (but with similar
+semantics). Currently, libhadoofus does not support the Hadoop-2 HDFS
+protocol.
 
 #### HDFS Semantics
 
