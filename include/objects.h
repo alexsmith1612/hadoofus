@@ -157,7 +157,15 @@ struct hdfs_authheader {
 };
 
 struct hdfs_token {
+	/*
+	 * Token is really:
+	 *   - len[0], strings[0]: id (byte[])
+	 *   - len[1], strings[1]: password (byte[])
+	 *   - strings[2]: kind (Text)
+	 *   - strings[3]: service (Text)
+	 */
 	char *_strings[4];
+	int32_t _lens[2];
 };
 
 struct hdfs_string {
@@ -247,6 +255,9 @@ struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
+struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,
+			const char *pw, size_t pwlen, const char *kind,
+			const char *service);
 struct hdfs_object *	hdfs_token_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_string_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);

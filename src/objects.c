@@ -194,23 +194,38 @@ hdfs_long_new(int64_t val)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
+hdfs_token_new_nulsafe(const char *id, size_t idlen, const char *pw,
+    size_t pwlen, const char *kind, const char *service)
 {
 	struct hdfs_object *r = _objmalloc();
 	char *copy_strs[4];
 
-	copy_strs[0] = strdup(s1);
-	copy_strs[1] = strdup(s2);
-	copy_strs[2] = strdup(s3);
-	copy_strs[3] = strdup(s4);
+	copy_strs[0] = malloc(idlen);
+	copy_strs[1] = malloc(pwlen);
+	copy_strs[2] = strdup(kind);
+	copy_strs[3] = strdup(service);
+
+	ASSERT(copy_strs[0]);
+	ASSERT(copy_strs[1]);
+	memcpy(copy_strs[0], id, idlen);
+	memcpy(copy_strs[1], pw, pwlen);
 
 	r->ob_type = H_TOKEN;
+	r->ob_val._token._lens[0] = idlen;
+	r->ob_val._token._lens[1] = pwlen;
 	for (unsigned i = 0; i < nelem(copy_strs); i++) {
 		ASSERT(copy_strs[i]);
 		r->ob_val._token._strings[i] = copy_strs[i];
 	}
-
 	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
+{
+
+	return hdfs_token_new_nulsafe(s1, strlen(s1) + 1, s2, strlen(s2) + 1,
+	    s3, s4);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -224,6 +239,8 @@ hdfs_token_new_empty()
 		ASSERT(s);
 		r->ob_val._token._strings[i] = s;
 	}
+	for (unsigned i = 0; i < 2; i++)
+		r->ob_val._token._lens[i] = 1;
 
 	return r;
 }
@@ -237,7 +254,16 @@ hdfs_token_copy(struct hdfs_object *src)
 	ASSERT(src->ob_type == H_TOKEN);
 
 	r->ob_type = H_TOKEN;
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 2; i++) {
+		int32_t len = src->ob_val._token._lens[i];
+		char *s = malloc(len);
+
+		ASSERT(s);
+		memcpy(s, src->ob_val._token._strings[i], len);
+		r->ob_val._token._strings[i] = s;
+		r->ob_val._token._lens[i] = len;
+	}
+	for (int i = 2; i < 4; i++) {
 		char *s = strdup(src->ob_val._token._strings[i]);
 		ASSERT(s);
 		r->ob_val._token._strings[i] = s;
@@ -1152,7 +1178,12 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s64(dest, obj->ob_val._block._generation);
 		break;
 	case H_TOKEN:
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 2; i++) {
+			_bappend_vlint(dest, obj->ob_val._token._lens[i]);
+			_bappend_mem(dest, obj->ob_val._token._lens[i],
+			    obj->ob_val._token._strings[i]);
+		}
+		for (int i = 2; i < 4; i++)
 			_bappend_text(dest, obj->ob_val._token._strings[i]);
 		break;
 	case H_ARRAY_STRING:

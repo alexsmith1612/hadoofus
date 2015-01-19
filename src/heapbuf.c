@@ -86,23 +86,28 @@ _bappend_string(struct hdfs_heap_buf *h, const char *arg)
 }
 
 void
-_bappend_text(struct hdfs_heap_buf *h, const char *arg)
+_bappend_vlint(struct hdfs_heap_buf *h, int64_t len)
 {
-	int len = strlen(arg);
-
 	// a limited form of the variable length int format, but usually we
 	// don't need more for "text" fields:
 	ASSERT(len >= 0);
 	ASSERT(len < 127);
 
 	_bappend_s8(h, (int8_t)len);
+}
+
+void
+_bappend_text(struct hdfs_heap_buf *h, const char *arg)
+{
+	int len = strlen(arg);
+
+	_bappend_vlint(h, len);
 	_bappend_mem(h, len, arg);
 }
 
 void
-_bappend_mem(struct hdfs_heap_buf *h, int arglen, const void *arg)
+_bappend_mem(struct hdfs_heap_buf *h, size_t arglen, const void *arg)
 {
-	ASSERT(arglen >= 0);
 
 	_hbuf_reserve(h, arglen);
 	memcpy(h->buf + h->used, arg, arglen);

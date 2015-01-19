@@ -15,9 +15,10 @@ void	_bappend_s16(struct hdfs_heap_buf *, int16_t);
 void	_bappend_u16(struct hdfs_heap_buf *, uint16_t);
 void	_bappend_s32(struct hdfs_heap_buf *, int32_t);
 void	_bappend_s64(struct hdfs_heap_buf *, int64_t);
+void	_bappend_vlint(struct hdfs_heap_buf *, int64_t);
 void	_bappend_string(struct hdfs_heap_buf *, const char *);
 void	_bappend_text(struct hdfs_heap_buf *, const char *);
-void	_bappend_mem(struct hdfs_heap_buf *, int, const void *);
+void	_bappend_mem(struct hdfs_heap_buf *, size_t, const void *);
 
 // Slurp functions read data from the passed buf. 'size' represents the size of
 // the buf, 'used' represents the amount already read by other slurpers. On
