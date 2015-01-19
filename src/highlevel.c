@@ -365,3 +365,30 @@ _HDFS_PRIM_RPC_BODY(concat,
 	hdfs_string_new(target),
 	(srcs? hdfs_array_string_copy(srcs) : hdfs_array_string_new(0, NULL))
 )
+
+_HDFS_OBJ_RPC_DECL(getDelegationToken,
+	const char *renewer)
+_HDFS_OBJ_RPC_BODY(getDelegationToken,
+	H_TOKEN,
+	hdfs_text_new(renewer)
+)
+
+_HDFS_PRIM_RPC_DECL(void, cancelDelegationToken,
+	struct hdfs_object *token)
+_HDFS_PRIM_RPC_BODY(cancelDelegationToken,
+	H_VOID,
+	,
+	,
+	,
+	(token? hdfs_token_copy(token) : hdfs_token_new_empty())
+)
+
+_HDFS_PRIM_RPC_DECL(int64_t, renewDelegationToken,
+	struct hdfs_object *token)
+_HDFS_PRIM_RPC_BODY(renewDelegationToken,
+	H_LONG,
+	int64_t res = object->ob_val._long._val,
+	res,
+	0,
+	(token? hdfs_token_copy(token) : hdfs_token_new_empty())
+)

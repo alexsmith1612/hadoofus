@@ -34,7 +34,11 @@ enum hdfs_object_type {
 	H_FSPERMS,
 	H_SHORT,
 	H_ARRAY_STRING,
-	H_PROTOCOL_EXCEPTION,
+	H_TEXT,
+
+	/* Leaving room for new types */
+
+	H_PROTOCOL_EXCEPTION = 0x100,
 	H_ACCESS_CONTROL_EXCEPTION,
 	H_ALREADY_BEING_CREATED_EXCEPTION,
 	H_FILE_NOT_FOUND_EXCEPTION,
@@ -260,6 +264,7 @@ struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,
 			const char *service);
 struct hdfs_object *	hdfs_token_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_string_new(const char *);
+struct hdfs_object *	hdfs_text_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
 
 // Caller loses references to objects that are being appended into arrays.

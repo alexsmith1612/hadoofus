@@ -24,9 +24,11 @@
 #define UPGRADESTATUSREPORT_TYPE "org.apache.hadoop.hdfs.server.common.UpgradeStatusReport"
 #define BLOCK_TYPE "org.apache.hadoop.hdfs.protocol.Block"
 #define ARRAYBYTE_TYPE "[B"
+#define TOKEN_TYPE "org.apache.hadoop.security.token.Token"
 #define STRING_TYPE "java.lang.String"
 #define FSPERMS_TYPE "org.apache.hadoop.fs.permission.FsPermission"
 #define ARRAYSTRING_TYPE "[Ljava.lang.String;"
+#define TEXT_TYPE "org.apache.hadoop.io.Text"
 
 #define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 

@@ -158,6 +158,15 @@ bool			hdfs_recoverLease(struct hdfs_namenode *, const char *path,
 void			hdfs_concat(struct hdfs_namenode *, const char *target,
 			struct hdfs_object *srcs, struct hdfs_object **exception_out);
 
+struct hdfs_object *	hdfs_getDelegationToken(struct hdfs_namenode *, const char *renewer,
+			struct hdfs_object **exception_out);
+
+void			hdfs_cancelDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
+			struct hdfs_object **exception_out);
+
+int64_t			hdfs_renewDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

@@ -525,6 +525,53 @@ START_TEST(test_recoverLease)
 }
 END_TEST
 
+START_TEST(test_delegationTokens)
+{
+	struct hdfs_object *token, *e;
+
+	e = NULL;
+
+	token = hdfs_getDelegationToken(h, "abcde", &e);
+	if (e) {
+		/*
+		 * "Delegation Token can be issued only with kerberos or web
+		 * authentication"
+		 */
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+		e = NULL;
+		token = hdfs_token_new_empty();
+#endif
+	}
+
+	(void)hdfs_renewDelegationToken(h, token, &e);
+	if (e) {
+		/* Similar error. */
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+		e = NULL;
+#endif
+	}
+
+	hdfs_cancelDelegationToken(h, token, &e);
+	if (e) {
+		/* Similar error. */
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+		e = NULL;
+#endif
+	}
+
+	hdfs_object_free(token);
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -555,6 +602,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
+	tcase_add_test(tc, test_delegationTokens);
 
 	suite_add_tcase(s, tc);
 

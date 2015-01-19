@@ -61,6 +61,8 @@ static struct {
 		.slurper = /*_oslurp_array_byte*/NULL, },
 	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
+	[H_TOKEN - _H_START] = { .type = TOKEN_TYPE, .objtype = true,
+		.slurper = /*_oslurp_token*/NULL, },
 	[H_STRING - _H_START] = { .type = STRING_TYPE, .objtype = false },
 	[H_FSPERMS - _H_START] = { .type = FSPERMS_TYPE, .objtype = true,
 		.slurper = _oslurp_fsperms, },
@@ -68,6 +70,8 @@ static struct {
 		.slurper = _oslurp_short, },
 	[H_ARRAY_STRING - _H_START] = { .type = ARRAYSTRING_TYPE, .objtype = false,
 		.slurper = /*_oslurp_array_string*/NULL, },
+	[H_TEXT - _H_START] = { .type = TEXT_TYPE, .objtype = true,
+		.slurper = /*_oslurp_text*/NULL, },
 };
 
 static struct {
@@ -110,7 +114,10 @@ _string_to_etype(const char *etype)
 const char *
 hdfs_etype_to_string(enum hdfs_object_type e)
 {
-	const char *res = exception_types[e - H_PROTOCOL_EXCEPTION].type;
+	const char *res;
+
+	ASSERT(e >= H_PROTOCOL_EXCEPTION && e < _H_END);
+	res = exception_types[e - H_PROTOCOL_EXCEPTION].type;
 	if (!res)
 		return "ProtocolException";
 	return res;
@@ -120,6 +127,7 @@ static struct hdfs_object *
 _object_exception(const char *etype, const char *emsg)
 {
 	enum hdfs_object_type realtype;
+
 	realtype = _string_to_etype(etype);
 	return hdfs_protocol_exception_new(realtype, emsg);
 }
@@ -695,9 +703,8 @@ hdfs_string_new(const char *s)
 	char *str_copy;
 	struct hdfs_object *r;
 
-	if (!s) {
+	if (!s)
 		return hdfs_null_new(H_STRING);
-	}
 
 	str_copy = strdup(s);
 	r = _objmalloc();
@@ -705,6 +712,27 @@ hdfs_string_new(const char *s)
 	ASSERT(str_copy);
 
 	r->ob_type = H_STRING;
+	r->ob_val._string = (struct hdfs_string) {
+		._val = str_copy,
+	};
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_text_new(const char *s)
+{
+	char *str_copy;
+	struct hdfs_object *r;
+
+	if (!s)
+		return hdfs_null_new(H_TEXT);
+
+	str_copy = strdup(s);
+	r = _objmalloc();
+
+	ASSERT(str_copy);
+
+	r->ob_type = H_TEXT;
 	r->ob_val._string = (struct hdfs_string) {
 		._val = str_copy,
 	};
@@ -935,6 +963,8 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._exception._msg);
 		break;
 	case H_STRING:
+		/* FALLTHROUGH */
+	case H_TEXT:
 		free(obj->ob_val._string._val);
 		break;
 	case H_ARRAY_STRING:
@@ -953,13 +983,23 @@ hdfs_object_free(struct hdfs_object *obj)
 static const char *
 _rawtypestring(enum hdfs_object_type t)
 {
-	return object_types[t - _H_START].type;
+	const char *res;
+
+	ASSERT(t >= _H_START);
+	res = object_types[t - _H_START].type;
+	ASSERT(res);
+	return res;
 }
 
 static const char *
 _typestring(struct hdfs_object *obj)
 {
-	return object_types[obj->ob_type - _H_START].type;
+	const char *res;
+
+	ASSERT(obj->ob_type >= _H_START);
+	res = object_types[obj->ob_type - _H_START].type;
+	ASSERT(res);
+	return res;
 }
 
 static bool
@@ -1195,6 +1235,9 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 			_bappend_string(dest, obj->ob_val._array_string._val[i]);
 		}
 		}
+		break;
+	case H_TEXT:
+		_bappend_text(dest, obj->ob_val._string._val);
 		break;
 	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
