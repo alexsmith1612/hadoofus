@@ -74,6 +74,19 @@ For more information, see [wikipedia's article on Hadoop][0] or the
 [0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_distributed_file_system "Hadoop distributed file system"
 [1]: https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html
 
+#### ABI Compatibility notes
+
+We aim to preserve ABI compatibility OF THE HIGH-LEVEL C API in future versions
+of this library, with some caveats.
+
+1. Users MUST NOT access struct members directly (even though structs are in
+   public headers).
+2. Users MUST allow for new types of exceptions and do something appropriate
+   with surprising types (i.e., abort, treat it as `IOError`, etc).
+3. Additional HDFS methods may be added. They will follow the naming scheme
+   used throughout this project; users should avoid using such names so that
+   future changes will not cause symbol conflicts.
+
 #### Installing
 
 See INSTALLING.md.
