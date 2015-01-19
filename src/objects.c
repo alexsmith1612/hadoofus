@@ -721,6 +721,32 @@ hdfs_array_string_new(int32_t len, const char **strings)
 	return r;
 }
 
+EXPORT_SYM struct hdfs_object *
+hdfs_array_string_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r = _objmalloc();
+	char **strings;
+	int32_t len, i;
+
+	ASSERT(src->ob_type == H_ARRAY_STRING);
+
+	len = src->ob_val._array_string._len;
+	strings = src->ob_val._array_string._val;
+
+	r->ob_type = H_ARRAY_STRING;
+	r->ob_val._array_string._len = len;
+	r->ob_val._array_string._val = malloc(len * sizeof(*strings));
+	ASSERT(r->ob_val._array_string._val);
+
+	for (i = 0; i < len; i++) {
+		r->ob_val._array_string._val[i] =
+		    strdup(src->ob_val._array_string._val[i]);
+		ASSERT(r->ob_val._array_string._val[i] != NULL ||
+		    src->ob_val._array_string._val[i] == NULL);
+	}
+	return r;
+}
+
 // Caller loses references to objects that are being appended into other
 // objects.
 #define H_ARRAY_RESIZE 8

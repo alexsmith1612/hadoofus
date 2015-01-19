@@ -363,5 +363,5 @@ _HDFS_PRIM_RPC_BODY(concat,
 	,
 	,
 	hdfs_string_new(target),
-	(srcs? srcs : hdfs_array_string_new(0, NULL))
+	(srcs? hdfs_array_string_copy(srcs) : hdfs_array_string_new(0, NULL))
 )
