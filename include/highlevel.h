@@ -173,6 +173,12 @@ int64_t			hdfs_renewDelegationToken(struct hdfs_namenode *, struct hdfs_object *
 bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 			struct hdfs_object **exception_out);
 
+#define			HDFS_DNREPORT_ALL	"ALL"
+#define			HDFS_DNREPORT_LIVE	"LIVE"
+#define			HDFS_DNREPORT_DEAD	"DEAD"
+struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *dnreporttype,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

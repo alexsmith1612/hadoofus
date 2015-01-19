@@ -594,6 +594,32 @@ START_TEST(test_setSafeMode)
 }
 END_TEST
 
+START_TEST(test_getDatanodeReport)
+{
+	struct hdfs_object *e, *dns;
+
+	e = dns = NULL;
+
+	dns = hdfs_getDatanodeReport(h, "ALL", &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	else
+		hdfs_object_free(dns);
+
+	dns = hdfs_getDatanodeReport(h, "LIVE", &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	else
+		hdfs_object_free(dns);
+
+	dns = hdfs_getDatanodeReport(h, "DEAD", &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	else
+		hdfs_object_free(dns);
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -626,6 +652,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_recoverLease);
 	tcase_add_test(tc, test_delegationTokens);
 	tcase_add_test(tc, test_setSafeMode);
+	tcase_add_test(tc, test_getDatanodeReport);
 
 	suite_add_tcase(s, tc);
 

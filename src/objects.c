@@ -76,6 +76,8 @@ static struct {
 		.slurper = /*_oslurp_text*/NULL, },
 	[H_SAFEMODEACTION - _H_START] = { .type = SAFEMODEACTION_TYPE, .objtype = false,
 		.slurper = /*_oslurp_safemodeaction*/NULL, },
+	[H_DNREPORTTYPE - _H_START] = { .type = DNREPORTTYPE_TYPE, .objtype = false,
+		.slurper = /*_oslurp_dnreporttype*/NULL, },
 };
 
 static struct {
@@ -795,6 +797,21 @@ hdfs_safemodeaction_new(const char *mode)
 }
 
 EXPORT_SYM struct hdfs_object *
+hdfs_dnreporttype_new(const char *mode)
+{
+	struct hdfs_object *r;
+
+	ASSERT(mode);
+	ASSERT(streq(mode, HDFS_DNREPORT_ALL) ||
+	    streq(mode, HDFS_DNREPORT_LIVE) ||
+	    streq(mode, HDFS_DNREPORT_DEAD));
+
+	r = hdfs_string_new(mode);
+	r->ob_type = H_DNREPORTTYPE;
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
 hdfs_array_string_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -981,6 +998,8 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_PROTOCOL_EXCEPTION:
 		free(obj->ob_val._exception._msg);
 		break;
+	case H_DNREPORTTYPE:
+		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
 		/* FALLTHROUGH */
 	case H_STRING:
@@ -1227,6 +1246,8 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		free(abuf.buf);
 		}
 		break;
+	case H_DNREPORTTYPE:
+		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
 		/* FALLTHROUGH */
 	case H_STRING:

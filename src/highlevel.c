@@ -402,3 +402,10 @@ _HDFS_PRIM_RPC_BODY(setSafeMode,
 	false,
 	hdfs_safemodeaction_new(mode)
 )
+
+_HDFS_OBJ_RPC_DECL(getDatanodeReport,
+	const char *mode)
+_HDFS_OBJ_RPC_BODY(getDatanodeReport,
+	H_ARRAY_DATANODE_INFO,
+	hdfs_dnreporttype_new(mode)
+)
