@@ -167,6 +167,12 @@ void			hdfs_cancelDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
 int64_t			hdfs_renewDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
 			struct hdfs_object **exception_out);
 
+#define			HDFS_SAFEMODE_ENTER	"SAFEMODE_ENTER"
+#define			HDFS_SAFEMODE_LEAVE	"SAFEMODE_LEAVE"
+#define			HDFS_SAFEMODE_GET	"SAFEMODE_GET"
+bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

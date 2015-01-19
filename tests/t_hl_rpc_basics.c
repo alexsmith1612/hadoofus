@@ -572,6 +572,28 @@ START_TEST(test_delegationTokens)
 }
 END_TEST
 
+START_TEST(test_setSafeMode)
+{
+	struct hdfs_object *e;
+	bool b;
+
+	e = NULL;
+	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_GET, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_ENTER, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_LEAVE, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	(void)b;
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -603,6 +625,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
 	tcase_add_test(tc, test_delegationTokens);
+	tcase_add_test(tc, test_setSafeMode);
 
 	suite_add_tcase(s, tc);
 

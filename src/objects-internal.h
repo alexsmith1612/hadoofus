@@ -29,6 +29,7 @@
 #define FSPERMS_TYPE "org.apache.hadoop.fs.permission.FsPermission"
 #define ARRAYSTRING_TYPE "[Ljava.lang.String;"
 #define TEXT_TYPE "org.apache.hadoop.io.Text"
+#define SAFEMODEACTION_TYPE "org.apache.hadoop.hdfs.protocol.FSConstants$SafeModeAction"
 
 #define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 

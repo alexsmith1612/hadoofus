@@ -392,3 +392,13 @@ _HDFS_PRIM_RPC_BODY(renewDelegationToken,
 	0,
 	(token? hdfs_token_copy(token) : hdfs_token_new_empty())
 )
+
+_HDFS_PRIM_RPC_DECL(bool, setSafeMode,
+	const char *mode)
+_HDFS_PRIM_RPC_BODY(setSafeMode,
+	H_BOOLEAN,
+	bool res = object->ob_val._boolean._val,
+	res,
+	false,
+	hdfs_safemodeaction_new(mode)
+)

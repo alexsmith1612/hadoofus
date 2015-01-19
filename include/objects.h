@@ -35,6 +35,7 @@ enum hdfs_object_type {
 	H_SHORT,
 	H_ARRAY_STRING,
 	H_TEXT,
+	H_SAFEMODEACTION,
 
 	/* Leaving room for new types */
 
@@ -266,6 +267,7 @@ struct hdfs_object *	hdfs_token_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_string_new(const char *);
 struct hdfs_object *	hdfs_text_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
+struct hdfs_object *	hdfs_safemodeaction_new(const char *);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(

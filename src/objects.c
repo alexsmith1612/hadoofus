@@ -12,6 +12,8 @@
 # define st_atimespec st_atim
 #endif
 
+#include <hadoofus/highlevel.h>
+
 #include "heapbuf.h"
 #include "heapbufobjs.h"
 #include "objects-internal.h"
@@ -72,6 +74,8 @@ static struct {
 		.slurper = /*_oslurp_array_string*/NULL, },
 	[H_TEXT - _H_START] = { .type = TEXT_TYPE, .objtype = true,
 		.slurper = /*_oslurp_text*/NULL, },
+	[H_SAFEMODEACTION - _H_START] = { .type = SAFEMODEACTION_TYPE, .objtype = false,
+		.slurper = /*_oslurp_safemodeaction*/NULL, },
 };
 
 static struct {
@@ -776,6 +780,21 @@ hdfs_array_string_new(int32_t len, const char **strings)
 }
 
 EXPORT_SYM struct hdfs_object *
+hdfs_safemodeaction_new(const char *mode)
+{
+	struct hdfs_object *r;
+
+	ASSERT(mode);
+	ASSERT(streq(mode, HDFS_SAFEMODE_ENTER) ||
+	    streq(mode, HDFS_SAFEMODE_LEAVE) ||
+	    streq(mode, HDFS_SAFEMODE_GET));
+
+	r = hdfs_string_new(mode);
+	r->ob_type = H_SAFEMODEACTION;
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
 hdfs_array_string_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -962,6 +981,8 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_PROTOCOL_EXCEPTION:
 		free(obj->ob_val._exception._msg);
 		break;
+	case H_SAFEMODEACTION:
+		/* FALLTHROUGH */
 	case H_STRING:
 		/* FALLTHROUGH */
 	case H_TEXT:
@@ -1206,6 +1227,8 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		free(abuf.buf);
 		}
 		break;
+	case H_SAFEMODEACTION:
+		/* FALLTHROUGH */
 	case H_STRING:
 		_bappend_string(dest, obj->ob_val._string._val);
 		break;
