@@ -600,19 +600,19 @@ START_TEST(test_getDatanodeReport)
 
 	e = dns = NULL;
 
-	dns = hdfs_getDatanodeReport(h, "ALL", &e);
+	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_ALL, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	else
 		hdfs_object_free(dns);
 
-	dns = hdfs_getDatanodeReport(h, "LIVE", &e);
+	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_LIVE, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	else
 		hdfs_object_free(dns);
 
-	dns = hdfs_getDatanodeReport(h, "DEAD", &e);
+	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_DEAD, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	else
