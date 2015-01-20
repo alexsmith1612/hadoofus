@@ -117,7 +117,7 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	    located_block->ob_val._located_block._generation,
 	    located_block->ob_val._located_block._offset,
 	    client,
-	    NULL/*token*/,
+	    located_block->ob_val._located_block._token,
 	    proto);
 
 	// Try each datanode in the LocatedBlock until one successfully

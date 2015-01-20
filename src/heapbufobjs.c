@@ -126,20 +126,30 @@ struct hdfs_object *
 _oslurp_token(struct hdfs_heap_buf *b)
 {
 	char *s[4] = { 0 };
+	int32_t lens[2];
 	struct hdfs_object *res = NULL;
+	unsigned i;
 
-	for (unsigned i = 0; i < nelem(s); i++) {
+	for (i = 0; i < 2; i++) {
+		lens[i] = _bslurp_vlint(b);
+		if (b->used < 0)
+			goto out;
+		ASSERT(lens[i] >= 0);
+		_bslurp_mem1(b, lens[i], &s[i]);
+		if (b->used < 0)
+			goto out;
+	}
+	for (i = 2; i < 4; i++) {
 		s[i] = _bslurp_text(b);
 		if (b->used < 0)
 			goto out;
 	}
 
-	res = hdfs_token_new(s[0], s[1], s[2], s[3]);
+	res = hdfs_token_new_nulsafe(s[0], lens[0], s[1], lens[1], s[2], s[3]);
 
 out:
-	for (unsigned i = 0; i < nelem(s); i++)
-		if (s[i])
-			free(s[i]);
+	for (i = 0; i < nelem(s); i++)
+		free(s[i]);
 	return res;
 }
 
@@ -170,10 +180,6 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 	token = _oslurp_token(b);
 	if (b->used < 0)
 		return NULL;
-
-	// TODO keep token info around
-	hdfs_object_free(token);
-	token = NULL;
 
 	corrupt = _bslurp_s8(b);
 	if (b->used < 0)
@@ -216,6 +222,9 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 		}
 		hdfs_located_block_append_datanode_info(res, di);
 	}
+
+	hdfs_object_free(res->ob_val._located_block._token);
+	res->ob_val._located_block._token = token;
 
 	return res;
 }

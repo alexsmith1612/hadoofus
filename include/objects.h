@@ -92,6 +92,8 @@ struct hdfs_located_block {
 
 	struct hdfs_object **_locs/* type: hdfs_datanode_info[] */;
 	int _num_locs;
+
+	struct hdfs_object *_token;
 };
 
 struct hdfs_located_blocks {

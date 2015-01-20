@@ -177,12 +177,24 @@ _bslurp_s64(struct hdfs_heap_buf *b)
 	return (int64_t)res;
 }
 
+int64_t
+_bslurp_vlint(struct hdfs_heap_buf *b)
+{
+	int64_t res;
+
+	res = _bslurp_s8(b);
+	if (b->used < 0)
+		return -1;
+
+	// we don't handle vlintegers very well right now. TODO
+	ASSERT(res >= 0 && res < 127);
+	return res;
+}
+
 void
-_bslurp_mem1(struct hdfs_heap_buf *b, int len, char **obuf)
+_bslurp_mem1(struct hdfs_heap_buf *b, size_t len, char **obuf)
 {
 	char *res;
-
-	ASSERT(len >= 0);
 
 	if (_eos(b, len))
 		return;
@@ -246,11 +258,10 @@ _bslurp_text(struct hdfs_heap_buf *b)
 	int8_t len;
 	char *res;
 
-	len = _bslurp_s8(b);
+	len = _bslurp_vlint(b);
 	if (b->used < 0)
 		return NULL;
 
-	// we don't handle "text" objects longer than 127 bytes right now
 	ASSERT(len >= 0);
 
 	_bslurp_mem1(b, len, &res);

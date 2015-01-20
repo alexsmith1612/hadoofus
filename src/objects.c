@@ -240,8 +240,7 @@ EXPORT_SYM struct hdfs_object *
 hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 {
 
-	return hdfs_token_new_nulsafe(s1, strlen(s1) + 1, s2, strlen(s2) + 1,
-	    s3, s4);
+	return hdfs_token_new_nulsafe(s1, strlen(s1), s2, strlen(s2), s3, s4);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -256,7 +255,7 @@ hdfs_token_new_empty()
 		r->ob_val._token._strings[i] = s;
 	}
 	for (unsigned i = 0; i < 2; i++)
-		r->ob_val._token._lens[i] = 1;
+		r->ob_val._token._lens[i] = 0;
 
 	return r;
 }
@@ -314,6 +313,7 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 		._len = len,
 		._generation = generation,
 		._offset = offset,
+		._token = hdfs_token_new_empty(),
 	};
 	return r;
 }
@@ -348,6 +348,7 @@ hdfs_located_block_copy(struct hdfs_object *src)
 		._num_locs = nlocs,
 		._locs = arr_locs,
 		._offset = src->ob_val._located_block._offset,
+		._token = hdfs_token_copy(src->ob_val._located_block._token),
 	};
 	return r;
 }
@@ -1003,6 +1004,7 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_LOCATED_BLOCK:
 		FREE_H_ARRAY(obj->ob_val._located_block._locs,
 		    obj->ob_val._located_block._num_locs);
+		hdfs_object_free(obj->ob_val._located_block._token);
 		break;
 	case H_ARRAY_LOCATEDBLOCK:
 		/* FALLTHROUGH */
@@ -1167,12 +1169,8 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_LOCATED_BLOCK:
 		{
 		int len;
-		// Token:
-		_bappend_text(dest, "");
-		_bappend_text(dest, "");
-		_bappend_text(dest, "");
-		_bappend_text(dest, "");
 
+		hdfs_object_serialize(dest, obj->ob_val._located_block._token);
 		_bappend_s8(dest, 0);
 		_bappend_s64(dest, obj->ob_val._located_block._offset);
 		_bappend_s64(dest, obj->ob_val._located_block._blockid);

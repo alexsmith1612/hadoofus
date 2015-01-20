@@ -28,12 +28,13 @@ int8_t		_bslurp_s8(struct hdfs_heap_buf *);
 int16_t		_bslurp_s16(struct hdfs_heap_buf *);
 int32_t		_bslurp_s32(struct hdfs_heap_buf *);
 int64_t		_bslurp_s64(struct hdfs_heap_buf *);
+int64_t		_bslurp_vlint(struct hdfs_heap_buf *);
 char *		_bslurp_string(struct hdfs_heap_buf *);
 char *		_bslurp_string32(struct hdfs_heap_buf *);
 char *		_bslurp_text(struct hdfs_heap_buf *);
 // Helper for string slurpers. For their purposes, allocates an extra byte at
 // the end of the returned buf.
-void		_bslurp_mem1(struct hdfs_heap_buf *, int, char **);
+void		_bslurp_mem1(struct hdfs_heap_buf *, size_t, char **);
 
 void	_sasl_encode_inplace(sasl_conn_t *, struct hdfs_heap_buf *);
 int	_sasl_decode_at_offset(sasl_conn_t *, char **bufp, size_t offset, int r, int *remain);
