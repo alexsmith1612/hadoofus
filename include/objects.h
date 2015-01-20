@@ -37,6 +37,7 @@ enum hdfs_object_type {
 	H_TEXT,
 	H_SAFEMODEACTION,
 	H_DNREPORTTYPE,
+	H_ARRAY_LOCATEDBLOCK,
 
 	/* Leaving room for new types */
 
@@ -270,12 +271,16 @@ struct hdfs_object *	hdfs_text_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
 struct hdfs_object *	hdfs_safemodeaction_new(const char *);
 struct hdfs_object *	hdfs_dnreporttype_new(const char *);
+struct hdfs_object *	hdfs_array_locatedblock_new(void);
+struct hdfs_object *	hdfs_array_locatedblock_copy(struct hdfs_object *);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(
 	struct hdfs_object *located_block, struct hdfs_object *datanode_info);
 void	hdfs_located_blocks_append_located_block(
 	struct hdfs_object *located_blocks, struct hdfs_object *located_block);
+void	hdfs_array_locatedblock_append_located_block(
+	struct hdfs_object *arr_located_block, struct hdfs_object *located_block);
 void	hdfs_directory_listing_append_file_status(
 	struct hdfs_object *directory_listing, struct hdfs_object *file_status,
 	struct hdfs_object *located_blocks);

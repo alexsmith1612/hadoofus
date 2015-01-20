@@ -620,6 +620,26 @@ START_TEST(test_getDatanodeReport)
 }
 END_TEST
 
+START_TEST(test_reportBadBlocks)
+{
+	struct hdfs_object *e, *alb, *lb;
+
+	e = NULL;
+
+	lb = hdfs_located_block_new(0, 0, 0, 0);
+	alb = hdfs_array_locatedblock_new();
+
+	hdfs_array_locatedblock_append_located_block(alb, lb);
+	lb = NULL;
+
+	hdfs_reportBadBlocks(h, alb, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_object_free(alb);
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -662,5 +682,14 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_getContentSummary);
 
 	suite_add_tcase(s, tc);
+
+	/* My implementation of HDFS doesn't support this RPC. */
+	tc = tcase_create("broken");
+	tcase_add_checked_fixture(tc, setup, teardown);
+	tcase_add_test(tc, test_reportBadBlocks);
+#if 0
+	suite_add_tcase(s, tc);
+#endif
+
 	return s;
 }

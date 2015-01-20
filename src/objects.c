@@ -78,6 +78,8 @@ static struct {
 		.slurper = /*_oslurp_safemodeaction*/NULL, },
 	[H_DNREPORTTYPE - _H_START] = { .type = DNREPORTTYPE_TYPE, .objtype = false,
 		.slurper = /*_oslurp_dnreporttype*/NULL, },
+	[H_ARRAY_LOCATEDBLOCK - _H_START] = { .type = ARRAYLOCATEDBLOCK_TYPE, .objtype = false,
+		.slurper = /*_oslurp_array_locatedblock*/NULL, },
 };
 
 static struct {
@@ -812,6 +814,45 @@ hdfs_dnreporttype_new(const char *mode)
 }
 
 EXPORT_SYM struct hdfs_object *
+hdfs_array_locatedblock_new(void)
+{
+	struct hdfs_object *r;
+
+	r = hdfs_located_blocks_new(false, 0);
+	r->ob_type = H_ARRAY_LOCATEDBLOCK;
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_array_locatedblock_copy(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+	int32_t len;
+
+	ASSERT(src && src->ob_type == H_ARRAY_LOCATEDBLOCK);
+
+	len = src->ob_val._located_blocks._num_blocks;
+
+	r = _objmalloc();
+	r->ob_type = H_ARRAY_LOCATEDBLOCK;
+	r->ob_val._located_blocks._num_blocks = len;
+
+	if (len <= 0)
+		goto out;
+
+	r->ob_val._located_blocks._blocks = malloc(len * sizeof(struct hdfs_object *));
+	ASSERT(r->ob_val._located_blocks._blocks);
+
+	for (int32_t i = 0; i < len; i++) {
+		r->ob_val._located_blocks._blocks[i] = hdfs_located_block_copy(
+		    src->ob_val._located_blocks._blocks[i]);
+	}
+
+out:
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
 hdfs_array_string_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -870,6 +911,17 @@ hdfs_located_blocks_append_located_block(struct hdfs_object *located_blocks,
 
 	H_ARRAY_APPEND(located_blocks->ob_val._located_blocks._blocks,
 	    located_blocks->ob_val._located_blocks._num_blocks, located_block);
+}
+
+EXPORT_SYM void
+hdfs_array_locatedblock_append_located_block(struct hdfs_object *arr_located_block,
+	struct hdfs_object *located_block)
+{
+	ASSERT(arr_located_block->ob_type == H_ARRAY_LOCATEDBLOCK);
+	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
+
+	H_ARRAY_APPEND(arr_located_block->ob_val._located_blocks._blocks,
+	    arr_located_block->ob_val._located_blocks._num_blocks, located_block);
 }
 
 EXPORT_SYM void
@@ -952,11 +1004,14 @@ hdfs_object_free(struct hdfs_object *obj)
 		FREE_H_ARRAY(obj->ob_val._located_block._locs,
 		    obj->ob_val._located_block._num_locs);
 		break;
+	case H_ARRAY_LOCATEDBLOCK:
+		/* FALLTHROUGH */
 	case H_LOCATED_BLOCKS:
 		FREE_H_ARRAY(obj->ob_val._located_blocks._blocks,
 		    obj->ob_val._located_blocks._num_blocks);
 		break;
-	case H_LOCATED_DIRECTORY_LISTING: // FALLTHROUGH
+	case H_LOCATED_DIRECTORY_LISTING:
+		/* FALLTHROUGH */
 	case H_DIRECTORY_LISTING:
 		FREE_H_ARRAY(obj->ob_val._directory_listing._files,
 		    obj->ob_val._directory_listing._num_files);
@@ -1142,7 +1197,21 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 			    obj->ob_val._located_blocks._blocks[i]);
 		}
 		break;
-	case H_LOCATED_DIRECTORY_LISTING: // FALLTHROUGH
+	case H_ARRAY_LOCATEDBLOCK:
+		{
+		int32_t len;
+		len = obj->ob_val._located_blocks._num_blocks;
+		_bappend_s32(dest, len);
+		for (int32_t i = 0; i < len; i++) {
+			_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
+			_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
+			hdfs_object_serialize(dest,
+			    obj->ob_val._located_blocks._blocks[i]);
+		}
+		}
+		break;
+	case H_LOCATED_DIRECTORY_LISTING:
+		/* FALLTHROUGH */
 	case H_DIRECTORY_LISTING:
 		{
 		int len = obj->ob_val._directory_listing._num_files;

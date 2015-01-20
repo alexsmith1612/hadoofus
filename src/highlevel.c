@@ -409,3 +409,14 @@ _HDFS_OBJ_RPC_BODY(getDatanodeReport,
 	H_ARRAY_DATANODE_INFO,
 	hdfs_dnreporttype_new(mode)
 )
+
+_HDFS_PRIM_RPC_DECL(void, reportBadBlocks,
+	struct hdfs_object *blocks)
+_HDFS_PRIM_RPC_BODY(reportBadBlocks,
+	H_VOID,
+	,
+	,
+	,
+	(blocks? hdfs_array_locatedblock_copy(blocks) :
+	 hdfs_array_locatedblock_new())
+)

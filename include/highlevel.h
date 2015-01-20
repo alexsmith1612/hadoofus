@@ -179,6 +179,9 @@ bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *dnreporttype,
 			struct hdfs_object **exception_out);
 
+void			hdfs_reportBadBlocks(struct hdfs_namenode *, struct hdfs_object *blocks,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
