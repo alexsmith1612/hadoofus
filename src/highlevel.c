@@ -427,3 +427,30 @@ _HDFS_OBJ_RPC_BODY(distributedUpgradeProgress,
 	H_UPGRADE_STATUS_REPORT,
 	hdfs_upgradeaction_new(act)
 )
+
+_HDFS_PRIM_RPC_DECL(void, finalizeUpgrade)
+_HDFS_PRIM_RPC_BODY(finalizeUpgrade,
+	H_VOID,
+	,
+	,
+	,
+	NULL /* No args */
+)
+
+_HDFS_PRIM_RPC_DECL(void, refreshNodes)
+_HDFS_PRIM_RPC_BODY(refreshNodes,
+	H_VOID,
+	,
+	,
+	,
+	NULL /* No args */
+)
+
+_HDFS_PRIM_RPC_DECL(void, saveNamespace)
+_HDFS_PRIM_RPC_BODY(saveNamespace,
+	H_VOID,
+	,
+	,
+	,
+	NULL /* No args */
+)

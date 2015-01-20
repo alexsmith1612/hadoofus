@@ -662,6 +662,37 @@ START_TEST(test_distributedUpgradeProgress)
 }
 END_TEST
 
+START_TEST(test_admin_functions)
+{
+	struct hdfs_object *e;
+
+	e = NULL;
+	hdfs_finalizeUpgrade(h, &e);
+	if (e)
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+#endif
+
+	hdfs_refreshNodes(h, &e);
+	if (e)
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+#endif
+
+	hdfs_saveNamespace(h, &e);
+	if (e)
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+#endif
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -696,6 +727,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_setSafeMode);
 	tcase_add_test(tc, test_getDatanodeReport);
 	tcase_add_test(tc, test_distributedUpgradeProgress);
+	tcase_add_test(tc, test_admin_functions);
 
 	suite_add_tcase(s, tc);
 

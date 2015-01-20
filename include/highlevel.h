@@ -188,6 +188,12 @@ void			hdfs_reportBadBlocks(struct hdfs_namenode *, struct hdfs_object *blocks,
 struct hdfs_object *	hdfs_distributedUpgradeProgress(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
+void			hdfs_finalizeUpgrade(struct hdfs_namenode *, struct hdfs_object **exception_out);
+
+void			hdfs_refreshNodes(struct hdfs_namenode *, struct hdfs_object **exception_out);
+
+void			hdfs_saveNamespace(struct hdfs_namenode *, struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
