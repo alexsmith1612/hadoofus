@@ -182,6 +182,12 @@ struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *
 void			hdfs_reportBadBlocks(struct hdfs_namenode *, struct hdfs_object *blocks,
 			struct hdfs_object **exception_out);
 
+#define			HDFS_UPGRADEACTION_STATUS		"GET_STATUS"
+#define			HDFS_UPGRADEACTION_DETAILED		"DETAILED_STATUS"
+#define			HDFS_UPGRADEACTION_FORCE_PROCEED	"FORCE_PROCEED"
+struct hdfs_object *	hdfs_distributedUpgradeProgress(struct hdfs_namenode *, const char *,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

@@ -32,6 +32,7 @@
 #define SAFEMODEACTION_TYPE "org.apache.hadoop.hdfs.protocol.FSConstants$SafeModeAction"
 #define DNREPORTTYPE_TYPE "org.apache.hadoop.hdfs.protocol.FSConstants$DatanodeReportType"
 #define ARRAYLOCATEDBLOCK_TYPE "[L" LOCATEDBLOCK_TYPE ";"
+#define UPGRADEACTION_TYPE "org.apache.hadoop.hdfs.protocol.FSConstants$UpgradeAction"
 
 #define CLIENT_PROTOCOL HADOOFUS_CLIENT_PROTOCOL_STR
 

@@ -56,7 +56,7 @@ static struct {
 	[H_LOCATED_DIRECTORY_LISTING - _H_START] = { .type = LOCATEDDIRECTORYLISTING_TYPE,
 		.objtype = true, .slurper = /*_oslurp_located_directory_listing*/NULL, },
 	[H_UPGRADE_STATUS_REPORT - _H_START] = { .type = UPGRADESTATUSREPORT_TYPE, .objtype = true,
-		.slurper = /*_oslurp_upgrade_status_report*/NULL, },
+		.slurper = _oslurp_upgrade_status_report, },
 	[H_BLOCK - _H_START] = { .type = BLOCK_TYPE, .objtype = true,
 		.slurper = _oslurp_block, },
 	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false,
@@ -80,6 +80,8 @@ static struct {
 		.slurper = /*_oslurp_dnreporttype*/NULL, },
 	[H_ARRAY_LOCATEDBLOCK - _H_START] = { .type = ARRAYLOCATEDBLOCK_TYPE, .objtype = false,
 		.slurper = /*_oslurp_array_locatedblock*/NULL, },
+	[H_UPGRADE_ACTION - _H_START] = { .type = UPGRADEACTION_TYPE, .objtype = false,
+		.slurper = /*_oslurp_upgrade_action*/NULL, },
 };
 
 static struct {
@@ -815,6 +817,33 @@ hdfs_dnreporttype_new(const char *mode)
 }
 
 EXPORT_SYM struct hdfs_object *
+hdfs_upgradeaction_new(const char *mode)
+{
+	struct hdfs_object *r;
+
+	ASSERT(mode);
+	ASSERT(streq(mode, HDFS_UPGRADEACTION_STATUS) ||
+	    streq(mode, HDFS_UPGRADEACTION_DETAILED) ||
+	    streq(mode, HDFS_UPGRADEACTION_FORCE_PROCEED));
+
+	r = hdfs_string_new(mode);
+	r->ob_type = H_UPGRADE_ACTION;
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_upgrade_status_report_new(int32_t version, int16_t status)
+{
+	struct hdfs_object *r;
+
+	r = _objmalloc();
+	r->ob_type = H_UPGRADE_STATUS_REPORT;
+	r->ob_val._upgrade_status._version = version;
+	r->ob_val._upgrade_status._status = status;
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
 hdfs_array_locatedblock_new(void)
 {
 	struct hdfs_object *r;
@@ -998,6 +1027,7 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_FSPERMS: break;
 	case H_INT: break;
 	case H_LONG: break;
+	case H_UPGRADE_STATUS_REPORT: break;
 	case H_ARRAY_LONG:
 		free(obj->ob_val._array_long._vals);
 		break;
@@ -1055,6 +1085,8 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_PROTOCOL_EXCEPTION:
 		free(obj->ob_val._exception._msg);
 		break;
+	case H_UPGRADE_ACTION:
+		/* FALLTHROUGH */
 	case H_DNREPORTTYPE:
 		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
@@ -1070,7 +1102,6 @@ hdfs_object_free(struct hdfs_object *obj)
 		if (obj->ob_val._array_string._val)
 			free(obj->ob_val._array_string._val);
 		break;
-	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
 	default:
 		ASSERT(false);
 	}
@@ -1313,6 +1344,8 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		free(abuf.buf);
 		}
 		break;
+	case H_UPGRADE_ACTION:
+		/* FALLTHROUGH */
 	case H_DNREPORTTYPE:
 		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
@@ -1350,7 +1383,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_TEXT:
 		_bappend_text(dest, obj->ob_val._string._val);
 		break;
-	case H_UPGRADE_STATUS_REPORT: // FALLTHROUGH
+	case H_UPGRADE_STATUS_REPORT:
+		_bappend_s32(dest, obj->ob_val._upgrade_status._version);
+		_bappend_s16(dest, obj->ob_val._upgrade_status._status);
+		break;
 	default:
 		ASSERT(false);
 	}

@@ -38,6 +38,7 @@ enum hdfs_object_type {
 	H_SAFEMODEACTION,
 	H_DNREPORTTYPE,
 	H_ARRAY_LOCATEDBLOCK,
+	H_UPGRADE_ACTION,
 
 	/* Leaving room for new types */
 
@@ -190,6 +191,11 @@ struct hdfs_fsperms {
 	int16_t _perms;
 };
 
+struct hdfs_upgrade_status_report {
+	int32_t _version;
+	int16_t _status;
+};
+
 struct hdfs_exception {
 	char *_msg;
 	enum hdfs_object_type _etype;
@@ -220,6 +226,7 @@ struct hdfs_object {
 		struct hdfs_string _string;
 		struct hdfs_fsperms _fsperms;
 		struct hdfs_array_string _array_string;
+		struct hdfs_upgrade_status_report _upgrade_status;
 	} ob_val;
 	enum hdfs_object_type ob_type;
 };
@@ -275,6 +282,8 @@ struct hdfs_object *	hdfs_safemodeaction_new(const char *);
 struct hdfs_object *	hdfs_dnreporttype_new(const char *);
 struct hdfs_object *	hdfs_array_locatedblock_new(void);
 struct hdfs_object *	hdfs_array_locatedblock_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_upgradeaction_new(const char *);
+struct hdfs_object *	hdfs_upgrade_status_report_new(int32_t, int16_t);
 
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(

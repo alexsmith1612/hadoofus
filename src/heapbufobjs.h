@@ -26,5 +26,6 @@ struct hdfs_object *	_oslurp_file_status(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_content_summary(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_block(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_fsperms(struct hdfs_heap_buf *);
+struct hdfs_object *	_oslurp_upgrade_status_report(struct hdfs_heap_buf *);
 
 #endif

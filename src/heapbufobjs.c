@@ -510,3 +510,20 @@ _oslurp_fsperms(struct hdfs_heap_buf *b)
 
 	return hdfs_fsperms_new(perms);
 }
+
+struct hdfs_object *
+_oslurp_upgrade_status_report(struct hdfs_heap_buf *b)
+{
+	int32_t version;
+	int16_t status;
+
+	version = _bslurp_s32(b);
+	if (b->used < 0)
+		return NULL;
+
+	status = _bslurp_s16(b);
+	if (b->used < 0)
+		return NULL;
+
+	return hdfs_upgrade_status_report_new(version, status);
+}

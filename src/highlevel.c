@@ -420,3 +420,10 @@ _HDFS_PRIM_RPC_BODY(reportBadBlocks,
 	(blocks? hdfs_array_locatedblock_copy(blocks) :
 	 hdfs_array_locatedblock_new())
 )
+
+_HDFS_OBJ_RPC_DECL(distributedUpgradeProgress,
+	const char *act)
+_HDFS_OBJ_RPC_BODY(distributedUpgradeProgress,
+	H_UPGRADE_STATUS_REPORT,
+	hdfs_upgradeaction_new(act)
+)
