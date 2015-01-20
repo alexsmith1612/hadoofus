@@ -454,3 +454,33 @@ _HDFS_PRIM_RPC_BODY(saveNamespace,
 	,
 	NULL /* No args */
 )
+
+_HDFS_PRIM_RPC_DECL(void, metaSave,
+	const char *filename)
+_HDFS_PRIM_RPC_BODY(metaSave,
+	H_VOID,
+	,
+	,
+	,
+	hdfs_string_new(filename)
+)
+
+_HDFS_PRIM_RPC_DECL(void, setBalancerBandwidth,
+	int64_t bw)
+_HDFS_PRIM_RPC_BODY(setBalancerBandwidth,
+	H_VOID,
+	,
+	,
+	,
+	hdfs_long_new(bw)
+)
+
+_HDFS_PRIM_RPC_DECL(bool, isFileClosed,
+	const char *src)
+_HDFS_PRIM_RPC_BODY(isFileClosed,
+	H_BOOLEAN,
+	bool res = object->ob_val._boolean._val,
+	res,
+	false,
+	hdfs_string_new(src)
+)

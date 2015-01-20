@@ -693,6 +693,36 @@ START_TEST(test_admin_functions)
 }
 END_TEST
 
+START_TEST(test_admin_functions2)
+{
+	struct hdfs_object *e, *e2;
+
+	e = e2 = NULL;
+	hdfs_metaSave(h, "/HADOOFUS_TEST_METASAVE", &e);
+	(void)hdfs_delete(h, "/HADOOFUS_TEST_METASAVE", false, &e2);
+	if (e2)
+		hdfs_object_free(e2);
+	if (e)
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+#endif
+
+	(void)hdfs_isFileClosed(h, "/BOGUS", &e);
+	if (e)
+		hdfs_object_free(e);
+
+	hdfs_setBalancerBandwidth(h, 100000000, &e);
+	if (e)
+#if 0
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+#else
+		hdfs_object_free(e);
+#endif
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -728,6 +758,7 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_getDatanodeReport);
 	tcase_add_test(tc, test_distributedUpgradeProgress);
 	tcase_add_test(tc, test_admin_functions);
+	tcase_add_test(tc, test_admin_functions2);
 
 	suite_add_tcase(s, tc);
 

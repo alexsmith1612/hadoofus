@@ -194,6 +194,15 @@ void			hdfs_refreshNodes(struct hdfs_namenode *, struct hdfs_object **exception_
 
 void			hdfs_saveNamespace(struct hdfs_namenode *, struct hdfs_object **exception_out);
 
+bool			hdfs_isFileClosed(struct hdfs_namenode *, const char *,
+			struct hdfs_object **exception_out);
+
+void			hdfs_metaSave(struct hdfs_namenode *, const char *,
+			struct hdfs_object **exception_out);
+
+void			hdfs_setBalancerBandwidth(struct hdfs_namenode *, int64_t,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
