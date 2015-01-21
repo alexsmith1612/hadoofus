@@ -1,0 +1,28 @@
+/**
+ * These are the messages used by Hadoop RPC to marshal the
+ * request and response in the RPC layer.
+ */
+
+/* Do not generate Reflection code */
+// option optimize_for = LITE_RUNTIME;
+
+/**
+ * This message is used for Protobuf Rpc Engine.
+ * The message is used to marshal a Rpc-request
+ * from RPC client to the RPC server.
+ * The Response to the Rpc call (including errors) are handled
+ * as part of the standard Rpc response. 
+ */
+message HadoopRpcRequestProto {
+  /** Name of the RPC method */
+  required string methodName = 1;
+
+  /** Bytes corresponding to the client protobuf request */
+  optional bytes request = 2;
+  
+  /** protocol name of class declaring the called method */ 
+  required string declaringClassProtocolName = 3;
+  
+  /** protocol version of class declaring the called method */
+  required uint64 clientProtocolVersion = 4;
+}

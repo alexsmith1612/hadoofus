@@ -1,0 +1,24 @@
+/* Do not generate Reflection code */ 
+// option optimize_for = LITE_RUNTIME;
+
+/**
+ * Spec for UserInformationProto is specified in ProtoUtil#makeIpcConnectionContext
+ */
+message UserInformationProto {
+  optional string effectiveUser = 1;
+  optional string realUser = 2;
+}
+
+/**
+ * The connection context is sent as part of the connection establishment.
+ * It establishes the context for ALL Rpc calls within the connection.
+ */
+message IpcConnectionContextProto {
+  // UserInfo beyond what is determined as part of security handshake 
+  // at connection time (kerberos, tokens etc).
+  optional UserInformationProto userInfo = 2;
+
+  // Protocol name for next rpc layer.
+  // The client created a proxy with this protocol name
+  optional string protocol = 3;
+}
