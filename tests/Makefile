@@ -11,7 +11,7 @@ TEST_SRCS = \
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
-LINK_FLAGS = $(LDFLAGS) -lcheck -L../src -lhadoofus -lz -lrt -lsasl2
+LINK_FLAGS = $(LDFLAGS) -lcheck -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2
 FLAGS = -Wall -Werror -fPIC -g $(CFLAGS)
 
 all: $(TEST_PRGM)

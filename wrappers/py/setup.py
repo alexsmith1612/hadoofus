@@ -82,14 +82,14 @@ make_vars = parse_makefile("%s/src/Makefile" % root_dir)
 libhadoofus = ("hadoofus", {
     "sources": glob("%s/src/*.c" % root_dir),
     "include_dirs": include_dirs,
-    "extra_compile_preargs": ["-DNO_EXPORT_SYMS"] + make_vars["FLAGS"].split()
+    "extra_compile_preargs": ["-DNO_EXPORT_SYMS", "-std=gnu99"] + make_vars["FLAGS"].split()
 })
 
 # The hadoofus python extension, compiled by Cython
 hadoofus = Extension(
     name="hadoofus",
     sources=["hadoofus.pyx"],
-    libraries=["z", "sasl2", "rt"],
+    libraries=["protobuf-c", "z", "sasl2", "rt"],
     include_dirs=include_dirs,
 )
 

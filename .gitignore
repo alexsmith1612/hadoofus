@@ -21,3 +21,5 @@ wrappers/c/.*.swp
 wrappers/c/hdfs_test
 TAGS
 src/*.a
+src/*.pb-c.h
+src/*.pb-c.c

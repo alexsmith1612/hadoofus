@@ -1,7 +1,7 @@
 language: c
 compiler: gcc
 before_install:
-  - sudo apt-get -y install check libsasl2-dev libsasl2-2
+  - sudo apt-get -y install check libsasl2-dev libsasl2-2 libprotobuf-c1 libprotobuf-c-dev protobuf-c-compiler
   - >
       if [ "x`uname -m`" = "xx86_64" ]; then
         wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.20.1+git90-g0e6e38e-1ubuntu2_amd64.deb ;

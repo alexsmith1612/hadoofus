@@ -12,7 +12,7 @@ LIBDIR = $(PREFIX)/lib
 INCLUDEDIR = $(PREFIX)/include
 
 FLAGS = $(CFLAGS) -I../../include
-LINKFLAGS = $(LDFLAGS) -L../../src -lhadoofus -lz -lrt
+LINKFLAGS = $(LDFLAGS) -L../../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt
 
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
 
