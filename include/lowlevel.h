@@ -25,12 +25,6 @@ struct _hdfs_pending;
 
 typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
 
-enum hdfs_kerb {
-	HDFS_NO_KERB,      // plaintext username (default)
-	HDFS_TRY_KERB,     // attempt kerb, but allow fallback to plaintext
-	HDFS_REQUIRE_KERB, // fail if server attempts to fallback to plaintext
-};
-
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
@@ -56,6 +50,7 @@ struct hdfs_namenode {
 	pthread_t nn_recv_thr;
 	int nn_recv_sigpipe[2];
 
+	enum hdfs_namenode_proto nn_proto;
 	uint8_t nn_client_id[_HDFS_CLIENT_ID_LEN];
 };
 
@@ -113,6 +108,12 @@ hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
 	future->fu_namenode = NULL;
 }
 
+// Allocate a namenode object. (This allows us to add fields to hdfs_namenode
+// without breaking ABI in the future.)
+//
+// Free with free(3).
+struct hdfs_namenode *	hdfs_namenode_allocate(void);
+
 // Initialize the connection object. Doesn't actually connect or authenticate
 // with the namenode.
 //
@@ -121,6 +122,15 @@ hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
 //   HDFS_TRY_KERB     -- attempt kerb, but allow fallback to plaintext
 //   HDFS_REQUIRE_KERB -- fail if server attempts to fallback to plaintext
 void		hdfs_namenode_init(struct hdfs_namenode *, enum hdfs_kerb);
+
+// Set the protocol version used to communicate with the namenode. It is only
+// valid to do this BEFORE connecting to any namenode.
+//
+// Versions are one of:
+//   HDFS_NN_v1        -- v1.x
+//   HDFS_NN_v2        -- v2.0
+//   HDFS_NN_v2_2      -- v2.2
+void		hdfs_namenode_set_version(struct hdfs_namenode *, enum hdfs_namenode_proto);
 
 // Connect to the given host/port. You should only use this on a freshly
 // initialized namenode object (don't re-use the same object until it's been

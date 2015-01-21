@@ -31,6 +31,17 @@ static void	_conn_try_desasl(struct hdfs_namenode *n);
 static int	_getssf(sasl_conn_t *);
 static void	_sasl_interacts(sasl_interact_t *);
 
+EXPORT_SYM struct hdfs_namenode *
+hdfs_namenode_allocate(void)
+{
+	struct hdfs_namenode *res;
+
+	res = malloc(sizeof(*res));
+	ASSERT(res);
+	memset(res, 0, sizeof(*res));
+	return res;
+}
+
 EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
@@ -58,8 +69,21 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_objbuf_used = 0;
 	n->nn_objbuf_size = 0;
 
+	n->nn_proto = HDFS_NN_v1;
 	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
+}
 
+EXPORT_SYM void
+hdfs_namenode_set_version(struct hdfs_namenode *n, enum hdfs_namenode_proto vers)
+{
+
+	/* Only allowed before we are connected. */
+	ASSERT(n->nn_sock == -1);
+
+	ASSERT(vers >= HDFS_NN_v1 && vers <= _HDFS_NN_vLATEST);
+	n->nn_proto = vers;
+
+	if (vers >= HDFS_NN_v2_2) {
 		ssize_t rd;
 		int fd;
 
@@ -70,6 +94,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 		ASSERT(rd == sizeof(n->nn_client_id));
 
 		close(fd);
+	}
 }
 
 EXPORT_SYM const char *
@@ -101,38 +126,69 @@ out:
 EXPORT_SYM const char *
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
-	const char *error = NULL, *preamble = "hrpc\x04\x50";
+	const char *error = NULL;
 	struct hdfs_object *header;
 	struct hdfs_heap_buf hbuf = { 0 };
-	char *inh = NULL;
+	char *inh = NULL, preamble[12];
+	size_t preamble_len;
 
 	_lock(&n->nn_lock);
 	ASSERT(!n->nn_authed);
 	ASSERT(n->nn_sock != -1);
 
-	// Create / serialize the connection header object
-	header = hdfs_authheader_new(username);
+	memset(preamble, 0, sizeof(preamble));
+	if (n->nn_proto == HDFS_NN_v1) {
+		sprintf(preamble, "hrpc\x04%c",
+		    (n->nn_kerb == HDFS_NO_KERB)? 0x50 : 0x51);
+		preamble_len = 6;
+
+		header = hdfs_authheader_new(username);
+	} else if (n->nn_proto == HDFS_NN_v2) {
+		/* HDFSv2 has used both version 7 (2.0.0-2.0.2) and 8 (2.0.3+). */
+		sprintf(preamble, "hrpc%c%c", 8 /* XXX Configurable? */,
+		    (n->nn_kerb == HDFS_NO_KERB)? 0x50 : 0x51);
+		/* There is a zero at the end: */
+		preamble_len = 7;
+
+		header = hdfs_authheader_new_ext(n->nn_proto, username, NULL,
+		    n->nn_kerb);
+	} else if (n->nn_proto == HDFS_NN_v2_2) {
+		memcpy(preamble, "hrpc\x09", 5);
+		preamble[5] = 0;
+		preamble[6] = (n->nn_kerb == HDFS_NO_KERB)? 0 : -33;
+		preamble_len = 7;
+
+		header = hdfs_authheader_new_ext(n->nn_proto, username, NULL,
+		    n->nn_kerb);
+		_authheader_set_clientid(header, n->nn_client_id);
+	} else {
+		ASSERT(false);
+	}
+
+	// Serialize the connection header object (I am speaking ClientProtocol
+	// and this is my username)
 	hdfs_object_serialize(&hbuf, header);
 	hdfs_object_free(header);
 
 	if (n->nn_kerb == HDFS_NO_KERB) {
 		// Prefix the header object with the protocol preamble
-		hbuf.buf = realloc(hbuf.buf, hbuf.size + strlen(preamble));
+		hbuf.buf = realloc(hbuf.buf, hbuf.size + preamble_len);
 		ASSERT(hbuf.buf);
-		memmove(hbuf.buf + strlen(preamble), hbuf.buf, hbuf.used);
-		memcpy(hbuf.buf, preamble, strlen(preamble));
-		hbuf.used += strlen(preamble);
-		hbuf.size += strlen(preamble);
-
-		// Write the entire thing to the socket. Honestly, the first write
-		// should succeed (we have the entire outbound sockbuf) but we call it
-		// in a loop for correctness.
-		error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
-		n->nn_authed = true;
+		memmove(hbuf.buf + preamble_len, hbuf.buf, hbuf.used);
+		memcpy(hbuf.buf, preamble, preamble_len);
+		hbuf.used += preamble_len;
+		hbuf.size += preamble_len;
 	} else {
+		/*
+		 * XXX This is probably totally wrong for HDFSv2+. They start
+		 * using protobufs at this point to wrap the SASL packets.
+		 *
+		 * To be fair, it's probably broken for HDFSv1 too :). I need
+		 * to find a kerberized HDFS to test against.
+		 */
 		int r;
 		sasl_interact_t *interactions = NULL;
-		const char *out, *mechusing, *prefix = "hrpc\x04\x51";
+		const char *out, *mechusing;
 		unsigned outlen;
 		struct iovec iov[3];
 		uint32_t inlen;
@@ -155,8 +211,8 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 
 		// Send prefix, first auth token
 		_be32enc(in, outlen);
-		iov[0].iov_base = __DECONST(void *, prefix);
-		iov[0].iov_len = strlen(prefix);
+		iov[0].iov_base = preamble;
+		iov[0].iov_len = preamble_len;
 		iov[1].iov_base = in;
 		iov[1].iov_len = 4;
 		iov[2].iov_base = __DECONST(void *, out);
@@ -238,11 +294,11 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 send_header:
 		if (n->nn_sasl_ssf > 0)
 			_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
-
-		// send auth header
-		error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
-		n->nn_authed = true;
 	}
+
+	// send auth header
+	error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
+	n->nn_authed = true;
 
 out:
 	if (inh)

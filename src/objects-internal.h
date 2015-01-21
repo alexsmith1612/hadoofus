@@ -49,6 +49,8 @@ struct _hdfs_result {
 
 void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
 
+void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
+
 // Returns _HDFS_INVALID_PROTO if the buffer contains invalid protocol data.
 // Returns NULL if we can't decode a response from the available buffer.
 // Otherwise, returns a result object.

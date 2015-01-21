@@ -21,9 +21,7 @@ hdfs_namenode_new(const char *host, const char *port, const char *username,
 	const char *error;
 	struct hdfs_namenode *h;
 
-	h = malloc(sizeof *h);
-	ASSERT(h);
-
+	h = hdfs_namenode_allocate();
 	hdfs_namenode_init(h, kerb_pref);
 	error = hdfs_namenode_connect(h, host, port);
 	if (error)

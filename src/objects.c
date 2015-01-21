@@ -19,6 +19,9 @@
 #include "objects-internal.h"
 #include "util.h"
 
+#include "IpcConnectionContext.pb-c.h"
+#include "Rpc2_2Header.pb-c.h"
+
 static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
 struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
 
@@ -693,19 +696,46 @@ _rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
 	rpc->ob_val._rpc_invocation._msgno = msgno;
 }
 
-EXPORT_SYM struct hdfs_object *
-hdfs_authheader_new(const char *user)
+void
+_authheader_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
 {
-	char *user_copy = strdup(user);
+	ASSERT(rpc);
+	ASSERT(rpc->ob_type == H_AUTHHEADER);
+
+	rpc->ob_val._authheader._client_id = cid;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_authheader_new_ext(enum hdfs_namenode_proto pr, const char *user,
+	const char *real_user, enum hdfs_kerb kerb)
+{
+	char *user_copy, *real_user_copy;
 	struct hdfs_object *r = _objmalloc();
 
+	user_copy = strdup(user);
 	ASSERT(user_copy);
+
+	ASSERT(real_user == NULL /* TODO Issue #27 */);
+	real_user_copy = real_user? strdup(real_user) : NULL;
+	if (real_user)
+		ASSERT(real_user_copy);
 
 	r->ob_type = H_AUTHHEADER;
 	r->ob_val._authheader = (struct hdfs_authheader) {
 		._username = user_copy,
+		._real_username = real_user_copy,
+		._proto = pr,
+		._kerberized = kerb,
 	};
 	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_authheader_new(const char *user)
+{
+
+	return hdfs_authheader_new_ext(HDFS_NN_v1, user, NULL,
+	    HDFS_NO_KERB/* doesn't affect serializaton for v1 anyway */);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -1077,6 +1107,7 @@ hdfs_object_free(struct hdfs_object *obj)
 		break;
 	case H_AUTHHEADER:
 		free(obj->ob_val._authheader._username);
+		free(obj->ob_val._authheader._real_username);
 		break;
 	case H_TOKEN:
 		for (unsigned i = 0; i < nelem(obj->ob_val._token._strings); i++)
@@ -1140,6 +1171,99 @@ static bool
 _is_type_objtype(enum hdfs_object_type t)
 {
 	return object_types[t - _H_START].objtype;
+}
+
+static void
+_serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
+{
+	struct hdfs_heap_buf abuf = { 0 };
+	enum hdfs_namenode_proto pr;
+	size_t cc_sz;
+
+	ASSERT(auth->_real_username == NULL);	// Issue #27
+	pr = auth->_proto;
+
+	if (pr == HDFS_NN_v1) {
+		_bappend_text(&abuf, CLIENT_PROTOCOL);
+		_bappend_s8(&abuf, 1);
+		_bappend_string(&abuf, auth->_username);
+		_bappend_s8(&abuf, 0);
+
+		_bappend_s32(dest, abuf.used);
+		_bappend_mem(dest, abuf.used, abuf.buf);
+		goto authheader_out;
+	}
+
+	/* 2.2 doesn't send any header for SASL connections */
+	if (pr == HDFS_NN_v2_2 && auth->_kerberized != HDFS_NO_KERB)
+		goto authheader_out;
+
+	UserInformationProto ui = USER_INFORMATION_PROTO__INIT;
+	IpcConnectionContextProto context =
+	    IPC_CONNECTION_CONTEXT_PROTO__INIT;
+
+	ui.effectiveuser = auth->_username;
+	ui.realuser = auth->_real_username;
+	context.userinfo = &ui;
+	context.protocol = __DECONST(char *, CLIENT_PROTOCOL);
+
+	cc_sz = ipc_connection_context_proto__get_packed_size(&context);
+	_hbuf_reserve(&abuf, cc_sz);
+	ipc_connection_context_proto__pack(&context,
+	    (void *)&abuf.buf[abuf.used]);
+	abuf.used += cc_sz;
+
+	if (pr == HDFS_NN_v2) {
+		_bappend_s32(dest, abuf.used);
+		_bappend_mem(dest, abuf.used, abuf.buf);
+	} else {
+		/*
+		 * HDFSv2.2+:
+		 *
+		 * i32 total size of:
+		 *   varint size of:           \
+		 *     RpcRequestHeaderProto    } encoded in 'hbuf' below
+		 *   varint size of:           /
+		 *     IpcConnectionContextProto
+		 */
+		struct hdfs_heap_buf hbuf = { 0 };
+		Hadoop__Common__RpcRequestHeaderProto header =
+		    HADOOP__COMMON__RPC_REQUEST_HEADER_PROTO__INIT;
+		size_t hd_sz;
+
+		ASSERT(pr == HDFS_NN_v2_2);
+
+		header.has_rpckind = true;
+		header.rpckind =
+		    HADOOP__COMMON__RPC_KIND_PROTO__RPC_PROTOCOL_BUFFER;
+		header.has_rpcop = true;
+		header.rpcop =
+		    HADOOP__COMMON__RPC_REQUEST_HEADER_PROTO__OPERATION_PROTO__RPC_FINAL_PACKET;
+		header.callid = -3 /* Magic */;
+		header.clientid.len = _HDFS_CLIENT_ID_LEN;
+		ASSERT(auth->_client_id);
+		header.clientid.data = auth->_client_id;
+		header.has_retrycount = true;
+		header.retrycount = -1 /* Magic */;
+
+		hd_sz = hadoop__common__rpc_request_header_proto__get_packed_size(&header);
+		_bappend_vlint(&hbuf, hd_sz);
+		_hbuf_reserve(&hbuf, hd_sz);
+		hadoop__common__rpc_request_header_proto__pack(&header,
+		    (void *)&hbuf.buf[hbuf.used]);
+		hbuf.used += hd_sz;
+
+		_bappend_vlint(&hbuf, cc_sz);
+
+		_bappend_s32(dest, hbuf.used + abuf.used);
+		_bappend_mem(dest, hbuf.used, hbuf.buf);
+		_bappend_mem(dest, abuf.used, abuf.buf);
+
+		free(hbuf.buf);
+	}
+
+authheader_out:
+	free(abuf.buf);
 }
 
 // Serializes an hdfs_object into a buffer. dest must be non-NULL and
@@ -1332,17 +1456,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		}
 		break;
 	case H_AUTHHEADER:
-		{
-		struct hdfs_heap_buf abuf = { 0 };
-		_bappend_text(&abuf, CLIENT_PROTOCOL);
-		_bappend_s8(&abuf, 1);
-		_bappend_string(&abuf, obj->ob_val._authheader._username);
-		_bappend_s8(&abuf, 0);
-
-		_bappend_s32(dest, abuf.used);
-		_bappend_mem(dest, abuf.used, abuf.buf);
-		free(abuf.buf);
-		}
+		_serialize_authheader(dest, &obj->ob_val._authheader);
 		break;
 	case H_UPGRADE_ACTION:
 		/* FALLTHROUGH */

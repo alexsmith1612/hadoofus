@@ -9,6 +9,19 @@
 #define HADOOFUS_CLIENT_PROTOCOL_STR "org.apache.hadoop.hdfs.protocol.ClientProtocol"
 #define _HDFS_CLIENT_ID_LEN 16
 
+enum hdfs_kerb {
+	HDFS_NO_KERB,      // plaintext username (default)
+	HDFS_TRY_KERB,     // attempt kerb, but allow fallback to plaintext
+	HDFS_REQUIRE_KERB, // fail if server attempts to fallback to plaintext
+};
+
+enum hdfs_namenode_proto {
+	HDFS_NN_v1,
+	HDFS_NN_v2,
+	HDFS_NN_v2_2,
+	_HDFS_NN_vLATEST = HDFS_NN_v2_2,
+};
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -57,6 +70,11 @@ const char *	hdfs_etype_to_string(enum hdfs_object_type e);
 
 struct hdfs_object;
 
+/*
+ * Users should not use these structs directly, or even access them directly
+ * out of an hdfs_object! Instead, only helper functions and generic
+ * hdfs_objects should be used.
+ */
 struct hdfs_void {
 };
 
@@ -164,16 +182,28 @@ struct hdfs_rpc_invocation {
 };
 
 struct hdfs_authheader {
-	char *_username;
+	/*
+	 * Username is used for authentication. It is sometimes referred to as
+	 * "effective user" in Hadoop docs.
+	 *
+	 * "Real user" is used for FS access authorization, iff present AND
+	 * "effective uesr" is allowed to impersonate "real user."
+	 */
+	char *_username,
+	     *_real_username;
+	enum hdfs_namenode_proto _proto;
+	enum hdfs_kerb _kerberized;
+	uint8_t *_client_id;
 };
 
 struct hdfs_token {
 	/*
 	 * Token is really:
+	 *     (Representation:)   (Logical member:)
 	 *   - len[0], strings[0]: id (byte[])
 	 *   - len[1], strings[1]: password (byte[])
-	 *   - strings[2]: kind (Text)
-	 *   - strings[3]: service (Text)
+	 *   - strings[2]:         kind (Text)
+	 *   - strings[3]:         service (Text)
 	 */
 	char *_strings[4];
 	int32_t _lens[2];
@@ -269,6 +299,9 @@ void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
+struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
+			const char * /*user*/, const char * /*real user*/,
+			enum hdfs_kerb);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
