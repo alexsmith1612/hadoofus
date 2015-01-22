@@ -7,7 +7,7 @@
 
 #define _MAX(a, b) (((a) > (b))? (a) : (b))
 
-static void
+void
 _hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
 {
 	int remain, toalloc;

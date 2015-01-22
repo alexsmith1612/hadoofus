@@ -7,6 +7,9 @@
 
 #include <hadoofus/objects.h>
 
+/* Allocate enough space to store size bytes at ->buf[->used]. */
+void	_hbuf_reserve(struct hdfs_heap_buf *, size_t);
+
 // Append serialized data to the passed buf. Resizes the underlying (malloc'd)
 // buf as needed; 'size' is kept current (and is the size of the underlying
 // buf), 'used' is the number of bytes of valid data.
