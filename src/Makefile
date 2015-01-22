@@ -14,6 +14,7 @@ OBJS = datanode.o \
 	 net.o \
 	 objects.o \
 	 pthread_wrappers.o \
+	 rpc2.o \
 	 util.o
 
 STATIC_OBJS = $(patsubst %.o,%_static.o,$(OBJS))

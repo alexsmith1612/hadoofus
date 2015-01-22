@@ -179,6 +179,9 @@ struct hdfs_rpc_invocation {
 	char *_method;
 	int _nargs,
 	    _msgno;
+
+	enum hdfs_namenode_proto _proto;
+	uint8_t *_client_id;
 };
 
 struct hdfs_authheader {

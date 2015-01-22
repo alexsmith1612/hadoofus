@@ -378,6 +378,9 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 
 	// Serialize rpc and transmit
 	_rpc_invocation_set_msgno(rpc, msgno);
+	_rpc_invocation_set_proto(rpc, n->nn_proto);
+	_rpc_invocation_set_clientid(rpc, n->nn_client_id);
+
 	hdfs_object_serialize(&hbuf, rpc);
 
 	if (n->nn_sasl_ssf > 0)

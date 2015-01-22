@@ -48,6 +48,9 @@ struct _hdfs_result {
 };
 
 void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
+void			_rpc_invocation_set_proto(struct hdfs_object *,
+			enum hdfs_namenode_proto pr);
+void			_rpc_invocation_set_clientid(struct hdfs_object *, uint8_t *);
 
 void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
 
