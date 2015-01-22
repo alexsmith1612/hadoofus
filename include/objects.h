@@ -7,6 +7,7 @@
 #include <sys/types.h>
 
 #define HADOOFUS_CLIENT_PROTOCOL_STR "org.apache.hadoop.hdfs.protocol.ClientProtocol"
+#define _HDFS_CLIENT_ID_LEN 16
 
 enum hdfs_object_type {
 	_H_START = 0x20,

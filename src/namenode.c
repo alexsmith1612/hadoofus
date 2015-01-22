@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -56,6 +57,19 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_objbuf = NULL;
 	n->nn_objbuf_used = 0;
 	n->nn_objbuf_size = 0;
+
+	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
+
+		ssize_t rd;
+		int fd;
+
+		fd = open("/dev/urandom", O_RDONLY);
+		ASSERT(fd >= 0);
+
+		rd = read(fd, n->nn_client_id, sizeof(n->nn_client_id));
+		ASSERT(rd == sizeof(n->nn_client_id));
+
+		close(fd);
 }
 
 EXPORT_SYM const char *

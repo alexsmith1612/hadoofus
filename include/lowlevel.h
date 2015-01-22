@@ -55,6 +55,8 @@ struct hdfs_namenode {
 
 	pthread_t nn_recv_thr;
 	int nn_recv_sigpipe[2];
+
+	uint8_t nn_client_id[_HDFS_CLIENT_ID_LEN];
 };
 
 struct hdfs_datanode {
