@@ -22,6 +22,12 @@ enum hdfs_namenode_proto {
 	_HDFS_NN_vLATEST = HDFS_NN_v2_2,
 };
 
+enum hdfs_checksum_type {
+	HDFS_CSUM_NULL = 0,
+	HDFS_CSUM_CRC32 = 1,
+	HDFS_CSUM_CRC32C = 2,
+};
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -53,6 +59,21 @@ enum hdfs_object_type {
 	H_DNREPORTTYPE,
 	H_ARRAY_LOCATEDBLOCK,
 	H_UPGRADE_ACTION,
+
+	/* Room in ABI in case HDFSv1 ever adds new types: */
+	_H_PLACEHOLDER_1,
+	_H_PLACEHOLDER_2,
+	_H_PLACEHOLDER_3,
+	_H_PLACEHOLDER_4,
+	_H_PLACEHOLDER_5,
+	_H_PLACEHOLDER_6,
+	_H_PLACEHOLDER_7,
+	_H_PLACEHOLDER_8,
+	_H_PLACEHOLDER_9,
+	_H_PLACEHOLDER_10,
+
+	/* v2+ types */
+	H_FS_SERVER_DEFAULTS,
 
 	/* Leaving room for new types */
 
@@ -230,6 +251,19 @@ struct hdfs_upgrade_status_report {
 	int16_t _status;
 };
 
+struct hdfs_fsserverdefaults {
+	uint64_t _blocksize;
+	uint32_t _bytes_per_checksum;
+	uint32_t _write_packet_size;
+
+	uint32_t _replication;
+	uint32_t _filebuffersize;
+
+	bool _encrypt_data_transfer;
+	uint64_t _trashinterval;
+	enum hdfs_checksum_type _checksumtype;
+};
+
 struct hdfs_exception {
 	char *_msg;
 	enum hdfs_object_type _etype;
@@ -261,6 +295,7 @@ struct hdfs_object {
 		struct hdfs_fsperms _fsperms;
 		struct hdfs_array_string _array_string;
 		struct hdfs_upgrade_status_report _upgrade_status;
+		struct hdfs_fsserverdefaults _server_defaults;
 	} ob_val;
 	enum hdfs_object_type ob_type;
 };

@@ -895,6 +895,48 @@ hdfs_upgrade_status_report_new(int32_t version, int16_t status)
 	return r;
 }
 
+enum hdfs_checksum_type
+_hdfs_csum_from_proto(ChecksumTypeProto pr)
+{
+
+	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__NULL == HDFS_CSUM_NULL);
+	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__CRC32 == HDFS_CSUM_CRC32);
+	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__CRC32C == HDFS_CSUM_CRC32C);
+
+	ASSERT(HDFS_CSUM_NULL <= (unsigned)pr && (unsigned)pr <= HDFS_CSUM_CRC32C);
+	return pr;
+}
+
+struct hdfs_object *
+_hdfs_fsserverdefaults_new_proto(FsServerDefaultsProto *pr)
+{
+	struct hdfs_object *r;
+
+	r = _objmalloc();
+	r->ob_type = H_FS_SERVER_DEFAULTS;
+	r->ob_val._server_defaults = (struct hdfs_fsserverdefaults) {
+		._blocksize = pr->blocksize,
+		._bytes_per_checksum = pr->bytesperchecksum,
+		._write_packet_size = pr->writepacketsize,
+		._replication = pr->replication,
+		._filebuffersize = pr->filebuffersize,
+		._encrypt_data_transfer = false,
+		._trashinterval = 0,
+		._checksumtype = HDFS_CSUM_CRC32,
+	};
+
+	if (pr->has_encryptdatatransfer)
+		r->ob_val._server_defaults._encrypt_data_transfer =
+		    pr->encryptdatatransfer;
+	if (pr->has_trashinterval)
+		r->ob_val._server_defaults._trashinterval =
+		    pr->trashinterval;
+	if (pr->has_checksumtype)
+		r->ob_val._server_defaults._checksumtype =
+		    _hdfs_csum_from_proto(pr->checksumtype);
+	return r;
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_array_locatedblock_new(void)
 {
@@ -1080,6 +1122,7 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_INT: break;
 	case H_LONG: break;
 	case H_UPGRADE_STATUS_REPORT: break;
+	case H_FS_SERVER_DEFAULTS: break;
 	case H_ARRAY_LONG:
 		free(obj->ob_val._array_long._vals);
 		break;
@@ -1794,6 +1837,211 @@ out:
 			r = _HDFS_INVALID_PROTO;
 	}
 	return r;
+}
+
+struct _hdfs_result *
+_hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
+	struct _hdfs_pending *pend, int npend)
+{
+	struct hdfs_heap_buf rbuf = {
+		.buf = buf,
+		.used = 0,
+		.size = buflen,
+	};
+	RpcResponseHeaderProto *resphd;
+	struct _hdfs_result *result;
+	struct hdfs_object *obj;
+	int64_t resphdsz;
+	char *etype, *emsg;
+	int32_t respsz;
+	int i;
+
+	etype = emsg = NULL;
+	resphd = NULL;
+	result = NULL;
+
+	resphdsz = _bslurp_vlint(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	if (resphdsz > (rbuf.size - rbuf.used))
+		goto out;
+
+	resphd = rpc_response_header_proto__unpack(NULL, resphdsz,
+	    (void *)&rbuf.buf[rbuf.used]);
+	rbuf.used += resphdsz;
+	if (resphd == NULL) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	for (i = 0; i < npend; i++)
+		if (pend[i].pd_msgno == (int64_t)resphd->callid)
+			break;
+
+	// Got a response to an unexpected msgno
+	if (i == npend) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	ASSERT(pend[i].pd_slurper);
+
+	if (resphd->status == RPC_STATUS_PROTO__ERROR) {
+		etype = _bslurp_string32(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+		emsg = _bslurp_string32(&rbuf);
+		if (rbuf.used < 0)
+			goto out;
+
+		result = malloc(sizeof(*result));
+		ASSERT(result);
+		result->rs_msgno = (int64_t)resphd->callid;
+		result->rs_obj = _object_exception(etype, emsg);
+		goto out;
+	} else if (resphd->status == RPC_STATUS_PROTO__FATAL) {
+		/* This shouldn't happen. */
+		rbuf.used = -2;
+		goto out;
+	}
+
+	ASSERT(resphd->status == RPC_STATUS_PROTO__SUCCESS);
+	respsz = _bslurp_s32(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	if (respsz > (rbuf.size - rbuf.used))
+		goto out;
+
+	rbuf.size = rbuf.used + respsz;
+	obj = pend[i].pd_slurper(&rbuf);
+	if (obj == NULL) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	result = malloc(sizeof(*result));
+	ASSERT(result);
+	result->rs_msgno = (int64_t)resphd->callid;
+	result->rs_obj = obj;
+
+out:
+	if (resphd)
+		rpc_response_header_proto__free_unpacked(resphd, NULL);
+
+	free(emsg);
+	free(etype);
+
+	if (result) {
+		ASSERT(rbuf.used >= 0);
+		ASSERT(result != _HDFS_INVALID_PROTO);
+
+		*obj_size = rbuf.used;
+	} else if (rbuf.used == -2)
+		result = _HDFS_INVALID_PROTO;
+
+	return result;
+}
+
+struct _hdfs_result *
+_hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
+	struct _hdfs_pending *pend, int npend)
+{
+	struct hdfs_heap_buf rbuf = {
+		.buf = buf,
+		.used = 0,
+		.size = buflen,
+	};
+	Hadoop__Common__RpcResponseHeaderProto *resphd;
+	struct _hdfs_result *result;
+	struct hdfs_object *obj;
+	int64_t resphdsz, totalsz, respsz;
+	int i;
+
+	resphd = NULL;
+	result = NULL;
+
+	totalsz = _bslurp_s32(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	if (totalsz > (rbuf.size - rbuf.used))
+		goto out;
+
+	resphdsz = _bslurp_vlint(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	if (resphdsz > (rbuf.size - rbuf.used))
+		goto out;
+
+	resphd = hadoop__common__rpc_response_header_proto__unpack(NULL,
+	    resphdsz, (void *)&rbuf.buf[rbuf.used]);
+	rbuf.used += resphdsz;
+	if (resphd == NULL) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	for (i = 0; i < npend; i++)
+		if (pend[i].pd_msgno == (int64_t)resphd->callid)
+			break;
+
+	// Got a response to an unexpected msgno
+	if (i == npend) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	ASSERT(pend[i].pd_slurper);
+
+	if (resphd->status ==
+	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__ERROR) {
+		result = malloc(sizeof(*result));
+		ASSERT(result);
+		result->rs_msgno = (int64_t)resphd->callid;
+		/* XXX: errordetail also potentially interesting */
+		result->rs_obj = _object_exception(resphd->exceptionclassname,
+		    resphd->errormsg);
+		goto out;
+	} else if (resphd->status ==
+	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__FATAL) {
+		/* This shouldn't happen. */
+		rbuf.used = -2;
+		goto out;
+	}
+	ASSERT(resphd->status ==
+	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__SUCCESS);
+
+	respsz = _bslurp_vlint(&rbuf);
+	if (rbuf.used < 0)
+		goto out;
+	if (respsz > (rbuf.size - rbuf.used))
+		goto out;
+
+	rbuf.size = rbuf.used + respsz;
+	obj = pend[i].pd_slurper(&rbuf);
+	if (obj == NULL) {
+		rbuf.used = -2;
+		goto out;
+	}
+
+	result = malloc(sizeof(*result));
+	ASSERT(result);
+	result->rs_msgno = (int64_t)resphd->callid;
+	result->rs_obj = obj;
+
+out:
+	if (resphd)
+		hadoop__common__rpc_response_header_proto__free_unpacked(resphd, NULL);
+
+	if (result) {
+		ASSERT(rbuf.used >= 0);
+		ASSERT(result != _HDFS_INVALID_PROTO);
+		ASSERT(rbuf.used == totalsz + 4);
+
+		*obj_size = rbuf.used;
+	} else if (rbuf.used == -2)
+		result = _HDFS_INVALID_PROTO;
+
+	return result;
 }
 
 EXPORT_SYM struct hdfs_object *

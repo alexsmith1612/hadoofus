@@ -11,6 +11,7 @@
 #include "net.h"
 #include "objects-internal.h"
 #include "pthread_wrappers.h"
+#include "rpc2-internal.h"
 #include "util.h"
 
 static struct hdfs_namenode *	_namenode_copyref_unlocked(struct hdfs_namenode *);
@@ -18,7 +19,8 @@ static void			_namenode_decref(struct hdfs_namenode *);
 static void *			_namenode_recv_worker(void *);
 
 static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
-		int64_t msgno, struct hdfs_rpc_response_future *future);
+		int64_t msgno, struct hdfs_rpc_response_future *future,
+		hdfs_object_slurper slurper);
 
 static struct hdfs_rpc_response_future *
 		_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno);
@@ -358,7 +360,8 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	n->nn_msgno++;
 
 	future->fu_namenode = _namenode_copyref_unlocked(n);
-	_namenode_pending_insert_unlocked(n, msgno, future);
+	_namenode_pending_insert_unlocked(n, msgno, future,
+	    _rpc2_slurper_for_rpc(rpc));
 
 	if (!n->nn_recver_started)
 		n->nn_recver_started = needs_kick = true;
@@ -503,11 +506,6 @@ _namenode_decref(struct hdfs_namenode *n)
 	}
 }
 
-struct _hdfs_pending {
-	int64_t pd_msgno;
-	struct hdfs_rpc_response_future *pd_future;
-};
-
 static void *
 _namenode_recv_worker(void *v_nn)
 {
@@ -545,7 +543,24 @@ _namenode_recv_worker(void *v_nn)
 			objused = &n->nn_recvbuf_used;
 		}
 
-		result = _hdfs_result_deserialize(objbuffer, *objused, &obj_size);
+		if (n->nn_proto == HDFS_NN_v1)
+			result = _hdfs_result_deserialize(objbuffer, *objused,
+			    &obj_size);
+		else if (n->nn_proto == HDFS_NN_v2) {
+			_lock(&n->nn_lock);
+			result = _hdfs_result_deserialize_v2(objbuffer,
+			    *objused, &obj_size, n->nn_pending,
+			    n->nn_pending_len);
+			_unlock(&n->nn_lock);
+		} else if (n->nn_proto == HDFS_NN_v2_2) {
+			_lock(&n->nn_lock);
+			result = _hdfs_result_deserialize_v2_2(objbuffer,
+			    *objused, &obj_size, n->nn_pending,
+			    n->nn_pending_len);
+			_unlock(&n->nn_lock);
+		} else
+			ASSERT(false);
+
 		if (!result) {
 			ssize_t r, remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
 
@@ -630,7 +645,7 @@ out:
 
 static void
 _namenode_pending_insert_unlocked(struct hdfs_namenode *n, int64_t msgno,
-	struct hdfs_rpc_response_future *future)
+	struct hdfs_rpc_response_future *future, hdfs_object_slurper slurper)
 {
 	const int RESIZE_FACTOR = 16;
 
@@ -642,6 +657,7 @@ _namenode_pending_insert_unlocked(struct hdfs_namenode *n, int64_t msgno,
 
 	n->nn_pending[n->nn_pending_len].pd_msgno = msgno;
 	n->nn_pending[n->nn_pending_len].pd_future = future;
+	n->nn_pending[n->nn_pending_len].pd_slurper = slurper;
 	n->nn_pending_len++;
 }
 
