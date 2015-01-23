@@ -7,13 +7,36 @@
 static struct hdfs_namenode *h;
 
 static void
-setup(void)
+_setup(enum hdfs_namenode_proto vers)
 {
 	const char *err = NULL;
 
-	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_NO_KERB, &err);
-	ck_assert_msg((intptr_t)h, "Could not connect to %s=%s (port 8020): %s",
-	    HDFS_T_ENV, H_ADDR, err);
+	h = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
+	    vers, &err);
+	ck_assert_msg((intptr_t)h,
+	    "Could not connect to %s=%s @ %s=%s (port 8020): %s",
+	    HDFS_T_USER, H_USER, HDFS_T_ENV, H_ADDR, err);
+}
+
+static void
+setup(void)
+{
+
+	_setup(HDFS_NN_v1);
+}
+
+static void
+setup2(void)
+{
+
+	_setup(HDFS_NN_v2);
+}
+
+static void
+setup22(void)
+{
+
+	_setup(HDFS_NN_v2_2);
 }
 
 static void
@@ -723,6 +746,18 @@ START_TEST(test_admin_functions2)
 }
 END_TEST
 
+START_TEST(test_getServerDefaults)
+{
+	struct hdfs_object *object, *e = NULL;
+
+	object = hdfs2_getServerDefaults(h, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_object_free(object);
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -776,6 +811,17 @@ t_hl_rpc_basics_suite()
 #if 0
 	suite_add_tcase(s, tc);
 #endif
+
+	s = suite_create("rpcs2");
+	tc = tcase_create("basic2");
+	tcase_add_checked_fixture(tc, setup2, teardown);
+	tcase_add_test(tc, test_getServerDefaults);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("basic22");
+	tcase_add_checked_fixture(tc, setup22, teardown);
+	tcase_add_test(tc, test_getServerDefaults);
+	suite_add_tcase(s, tc);
 
 	return s;
 }
