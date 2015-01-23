@@ -24,6 +24,15 @@ struct hdfs_namenode *	hdfs_namenode_new(const char *host, const char *port,
 				const char *username, enum hdfs_kerb,
 				const char **error_out);
 
+// As above; protocol version setting one of:
+//   HDFS_NN_v1
+//   HDFS_NN_v2
+//   HDFS_NN_v2_2
+struct hdfs_namenode *	hdfs_namenode_new_version(const char *host,
+				const char *port, const char *username,
+				enum hdfs_kerb, enum hdfs_namenode_proto,
+				const char **error_out);
+
 // Tears down the connection and frees memory.
 void			hdfs_namenode_delete(struct hdfs_namenode *);
 

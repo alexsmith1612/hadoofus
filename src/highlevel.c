@@ -18,11 +18,24 @@ EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new(const char *host, const char *port, const char *username,
 	enum hdfs_kerb kerb_pref, const char **error_out)
 {
+
+	return hdfs_namenode_new_version(host, port, username, kerb_pref,
+	    HDFS_NN_v1, error_out);
+}
+
+EXPORT_SYM struct hdfs_namenode *
+hdfs_namenode_new_version(const char *host, const char *port,
+	const char *username, enum hdfs_kerb kerb_pref,
+	enum hdfs_namenode_proto vers, const char **error_out)
+{
 	const char *error;
 	struct hdfs_namenode *h;
 
 	h = hdfs_namenode_allocate();
 	hdfs_namenode_init(h, kerb_pref);
+
+	hdfs_namenode_set_version(h, vers);
+
 	error = hdfs_namenode_connect(h, host, port);
 	if (error)
 		goto out;
