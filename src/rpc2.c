@@ -20,7 +20,6 @@ _rpc2_encode_getServerDefaults(struct hdfs_heap_buf *dest,
 	    GET_SERVER_DEFAULTS_REQUEST_PROTO__INIT;
 	size_t sz;
 
-	ASSERT(streq(rpc->_method, "getServerDefaults"));
 	ASSERT(rpc->_nargs == 0);
 
 	sz = get_server_defaults_request_proto__get_packed_size(&req);
@@ -30,13 +29,33 @@ _rpc2_encode_getServerDefaults(struct hdfs_heap_buf *dest,
 	dest->used += sz;
 }
 
+typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
+static struct _rpc2_enc_lut {
+	const char *	re_method;
+	_rpc2_encoder	re_encoder;
+} rpc2_encoders[] = {
+#define _RENC(method)	{ #method , _rpc2_encode_ ## method , }
+	_RENC(getServerDefaults),
+	{ NULL, NULL, },
+#undef _RENC
+};
+
 void
 _rpc2_request_serialize(struct hdfs_heap_buf *dest,
 	struct hdfs_rpc_invocation *rpc)
 {
-	/* XXX Lookup table */
+	/* XXXPERF Could be a hash/rt/sorted table */
+	unsigned i;
 
-	_rpc2_encode_getServerDefaults(dest, rpc);
+	for (i = 0; rpc2_encoders[i].re_method; i++) {
+		if (streq(rpc->_method, rpc2_encoders[i].re_method)) {
+			rpc2_encoders[i].re_encoder(dest, rpc);
+			return;
+		}
+	}
+
+	/* The method does not exist in HDFSv2, or it is not yet implemented. */
+	ASSERT(false);
 }
 
 /* Support logic for Namenode RPC response parsing */
@@ -67,14 +86,32 @@ _oslurp_getServerDefaults(struct hdfs_heap_buf *buf)
 	return result;
 }
 
+static struct _rpc2_dec_lut {
+	const char *		rd_method;
+	hdfs_object_slurper	rd_decoder;
+} rpc2_decoders[] = {
+#define _RDEC(method)	{ #method , _oslurp_ ## method , }
+	_RDEC(getServerDefaults),
+	{ NULL, NULL, },
+#undef _RDEC
+};
+
 hdfs_object_slurper
 _rpc2_slurper_for_rpc(struct hdfs_object *rpc)
 {
-	/* XXX Lookup table */
+	/* XXXPERF s.a. */
+	unsigned i;
 
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
-	if (streq(rpc->ob_val._rpc_invocation._method, "getServerDefaults"))
-		return _oslurp_getServerDefaults;
 
+	for (i = 0; rpc2_decoders[i].rd_method; i++)
+		if (streq(rpc->ob_val._rpc_invocation._method,
+		    rpc2_decoders[i].rd_method))
+			return rpc2_decoders[i].rd_decoder;
+
+	/*
+	 * The method does not exist in HDFSv2 (this function can be called for
+	 * HDFSv1 methods) or it is not yet implemented.
+	 */
 	return NULL;
 }
