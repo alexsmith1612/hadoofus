@@ -6,7 +6,12 @@ HEADERS = \
 TEST_SRCS = \
 			t_main.c \
 			t_datanode_basics.c \
-			t_hl_rpc_basics.c
+			t_hl_rpc_basics.c \
+			t_unit.c \
+
+PRIV_OBJS = \
+			../src/heapbuf.o \
+			../src/util.o \
 
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)
@@ -16,8 +21,8 @@ FLAGS = -Wall -Werror -fPIC -g $(CFLAGS)
 
 all: $(TEST_PRGM)
 
-$(TEST_PRGM): $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
-	$(CC) -o $@ $(FLAGS) $(TEST_OBJS) $(LINK_FLAGS)
+$(TEST_PRGM): $(PRIV_OBJS) $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
+	$(CC) -o $@ $(FLAGS) $(TEST_OBJS) $(PRIV_OBJS) $(LINK_FLAGS)
 
 check: $(TEST_PRGM)
 	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src" ./$(TEST_PRGM)

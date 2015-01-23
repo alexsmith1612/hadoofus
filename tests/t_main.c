@@ -26,6 +26,7 @@ main(int argc, char **argv)
 	Suite *(*suites[])(void) = {
 		t_hl_rpc_basics_suite,
 		t_datanode_basics_suite,
+		t_unit,
 	};
 	int rc;
 

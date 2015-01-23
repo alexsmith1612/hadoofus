@@ -86,14 +86,21 @@ _bappend_string(struct hdfs_heap_buf *h, const char *arg)
 }
 
 void
-_bappend_vlint(struct hdfs_heap_buf *h, int64_t len)
+_bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
 {
-	// a limited form of the variable length int format, but usually we
-	// don't need more for "text" fields:
-	ASSERT(len >= 0);
-	ASSERT(len < 127);
+	uint64_t val;
+	uint8_t lb;
 
-	_bappend_s8(h, (int8_t)len);
+	val = (uint64_t)i64;
+
+	do {
+		lb = val & 0x7f;
+		val >>= 7;
+
+		if (val)
+			lb |= 0x80;
+		_bappend_s8(h, (int8_t)lb);
+	} while (val);
 }
 
 void
@@ -177,18 +184,34 @@ _bslurp_s64(struct hdfs_heap_buf *b)
 	return (int64_t)res;
 }
 
+/*
+ * (Negative) signed numbers are encoded as a 64-bit extended negative in PB
+ * (even int32).
+ *
+ * Not 100% sure if vlint encoding is the same between HDFSv1 and PB.
+ * TODO: verify.
+ */
 int64_t
-_bslurp_vlint(struct hdfs_heap_buf *b)
+_bslurp_vlint(struct hdfs_heap_buf *hb)
 {
-	int64_t res;
+	uint64_t res, shift, b;
 
-	res = _bslurp_s8(b);
-	if (b->used < 0)
+	res = 0;
+	for (shift = 0; shift < 64; shift += 7) {
+		b = (uint8_t)_bslurp_s8(hb);
+		if (hb->used < 0)
+			return -1;
+
+		res |= ((b & 0x7f) << shift);
+		if ((b & 0x80) == 0)
+			break;
+	}
+	if (shift >= 64) {
+		/* Invalid varint >64-bits */
+		hb->used = -2;
 		return -1;
-
-	// we don't handle vlintegers very well right now. TODO
-	ASSERT(res >= 0 && res < 127);
-	return res;
+	}
+	return (int64_t)res;
 }
 
 void
