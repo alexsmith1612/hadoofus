@@ -12,31 +12,38 @@
 
 /* Support logic for v2+ Namenode RPC (requests) */
 
-static void
-_rpc2_encode_getServerDefaults(struct hdfs_heap_buf *dest,
-	struct hdfs_rpc_invocation *rpc)
-{
-	GetServerDefaultsRequestProto req =
-	    GET_SERVER_DEFAULTS_REQUEST_PROTO__INIT;
+#define ENCODE_PREAMBLE(lowerCamel, CamelCase, UPPER_CASE)		\
+static void								\
+_rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
+	struct hdfs_rpc_invocation *rpc)				\
+{									\
+	CamelCase ## RequestProto req =					\
+	    UPPER_CASE ## _REQUEST_PROTO__INIT;				\
 	size_t sz;
 
-	ASSERT(rpc->_nargs == 0);
+	/*
+	 * Additional validation of input object and population of req
+	 * structure go here.
+	 */
 
-	sz = get_server_defaults_request_proto__get_packed_size(&req);
-	_hbuf_reserve(dest, sz);
-	get_server_defaults_request_proto__pack(&req,
-	    (void *)&dest->buf[dest->used]);
-	dest->used += sz;
+#define ENCODE_POSTSCRIPT(lower_case)					\
+	sz = lower_case ## _request_proto__get_packed_size(&req);	\
+	_hbuf_reserve(dest, sz);					\
+	lower_case ## _request_proto__pack(&req,			\
+	    (void *)&dest->buf[dest->used]);				\
+	dest->used += sz;						\
 }
 
-/* Compat for v1 method hdfs_getListing(). */
-static void
-_rpc2_encode_getListing(struct hdfs_heap_buf *dest,
-	struct hdfs_rpc_invocation *rpc)
+ENCODE_PREAMBLE(getServerDefaults, GetServerDefaults, GET_SERVER_DEFAULTS)
 {
-	GetListingRequestProto req = GET_LISTING_REQUEST_PROTO__INIT;
-	size_t sz;
+	ASSERT(rpc->_nargs == 0);
+}
+ENCODE_POSTSCRIPT(get_server_defaults)
 
+
+/* Compat for v1 method hdfs_getListing(). */
+ENCODE_PREAMBLE(getListing, GetListing, GET_LISTING)
+{
 	ASSERT(rpc->_nargs == 2);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
 	ASSERT(rpc->_args[1]->ob_type == H_ARRAY_BYTE);
@@ -44,14 +51,11 @@ _rpc2_encode_getListing(struct hdfs_heap_buf *dest,
 	req.src = rpc->_args[0]->ob_val._string._val;
 	req.startafter.len = rpc->_args[1]->ob_val._array_byte._len;
 	req.startafter.data = (void *)rpc->_args[1]->ob_val._array_byte._bytes;
+
 	/* TODO Add hdfs2-only method for specifying needlocation */
 	req.needlocation = false;
-
-	sz = get_listing_request_proto__get_packed_size(&req);
-	_hbuf_reserve(dest, sz);
-	get_listing_request_proto__pack(&req, (void *)&dest->buf[dest->used]);
-	dest->used += sz;
 }
+ENCODE_POSTSCRIPT(get_listing)
 
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
@@ -89,49 +93,31 @@ _rpc2_request_serialize(struct hdfs_heap_buf *dest,
  * These slurpers expect exactly one protobuf in the heapbuf passed in, and
  * advance the cursor (->used) to the end (->size) after a successful parse.
  */
-static struct hdfs_object *
-_oslurp_getServerDefaults(struct hdfs_heap_buf *buf)
-{
-	GetServerDefaultsResponseProto *resp;
-	struct hdfs_object *result;
-
-	result = NULL;
-
-	resp = get_server_defaults_response_proto__unpack(NULL,
-	    buf->size - buf->used, (void *)&buf->buf[buf->used]);
-	buf->used = buf->size;
-	if (resp == NULL) {
-		buf->used = -2;
-		return NULL;
-	}
-
-	result = _hdfs_fsserverdefaults_new_proto(resp->serverdefaults);
-
-	get_server_defaults_response_proto__free_unpacked(resp, NULL);
-	return result;
+#define DECODE_PB(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+static struct hdfs_object *						\
+_oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
+{									\
+	CamelCase ## ResponseProto *resp;				\
+	struct hdfs_object *result;					\
+									\
+	result = NULL;							\
+									\
+	resp = lower_case ## _response_proto__unpack(NULL,		\
+	    buf->size - buf->used, (void *)&buf->buf[buf->used]);	\
+	buf->used = buf->size;						\
+	if (resp == NULL) {						\
+		buf->used = -2;						\
+		return NULL;						\
+	}								\
+									\
+	result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield);	\
+									\
+	lower_case ## _response_proto__free_unpacked(resp, NULL);	\
+	return result;							\
 }
 
-static struct hdfs_object *
-_oslurp_getListing(struct hdfs_heap_buf *buf)
-{
-	GetListingResponseProto *resp;
-	struct hdfs_object *result;
-
-	result = NULL;
-
-	resp = get_listing_response_proto__unpack(NULL,
-	    buf->size - buf->used, (void *)&buf->buf[buf->used]);
-	buf->used = buf->size;
-	if (resp == NULL) {
-		buf->used = -2;
-		return NULL;
-	}
-
-	result = _hdfs_directory_listing_new_proto(resp->dirlist);
-
-	get_listing_response_proto__free_unpacked(resp, NULL);
-	return result;
-}
+DECODE_PB(getServerDefaults, GetServerDefaults, get_server_defaults, fsserverdefaults, serverdefaults)
+DECODE_PB(getListing, GetListing, get_listing, directory_listing, dirlist)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
