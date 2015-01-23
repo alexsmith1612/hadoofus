@@ -375,7 +375,9 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 		hdfs_object_free(res);
 		return NULL;
 	}
-	ASSERT(remaining == 0);
+	ASSERT(remaining >= 0);
+	res->ob_val._directory_listing._remaining_entries =
+	    (uint32_t)remaining;
 
 	return res;
 }

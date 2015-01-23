@@ -29,6 +29,30 @@ _rpc2_encode_getServerDefaults(struct hdfs_heap_buf *dest,
 	dest->used += sz;
 }
 
+/* Compat for v1 method hdfs_getListing(). */
+static void
+_rpc2_encode_getListing(struct hdfs_heap_buf *dest,
+	struct hdfs_rpc_invocation *rpc)
+{
+	GetListingRequestProto req = GET_LISTING_REQUEST_PROTO__INIT;
+	size_t sz;
+
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_ARRAY_BYTE);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.startafter.len = rpc->_args[1]->ob_val._array_byte._len;
+	req.startafter.data = (void *)rpc->_args[1]->ob_val._array_byte._bytes;
+	/* TODO Add hdfs2-only method for specifying needlocation */
+	req.needlocation = false;
+
+	sz = get_listing_request_proto__get_packed_size(&req);
+	_hbuf_reserve(dest, sz);
+	get_listing_request_proto__pack(&req, (void *)&dest->buf[dest->used]);
+	dest->used += sz;
+}
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -36,6 +60,7 @@ static struct _rpc2_enc_lut {
 } rpc2_encoders[] = {
 #define _RENC(method)	{ #method , _rpc2_encode_ ## method , }
 	_RENC(getServerDefaults),
+	_RENC(getListing),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -86,12 +111,35 @@ _oslurp_getServerDefaults(struct hdfs_heap_buf *buf)
 	return result;
 }
 
+static struct hdfs_object *
+_oslurp_getListing(struct hdfs_heap_buf *buf)
+{
+	GetListingResponseProto *resp;
+	struct hdfs_object *result;
+
+	result = NULL;
+
+	resp = get_listing_response_proto__unpack(NULL,
+	    buf->size - buf->used, (void *)&buf->buf[buf->used]);
+	buf->used = buf->size;
+	if (resp == NULL) {
+		buf->used = -2;
+		return NULL;
+	}
+
+	result = _hdfs_directory_listing_new_proto(resp->dirlist);
+
+	get_listing_response_proto__free_unpacked(resp, NULL);
+	return result;
+}
+
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
 	hdfs_object_slurper	rd_decoder;
 } rpc2_decoders[] = {
 #define _RDEC(method)	{ #method , _oslurp_ ## method , }
 	_RDEC(getServerDefaults),
+	_RDEC(getListing),
 	{ NULL, NULL, },
 #undef _RDEC
 };

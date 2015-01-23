@@ -816,11 +816,13 @@ t_hl_rpc_basics_suite()
 	tc = tcase_create("basic2");
 	tcase_add_checked_fixture(tc, setup2, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
+	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("basic22");
 	tcase_add_checked_fixture(tc, setup22, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
+	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
 	return s;

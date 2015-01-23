@@ -327,6 +327,15 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 	return r;
 }
 
+/* XXX STUB */
+struct hdfs_object *
+_hdfs_located_block_new_proto(LocatedBlockProto *lb)
+{
+
+	ASSERT(lb);
+	return NULL;
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_located_block_copy(struct hdfs_object *src)
 {
@@ -374,6 +383,15 @@ hdfs_located_blocks_new(bool beingcreated, int64_t size)
 	return r;
 }
 
+/* XXX STUB */
+struct hdfs_object *
+_hdfs_located_blocks_new_proto(LocatedBlocksProto *lb)
+{
+
+	ASSERT(lb);
+	return NULL;
+}
+
 static struct hdfs_object *
 _hdfs_directory_listing_new(bool has_locations)
 {
@@ -393,6 +411,45 @@ EXPORT_SYM struct hdfs_object *
 hdfs_directory_listing_new()
 {
 	return _hdfs_directory_listing_new(false/*locations*/);
+}
+
+struct hdfs_object *
+_hdfs_directory_listing_new_proto(DirectoryListingProto *list)
+{
+	struct hdfs_object *res;
+	bool has_locations;
+	size_t i;
+
+	ASSERT(list);
+
+	has_locations = false;
+	for (i = 0; i < list->n_partiallisting; i++) {
+		if (list->partiallisting[i]->locations != NULL) {
+			has_locations = true;
+			break;
+		}
+	}
+
+	res = _hdfs_directory_listing_new(has_locations);
+	for (i = 0; i < list->n_partiallisting; i++) {
+		HdfsFileStatusProto *fs;
+		struct hdfs_object *fso, *lbo;
+
+		fs = list->partiallisting[i];
+		fso = _hdfs_file_status_new_proto(fs);
+
+		lbo = NULL;
+		if (has_locations) {
+			ASSERT(fs->locations);
+			lbo = _hdfs_located_blocks_new_proto(fs->locations);
+		}
+
+		hdfs_directory_listing_append_file_status(res, fso, lbo);
+	}
+
+	res->ob_val._directory_listing._remaining_entries =
+	    list->remainingentries;
+	return res;
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -549,6 +606,70 @@ hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 		._owner = owner_copy,
 		._group = group_copy,
 	};
+	return r;
+}
+
+enum hdfs_file_type
+_hdfs_file_type_from_proto(HdfsFileStatusProto__FileType pr)
+{
+
+	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR);
+	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE);
+	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK);
+
+	ASSERT(HDFS_FT_DIR <= (unsigned)pr && (unsigned)pr <= HDFS_FT_SYMLINK);
+	return pr;
+}
+
+struct hdfs_object *
+_hdfs_file_status_new_proto(HdfsFileStatusProto *fs)
+{
+	struct hdfs_object *r = _objmalloc();
+	enum hdfs_file_type ft;
+	char *path_copy, *owner_copy, *group_copy;
+
+	ASSERT(fs);
+
+	ft = _hdfs_file_type_from_proto(fs->filetype);
+	path_copy = _proto_str(fs->path);
+	owner_copy = strdup(fs->owner);
+	group_copy = strdup(fs->group);
+
+	ASSERT(path_copy);
+	ASSERT(owner_copy);
+	ASSERT(group_copy);
+
+	r->ob_type = H_FILE_STATUS;
+	r->ob_val._file_status = (struct hdfs_file_status) {
+		._file = path_copy,
+		._size = fs->length,
+		._type = ft,
+		._directory = (ft == HDFS_FT_DIR)? true : false,
+		._mtime = (int64_t)fs->modification_time,
+		._atime = (int64_t)fs->access_time,
+		._permissions = (int16_t)fs->permission->perm,
+		._owner = owner_copy,
+		._group = group_copy,
+
+		/* Default values: */
+		._replication = 0,
+		._block_size = 0,
+		._symlink_target = NULL,
+		._fileid = 0,
+		._num_children = -1,
+	};
+
+	if (fs->has_block_replication)
+		r->ob_val._file_status._replication = fs->block_replication;
+	if (fs->has_blocksize)
+		r->ob_val._file_status._block_size = fs->blocksize;
+	if (fs->has_symlink)
+		r->ob_val._file_status._symlink_target = _proto_str(fs->symlink);
+	if (fs->has_fileid)
+		r->ob_val._file_status._fileid = fs->fileid;
+	if (fs->has_childrennum)
+		r->ob_val._file_status._num_children = fs->childrennum;
+
 	return r;
 }
 
@@ -912,6 +1033,8 @@ _hdfs_fsserverdefaults_new_proto(FsServerDefaultsProto *pr)
 {
 	struct hdfs_object *r;
 
+	ASSERT(pr);
+
 	r = _objmalloc();
 	r->ob_type = H_FS_SERVER_DEFAULTS;
 	r->ob_val._server_defaults = (struct hdfs_fsserverdefaults) {
@@ -1158,6 +1281,7 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._file_status._file);
 		free(obj->ob_val._file_status._owner);
 		free(obj->ob_val._file_status._group);
+		free(obj->ob_val._file_status._symlink_target);
 		break;
 	case H_CONTENT_SUMMARY: break;
 	case H_BLOCK: break;

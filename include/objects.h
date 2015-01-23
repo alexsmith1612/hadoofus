@@ -23,9 +23,17 @@ enum hdfs_namenode_proto {
 };
 
 enum hdfs_checksum_type {
+	/* Chosen to match wire values in HDFS2 */
 	HDFS_CSUM_NULL = 0,
 	HDFS_CSUM_CRC32 = 1,
 	HDFS_CSUM_CRC32C = 2,
+};
+
+enum hdfs_file_type {
+	/* Chosen to match wire values in HDFS2 */
+	HDFS_FT_DIR = 1,
+	HDFS_FT_FILE = 2,
+	HDFS_FT_SYMLINK = 3,
 };
 
 enum hdfs_object_type {
@@ -149,6 +157,8 @@ struct hdfs_directory_listing {
 	struct hdfs_object **_located_blocks/* hdfs_located_blocks[] or NULL */;
 	int _num_files;
 	bool _has_locations;
+
+	uint32_t _remaining_entries;
 };
 
 struct hdfs_datanode_info {
@@ -175,6 +185,12 @@ struct hdfs_file_status {
 	int16_t _replication,
 		_permissions;
 	bool _directory;
+
+	/* v2 fields */
+	enum hdfs_file_type _type;
+	char *_symlink_target;		/* NULL iff not a symlink */
+	uint64_t _fileid;
+	int32_t _num_children;
 };
 
 struct hdfs_content_summary {

@@ -85,7 +85,12 @@ extern struct _hdfs_result *_HDFS_INVALID_PROTO;
 
 // HDFSv2+ protobuf-to-hdfs_object converters
 enum hdfs_checksum_type	_hdfs_csum_from_proto(ChecksumTypeProto);
+enum hdfs_file_type	_hdfs_file_type_from_proto(HdfsFileStatusProto__FileType);
 
 struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(FsServerDefaultsProto *);
+struct hdfs_object *	_hdfs_directory_listing_new_proto(DirectoryListingProto *);
+struct hdfs_object *	_hdfs_file_status_new_proto(HdfsFileStatusProto *);
+struct hdfs_object *	_hdfs_located_blocks_new_proto(LocatedBlocksProto *);
+struct hdfs_object *	_hdfs_located_block_new_proto(LocatedBlockProto *);
 
 #endif
