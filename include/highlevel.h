@@ -212,6 +212,11 @@ void			hdfs_metaSave(struct hdfs_namenode *, const char *,
 void			hdfs_setBalancerBandwidth(struct hdfs_namenode *, int64_t,
 			struct hdfs_object **exception_out);
 
+// HDFSv2+
+
+struct hdfs_object *	hdfs2_getServerDefaults(struct hdfs_namenode *,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
