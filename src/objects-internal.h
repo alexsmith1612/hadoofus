@@ -95,5 +95,6 @@ struct hdfs_object *	_hdfs_located_block_new_proto(LocatedBlockProto *);
 struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
 struct hdfs_object *	_hdfs_token_new_proto(BlockTokenIdentifierProto *);
 struct hdfs_object *	_hdfs_datanode_info_new_proto(DatanodeInfoProto *);
+struct hdfs_object *	_hdfs_content_summary_new_proto(ContentSummaryProto *);
 
 #endif

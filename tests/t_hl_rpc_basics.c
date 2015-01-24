@@ -856,6 +856,12 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_delete);
 	tcase_add_test(tc, test_mkdirs);
 	tcase_add_test(tc, test_getListing);
+	tcase_add_test(tc, test_renewLease);
+	tcase_add_test(tc, test_getFileInfo);
+	tcase_add_test(tc, test_setQuota);
+	tcase_add_test(tc, test_fsync);
+	tcase_add_test(tc, test_setTimes);
+	tcase_add_test(tc, test_recoverLease);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("basic22");
@@ -872,6 +878,12 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_delete);
 	tcase_add_test(tc, test_mkdirs);
 	tcase_add_test(tc, test_getListing);
+	tcase_add_test(tc, test_renewLease);
+	tcase_add_test(tc, test_getFileInfo);
+	tcase_add_test(tc, test_setQuota);
+	tcase_add_test(tc, test_fsync);
+	tcase_add_test(tc, test_setTimes);
+	tcase_add_test(tc, test_recoverLease);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("slow2");
@@ -879,6 +891,7 @@ t_hl_rpc2_basics_suite()
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_getContentSummary);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("slow22");
@@ -886,6 +899,7 @@ t_hl_rpc2_basics_suite()
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_getContentSummary);
 	suite_add_tcase(s, tc);
 
 	return s;

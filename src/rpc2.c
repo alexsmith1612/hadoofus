@@ -238,6 +238,81 @@ ENCODE_PREAMBLE(mkdirs, Mkdirs, MKDIRS)
 }
 ENCODE_POSTSCRIPT(mkdirs)
 
+ENCODE_PREAMBLE(renewLease, RenewLease, RENEW_LEASE)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+
+	req.clientname = rpc->_args[0]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(renew_lease)
+
+ENCODE_PREAMBLE(recoverLease, RecoverLease, RECOVER_LEASE)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(recover_lease)
+
+ENCODE_PREAMBLE(getContentSummary, GetContentSummary, GET_CONTENT_SUMMARY)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+
+	req.path = rpc->_args[0]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(get_content_summary)
+
+ENCODE_PREAMBLE(setQuota, SetQuota, SET_QUOTA)
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_LONG);
+	ASSERT(rpc->_args[2]->ob_type == H_LONG);
+
+	req.path = rpc->_args[0]->ob_val._string._val;
+	req.namespacequota = rpc->_args[1]->ob_val._long._val;
+	req.diskspacequota = rpc->_args[2]->ob_val._long._val;
+}
+ENCODE_POSTSCRIPT(set_quota)
+
+ENCODE_PREAMBLE(fsync, Fsync, FSYNC)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.client = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(fsync)
+
+ENCODE_PREAMBLE(setTimes, SetTimes, SET_TIMES)
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_LONG);
+	ASSERT(rpc->_args[2]->ob_type == H_LONG);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.mtime = rpc->_args[1]->ob_val._long._val;
+	req.atime = rpc->_args[2]->ob_val._long._val;
+}
+ENCODE_POSTSCRIPT(set_times)
+
+ENCODE_PREAMBLE(getFileInfo, GetFileInfo, GET_FILE_INFO)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(get_file_info)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -258,6 +333,13 @@ static struct _rpc2_enc_lut {
 	_RENC(addBlock),
 	_RENC(rename),
 	_RENC(mkdirs),
+	_RENC(renewLease),
+	_RENC(recoverLease),
+	_RENC(getContentSummary),
+	_RENC(setQuota),
+	_RENC(fsync),
+	_RENC(setTimes),
+	_RENC(getFileInfo),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -349,6 +431,13 @@ DECODE_PB_VOID(abandonBlock, AbandonBlock, abandon_block)
 DECODE_PB(addBlock, AddBlock, add_block, located_block, block)
 DECODE_PB(rename, Rename, rename, boolean, result)
 DECODE_PB(mkdirs, Mkdirs, mkdirs, boolean, result)
+DECODE_PB_VOID(renewLease, RenewLease, renew_lease)
+DECODE_PB(recoverLease, RecoverLease, recover_lease, boolean, result)
+DECODE_PB(getContentSummary, GetContentSummary, get_content_summary, content_summary, summary)
+DECODE_PB_VOID(setQuota, SetQuota, set_quota)
+DECODE_PB_VOID(fsync, Fsync, fsync)
+DECODE_PB_VOID(setTimes, SetTimes, set_times)
+DECODE_PB(getFileInfo, GetFileInfo, get_file_info, file_status, fs)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -369,6 +458,13 @@ static struct _rpc2_dec_lut {
 	_RDEC(addBlock),
 	_RDEC(rename),
 	_RDEC(mkdirs),
+	_RDEC(renewLease),
+	_RDEC(recoverLease),
+	_RDEC(getContentSummary),
+	_RDEC(setQuota),
+	_RDEC(fsync),
+	_RDEC(setTimes),
+	_RDEC(getFileInfo),
 	{ NULL, NULL, },
 #undef _RDEC
 };

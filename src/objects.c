@@ -762,6 +762,14 @@ hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs, int64_t qu
 	return r;
 }
 
+struct hdfs_object *
+_hdfs_content_summary_new_proto(ContentSummaryProto *pr)
+{
+
+	return hdfs_content_summary_new(pr->length, pr->filecount,
+	    pr->directorycount, pr->spacequota);
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_block_new(int64_t blkid, int64_t len, int64_t generation)
 {
