@@ -211,6 +211,33 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 }
 ENCODE_POSTSCRIPT(add_block)
 
+ENCODE_PREAMBLE(rename, Rename, RENAME)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.dst = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(rename)
+
+ENCODE_PREAMBLE(mkdirs, Mkdirs, MKDIRS)
+	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_FSPERMS);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.masked = &perms;
+	perms.perm = rpc->_args[1]->ob_val._fsperms._perms;
+
+	/* XXX Could have a seperate v2 RPC to specify */
+	req.createparent = true;
+}
+ENCODE_POSTSCRIPT(mkdirs)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -229,6 +256,8 @@ static struct _rpc2_enc_lut {
 	_RENC(complete),
 	_RENC(abandonBlock),
 	_RENC(addBlock),
+	_RENC(rename),
+	_RENC(mkdirs),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -318,6 +347,8 @@ DECODE_PB_VOID(setOwner, SetOwner, set_owner)
 DECODE_PB(complete, Complete, complete, boolean, result)
 DECODE_PB_VOID(abandonBlock, AbandonBlock, abandon_block)
 DECODE_PB(addBlock, AddBlock, add_block, located_block, block)
+DECODE_PB(rename, Rename, rename, boolean, result)
+DECODE_PB(mkdirs, Mkdirs, mkdirs, boolean, result)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -336,6 +367,8 @@ static struct _rpc2_dec_lut {
 	_RDEC(complete),
 	_RDEC(abandonBlock),
 	_RDEC(addBlock),
+	_RDEC(rename),
+	_RDEC(mkdirs),
 	{ NULL, NULL, },
 #undef _RDEC
 };

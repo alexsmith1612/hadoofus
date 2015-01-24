@@ -852,7 +852,9 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
 	tcase_add_test(tc, test_complete);
-
+	tcase_add_test(tc, test_rename);
+	tcase_add_test(tc, test_delete);
+	tcase_add_test(tc, test_mkdirs);
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
@@ -866,7 +868,9 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
 	tcase_add_test(tc, test_complete);
-
+	tcase_add_test(tc, test_rename);
+	tcase_add_test(tc, test_delete);
+	tcase_add_test(tc, test_mkdirs);
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
