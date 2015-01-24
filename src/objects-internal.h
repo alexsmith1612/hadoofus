@@ -44,6 +44,17 @@
 #define IO_EXCEPTION_STR "java.io.IOException"
 #define LEASE_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.LeaseExpiredException"
 
+#define SECURITY_EXCEPTION_STR "java.lang.SecurityException"
+#define QUOTA_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.DSQuotaExceededException"
+#define ILLARG_EXCEPTION_STR "java.lang.IllegalArgumentException"
+#define INVTOK_EXCEPTION_STR "org.apache.hadoop.security.token.SecretManager$InvalidToken"
+#define INVPATH_EXCEPTION_STR "org.apache.hadoop.fs.InvalidPathException"
+#define EEXIST_EXCEPTION_STR "org.apache.hadoop.fs.FileAlreadyExistsException"
+#define IPC_EXCEPTION_STR "org.apache.hadoop.ipc.IpcException"
+#define SASL_EXCEPTION_STR "javax.security.sasl.SaslException"
+#define RPC_EXCEPTION_STR "org.apache.hadoop.ipc.RpcServerException"
+#define RPC_ENOENT_EXCEPTION_STR "org.apache.hadoop.ipc.RpcNoSuchMethodException"
+
 struct _hdfs_result {
 	int64_t rs_msgno;
 	struct hdfs_object *rs_obj;
