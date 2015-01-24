@@ -834,9 +834,15 @@ t_hl_rpc_basics_suite()
 #if 0
 	suite_add_tcase(s, tc);
 #endif
+	return s;
+}
 
-	s = suite_create("rpcs2");
-	tc = tcase_create("basic2");
+Suite *
+t_hl_rpc2_basics_suite()
+{
+	Suite *s = suite_create("rpcs2");
+
+	TCase *tc = tcase_create("basic2");
 	tcase_add_checked_fixture(tc, setup2, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
 	tcase_add_test(tc, test_getBlockLocations2);

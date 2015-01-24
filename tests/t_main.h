@@ -9,6 +9,7 @@
 #define HDFS_T_USER "HDFS_TEST_USER"
 
 Suite *		t_hl_rpc_basics_suite(void);
+Suite *		t_hl_rpc2_basics_suite(void);
 Suite *		t_datanode_basics_suite(void);
 Suite *		t_unit(void);
 

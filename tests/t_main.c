@@ -25,6 +25,7 @@ main(int argc, char **argv)
 	bool success = true;
 	Suite *(*suites[])(void) = {
 		t_hl_rpc_basics_suite,
+		t_hl_rpc2_basics_suite,
 		t_datanode_basics_suite,
 		t_unit,
 	};
