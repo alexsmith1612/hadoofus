@@ -846,6 +846,14 @@ t_hl_rpc2_basics_suite()
 	tcase_add_checked_fixture(tc, setup2, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
 	tcase_add_test(tc, test_getBlockLocations2);
+	tcase_add_test(tc, test_create);
+	tcase_add_test(tc, test_append);
+	tcase_add_test(tc, test_setReplication);
+	tcase_add_test(tc, test_setPermission);
+	tcase_add_test(tc, test_setOwner);
+
+	tcase_add_test(tc, test_complete);
+
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
@@ -853,6 +861,14 @@ t_hl_rpc2_basics_suite()
 	tcase_add_checked_fixture(tc, setup22, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
 	tcase_add_test(tc, test_getBlockLocations2);
+	tcase_add_test(tc, test_create);
+	tcase_add_test(tc, test_append);
+	tcase_add_test(tc, test_setReplication);
+	tcase_add_test(tc, test_setPermission);
+	tcase_add_test(tc, test_setOwner);
+
+	tcase_add_test(tc, test_complete);
+
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 

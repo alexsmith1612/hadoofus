@@ -107,6 +107,65 @@ ENCODE_PREAMBLE(delete, Delete, DELETE)
 }
 ENCODE_POSTSCRIPT(delete)
 
+ENCODE_PREAMBLE(append, Append, APPEND)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(append)
+
+ENCODE_PREAMBLE(setReplication, SetReplication, SET_REPLICATION)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_SHORT);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.replication = rpc->_args[1]->ob_val._short._val;
+}
+ENCODE_POSTSCRIPT(set_replication)
+
+ENCODE_PREAMBLE(setPermission, SetPermission, SET_PERMISSION)
+	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_FSPERMS);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	perms.perm = rpc->_args[1]->ob_val._fsperms._perms;
+	req.permission = &perms;
+}
+ENCODE_POSTSCRIPT(set_permission)
+
+ENCODE_PREAMBLE(setOwner, SetOwner, SET_OWNER)
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+	ASSERT(rpc->_args[2]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.username = rpc->_args[1]->ob_val._string._val;
+	req.groupname = rpc->_args[2]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(set_owner)
+
+ENCODE_PREAMBLE(complete, Complete, COMPLETE)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(complete)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -118,6 +177,11 @@ static struct _rpc2_enc_lut {
 	_RENC(getBlockLocations),
 	_RENC(create),
 	_RENC(delete),
+	_RENC(append),
+	_RENC(setReplication),
+	_RENC(setPermission),
+	_RENC(setOwner),
+	_RENC(complete),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -173,6 +237,11 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,				\
 	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield))
 
+#define DECODE_PB_VOID(lowerCamel, CamelCase, lower_case)		\
+	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,			\
+	    result = hdfs_void_new())
+
+
 DECODE_PB(getServerDefaults, GetServerDefaults, get_server_defaults, fsserverdefaults, serverdefaults)
 DECODE_PB(getListing, GetListing, get_listing, directory_listing, dirlist)
 DECODE_PB(getBlockLocations, GetBlockLocations, get_block_locations, located_blocks, locations)
@@ -188,9 +257,18 @@ DECODE_PB_EX(create, Create, create,
  * The HDFSv1 routine returns void, so we can't return a FileStatus even though
  * v2.2+ provide it.
  */
-DECODE_PB_EX(create, Create, create, result = hdfs_void_new())
+DECODE_PB_VOID(create, Create, create)
 #endif
 DECODE_PB(delete, Delete, delete, boolean, result)
+DECODE_PB_EX(append, Append, append,
+	if (resp->block)
+		result = _hdfs_located_block_new_proto(resp->block);
+	else
+		result = hdfs_null_new(H_LOCATED_BLOCK))
+DECODE_PB(setReplication, SetReplication, set_replication, boolean, result)
+DECODE_PB_VOID(setPermission, SetPermission, set_permission)
+DECODE_PB_VOID(setOwner, SetOwner, set_owner)
+DECODE_PB(complete, Complete, complete, boolean, result)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -202,6 +280,11 @@ static struct _rpc2_dec_lut {
 	_RDEC(getBlockLocations),
 	_RDEC(create),
 	_RDEC(delete),
+	_RDEC(append),
+	_RDEC(setReplication),
+	_RDEC(setPermission),
+	_RDEC(setOwner),
+	_RDEC(complete),
 	{ NULL, NULL, },
 #undef _RDEC
 };
