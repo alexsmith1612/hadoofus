@@ -34,6 +34,7 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	dest->used += sz;						\
 }
 
+/* New in v2 methods */
 ENCODE_PREAMBLE(getServerDefaults, GetServerDefaults, GET_SERVER_DEFAULTS)
 {
 	ASSERT(rpc->_nargs == 0);
@@ -41,7 +42,7 @@ ENCODE_PREAMBLE(getServerDefaults, GetServerDefaults, GET_SERVER_DEFAULTS)
 ENCODE_POSTSCRIPT(get_server_defaults)
 
 
-/* Compat for v1 method hdfs_getListing(). */
+/* Compat for v1 methods */
 ENCODE_PREAMBLE(getListing, GetListing, GET_LISTING)
 {
 	ASSERT(rpc->_nargs == 2);
@@ -57,6 +58,55 @@ ENCODE_PREAMBLE(getListing, GetListing, GET_LISTING)
 }
 ENCODE_POSTSCRIPT(get_listing)
 
+ENCODE_PREAMBLE(getBlockLocations, GetBlockLocations, GET_BLOCK_LOCATIONS)
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_LONG);
+	ASSERT(rpc->_args[2]->ob_type == H_LONG);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.offset = rpc->_args[1]->ob_val._long._val;
+	req.length = rpc->_args[2]->ob_val._long._val;
+}
+ENCODE_POSTSCRIPT(get_block_locations)
+
+ENCODE_PREAMBLE(create, Create, CREATE)
+	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+{
+	ASSERT(rpc->_nargs == 7);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_FSPERMS);
+	ASSERT(rpc->_args[2]->ob_type == H_STRING);
+	ASSERT(rpc->_args[3]->ob_type == H_BOOLEAN);
+	ASSERT(rpc->_args[4]->ob_type == H_BOOLEAN);
+	ASSERT(rpc->_args[5]->ob_type == H_SHORT);
+	ASSERT(rpc->_args[6]->ob_type == H_LONG);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.masked = &perms;
+	perms.perm = rpc->_args[1]->ob_val._fsperms._perms;
+	req.clientname = rpc->_args[2]->ob_val._string._val;
+	req.createflag = CREATE_FLAG_PROTO__CREATE |
+	    (rpc->_args[3]->ob_val._boolean._val?
+	     CREATE_FLAG_PROTO__OVERWRITE : 0);
+	req.createparent = rpc->_args[4]->ob_val._boolean._val;
+	req.replication = rpc->_args[5]->ob_val._short._val;
+	req.blocksize = rpc->_args[6]->ob_val._long._val;
+}
+ENCODE_POSTSCRIPT(create)
+
+ENCODE_PREAMBLE(delete, Delete, DELETE)
+{
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_BOOLEAN);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.recursive = rpc->_args[1]->ob_val._boolean._val;
+}
+ENCODE_POSTSCRIPT(delete)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -65,6 +115,9 @@ static struct _rpc2_enc_lut {
 #define _RENC(method)	{ #method , _rpc2_encode_ ## method , }
 	_RENC(getServerDefaults),
 	_RENC(getListing),
+	_RENC(getBlockLocations),
+	_RENC(create),
+	_RENC(delete),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -93,7 +146,7 @@ _rpc2_request_serialize(struct hdfs_heap_buf *dest,
  * These slurpers expect exactly one protobuf in the heapbuf passed in, and
  * advance the cursor (->used) to the end (->size) after a successful parse.
  */
-#define DECODE_PB(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+#define DECODE_PB_EX(lowerCamel, CamelCase, lower_case, objbuilder_ex)	\
 static struct hdfs_object *						\
 _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 {									\
@@ -110,14 +163,34 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 		return NULL;						\
 	}								\
 									\
-	result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield);	\
+	objbuilder_ex;							\
 									\
 	lower_case ## _response_proto__free_unpacked(resp, NULL);	\
 	return result;							\
 }
 
+#define DECODE_PB(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,				\
+	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield))
+
 DECODE_PB(getServerDefaults, GetServerDefaults, get_server_defaults, fsserverdefaults, serverdefaults)
 DECODE_PB(getListing, GetListing, get_listing, directory_listing, dirlist)
+DECODE_PB(getBlockLocations, GetBlockLocations, get_block_locations, located_blocks, locations)
+#if 0
+DECODE_PB_EX(create, Create, create,
+	/* HDFSv2.2+ returns a FileStatus, while 2.0.x returns void. */
+	if (resp->fs)
+		result = _hdfs_file_status_new_proto(resp->fs);
+	else
+		result = hdfs_void_new())
+#else
+/*
+ * The HDFSv1 routine returns void, so we can't return a FileStatus even though
+ * v2.2+ provide it.
+ */
+DECODE_PB_EX(create, Create, create, result = hdfs_void_new())
+#endif
+DECODE_PB(delete, Delete, delete, boolean, result)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -126,6 +199,9 @@ static struct _rpc2_dec_lut {
 #define _RDEC(method)	{ #method , _oslurp_ ## method , }
 	_RDEC(getServerDefaults),
 	_RDEC(getListing),
+	_RDEC(getBlockLocations),
+	_RDEC(create),
+	_RDEC(delete),
 	{ NULL, NULL, },
 #undef _RDEC
 };

@@ -92,5 +92,8 @@ struct hdfs_object *	_hdfs_directory_listing_new_proto(DirectoryListingProto *);
 struct hdfs_object *	_hdfs_file_status_new_proto(HdfsFileStatusProto *);
 struct hdfs_object *	_hdfs_located_blocks_new_proto(LocatedBlocksProto *);
 struct hdfs_object *	_hdfs_located_block_new_proto(LocatedBlockProto *);
+struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
+struct hdfs_object *	_hdfs_token_new_proto(BlockTokenIdentifierProto *);
+struct hdfs_object *	_hdfs_datanode_info_new_proto(DatanodeInfoProto *);
 
 #endif

@@ -68,6 +68,28 @@ START_TEST(test_getBlockLocations)
 }
 END_TEST
 
+START_TEST(test_getBlockLocations2)
+{
+	struct hdfs_object *e = NULL, *e2 = NULL, *bls;
+	const char *tf = "/HADOOFUS_TEST_GET_BLOCK_LOCATIONS2",
+	      *client = "HADOOFUS_CLIENT";
+
+	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	bls = hdfs_getBlockLocations(h, tf, 0L, 1000L, &e);
+	hdfs_delete(h, tf, false/*recurse*/, &e2);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	if (e2)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e2));
+
+	ck_assert_msg(bls->ob_type == H_LOCATED_BLOCKS);
+}
+END_TEST
+
 START_TEST(test_create)
 {
 	bool s;
@@ -768,6 +790,7 @@ t_hl_rpc_basics_suite()
 
 	tcase_add_test(tc, test_getProtocolVersion);
 	tcase_add_test(tc, test_getBlockLocations);
+	tcase_add_test(tc, test_getBlockLocations2);
 	tcase_add_test(tc, test_create);
 	tcase_add_test(tc, test_append);
 	tcase_add_test(tc, test_setReplication);
@@ -816,12 +839,14 @@ t_hl_rpc_basics_suite()
 	tc = tcase_create("basic2");
 	tcase_add_checked_fixture(tc, setup2, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
+	tcase_add_test(tc, test_getBlockLocations2);
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("basic22");
 	tcase_add_checked_fixture(tc, setup22, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
+	tcase_add_test(tc, test_getBlockLocations2);
 	tcase_add_test(tc, test_getListing);
 	suite_add_tcase(s, tc);
 

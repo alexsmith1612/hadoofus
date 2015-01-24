@@ -191,6 +191,13 @@ hdfs_boolean_new(bool val)
 	return r;
 }
 
+struct hdfs_object *
+_hdfs_boolean_new_proto(protobuf_c_boolean val)
+{
+
+	return hdfs_boolean_new(val);
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_short_new(int16_t val)
 {
@@ -269,6 +276,15 @@ hdfs_token_new_empty()
 	return r;
 }
 
+struct hdfs_object *
+_hdfs_token_new_proto(BlockTokenIdentifierProto *pr)
+{
+
+	return hdfs_token_new_nulsafe((void *)pr->identifier.data,
+	    pr->identifier.len, (void *)pr->password.data, pr->password.len,
+	    pr->kind, pr->service);
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_token_copy(struct hdfs_object *src)
 {
@@ -327,13 +343,36 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 	return r;
 }
 
-/* XXX STUB */
 struct hdfs_object *
 _hdfs_located_block_new_proto(LocatedBlockProto *lb)
 {
+	struct hdfs_object *res;
+	size_t i;
 
 	ASSERT(lb);
-	return NULL;
+	ASSERT(lb->b);
+
+	res = hdfs_located_block_new(lb->b->blockid, 0, lb->b->generationstamp,
+	    lb->offset);
+
+	if (lb->b->has_numbytes)
+		res->ob_val._located_block._len = lb->b->numbytes;
+
+	res->ob_val._located_block._pool_id = strdup(lb->b->poolid);
+	ASSERT(res->ob_val._located_block._pool_id);
+
+	res->ob_val._located_block._corrupt = lb->corrupt;
+	res->ob_val._located_block._token =
+	    _hdfs_token_new_proto(lb->blocktoken);
+
+	ASSERT(lb->n_locs <= INT_MAX);
+	for (i = 0; i < lb->n_locs; i++) {
+		struct hdfs_object *dni;
+
+		dni = _hdfs_datanode_info_new_proto(lb->locs[i]);
+		hdfs_located_block_append_datanode_info(res, dni);
+	}
+	return res;
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -383,13 +422,29 @@ hdfs_located_blocks_new(bool beingcreated, int64_t size)
 	return r;
 }
 
-/* XXX STUB */
 struct hdfs_object *
 _hdfs_located_blocks_new_proto(LocatedBlocksProto *lb)
 {
+	struct hdfs_object *res;
+	size_t i;
 
 	ASSERT(lb);
-	return NULL;
+
+	res = hdfs_located_blocks_new(lb->underconstruction, lb->filelength);
+	if (lb->lastblock)
+		res->ob_val._located_blocks._last_block =
+		    _hdfs_located_block_new_proto(lb->lastblock);
+	res->ob_val._located_blocks._last_block_complete =
+	    lb->islastblockcomplete;
+
+	for (i = 0; i < lb->n_blocks; i++) {
+		struct hdfs_object *b;
+
+		b = _hdfs_located_block_new_proto(lb->blocks[i]);
+		hdfs_located_blocks_append_located_block(res, b);
+	}
+
+	return res;
 }
 
 static struct hdfs_object *
@@ -473,6 +528,18 @@ hdfs_datanode_info_new(const char *host, const char *port, const char *rack,
 		._namenodeport = namenodeport,
 	};
 	return r;
+}
+
+struct hdfs_object *
+_hdfs_datanode_info_new_proto(DatanodeInfoProto *pr)
+{
+	char dn_port_str[14];
+
+	sprintf(dn_port_str, "%u", pr->id->xferport);
+
+	return hdfs_datanode_info_new(pr->id->hostname,
+	    dn_port_str, pr->location? pr->location : "",
+	    pr->id->ipcport);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -1253,12 +1320,15 @@ hdfs_object_free(struct hdfs_object *obj)
 		FREE_H_ARRAY(obj->ob_val._located_block._locs,
 		    obj->ob_val._located_block._num_locs);
 		hdfs_object_free(obj->ob_val._located_block._token);
+		free(obj->ob_val._located_block._pool_id);
 		break;
 	case H_ARRAY_LOCATEDBLOCK:
 		/* FALLTHROUGH */
 	case H_LOCATED_BLOCKS:
 		FREE_H_ARRAY(obj->ob_val._located_blocks._blocks,
 		    obj->ob_val._located_blocks._num_blocks);
+		if (obj->ob_val._located_blocks._last_block)
+			hdfs_object_free(obj->ob_val._located_blocks._last_block);
 		break;
 	case H_LOCATED_DIRECTORY_LISTING:
 		/* FALLTHROUGH */

@@ -143,6 +143,10 @@ struct hdfs_located_block {
 	int _num_locs;
 
 	struct hdfs_object *_token;
+
+	/* v2+ */
+	char *_pool_id;
+	bool _corrupt;
 };
 
 struct hdfs_located_blocks {
@@ -150,6 +154,10 @@ struct hdfs_located_blocks {
 	struct hdfs_object **_blocks/* type: hdfs_located_block[] */;
 	int _num_blocks;
 	bool _being_written;
+
+	/* v2+ */
+	struct hdfs_object *_last_block;
+	bool _last_block_complete;
 };
 
 struct hdfs_directory_listing {
