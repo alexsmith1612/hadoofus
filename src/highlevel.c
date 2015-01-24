@@ -496,6 +496,40 @@ _HDFS_PRIM_RPC_BODY(isFileClosed,
 	hdfs_string_new(src)
 )
 
+#define _HDFS2_PRIM_RPC_DECL(type, name, args...) \
+EXPORT_SYM type \
+hdfs2_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
+
+#define _HDFS2_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
+{ \
+	struct hdfs_rpc_response_future future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER; \
+	struct hdfs_object *rpc, *object; \
+	const char *error; \
+\
+	rpc = hdfs_rpc_invocation_new( \
+	    #name, \
+	    ##args, \
+	    NULL); \
+	error = hdfs_namenode_invoke(h, rpc, &future); \
+	_assert_not_err(error); \
+\
+	hdfs_object_free(rpc); \
+\
+	hdfs_future_get(&future, &object); \
+\
+	ASSERT(object->ob_type == htype || \
+	    object->ob_type == H_PROTOCOL_EXCEPTION); \
+\
+	if (object->ob_type == H_PROTOCOL_EXCEPTION) { \
+		*exception_out = object; \
+		return dflt ; \
+	} else { \
+		result; \
+		hdfs_object_free(object); \
+		return retval; \
+	} \
+}
+
 #define _HDFS2_OBJ_RPC_DECL(name, args...) \
 EXPORT_SYM struct hdfs_object * \
 hdfs2_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
@@ -533,4 +567,30 @@ _HDFS2_OBJ_RPC_DECL(getServerDefaults)
 _HDFS2_OBJ_RPC_BODY(getServerDefaults,
 	H_FS_SERVER_DEFAULTS,
 	NULL
+)
+
+_HDFS2_OBJ_RPC_DECL(getFileLinkInfo, const char *src)
+_HDFS2_OBJ_RPC_BODY(getFileLinkInfo,
+	H_FILE_STATUS,
+	hdfs_string_new(src)
+)
+
+_HDFS2_PRIM_RPC_DECL(void, createSymlink,
+	const char *target, const char *link, int16_t dirperm,
+	bool createparent)
+_HDFS2_PRIM_RPC_BODY(createSymlink,
+	H_VOID,
+	,
+	,
+	,
+	hdfs_string_new(target),
+	hdfs_string_new(link),
+	hdfs_fsperms_new(dirperm),
+	hdfs_boolean_new(createparent)
+)
+
+_HDFS2_OBJ_RPC_DECL(getLinkTarget, const char *path)
+_HDFS2_OBJ_RPC_BODY(getLinkTarget,
+	H_STRING,
+	hdfs_string_new(path)
 )

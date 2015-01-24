@@ -313,6 +313,41 @@ ENCODE_PREAMBLE(getFileInfo, GetFileInfo, GET_FILE_INFO)
 }
 ENCODE_POSTSCRIPT(get_file_info)
 
+ENCODE_PREAMBLE(getFileLinkInfo, GetFileLinkInfo, GET_FILE_LINK_INFO)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(get_file_link_info)
+
+ENCODE_PREAMBLE(createSymlink, CreateSymlink, CREATE_SYMLINK)
+	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+{
+	ASSERT(rpc->_nargs == 4);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+	ASSERT(rpc->_args[2]->ob_type == H_FSPERMS);
+	ASSERT(rpc->_args[3]->ob_type == H_BOOLEAN);
+
+	req.target = rpc->_args[0]->ob_val._string._val;
+	req.link = rpc->_args[1]->ob_val._string._val;
+	perms.perm = rpc->_args[2]->ob_val._fsperms._perms;
+	req.dirperm = &perms;
+	req.createparent = rpc->_args[3]->ob_val._boolean._val;
+}
+ENCODE_POSTSCRIPT(create_symlink)
+
+ENCODE_PREAMBLE(getLinkTarget, GetLinkTarget, GET_LINK_TARGET)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+
+	req.path = rpc->_args[0]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(get_link_target)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -340,6 +375,9 @@ static struct _rpc2_enc_lut {
 	_RENC(fsync),
 	_RENC(setTimes),
 	_RENC(getFileInfo),
+	_RENC(getFileLinkInfo),
+	_RENC(createSymlink),
+	_RENC(getLinkTarget),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -438,6 +476,10 @@ DECODE_PB_VOID(setQuota, SetQuota, set_quota)
 DECODE_PB_VOID(fsync, Fsync, fsync)
 DECODE_PB_VOID(setTimes, SetTimes, set_times)
 DECODE_PB(getFileInfo, GetFileInfo, get_file_info, file_status, fs)
+DECODE_PB(getFileLinkInfo, GetFileLinkInfo, get_file_link_info, file_status, fs)
+DECODE_PB_VOID(createSymlink, CreateSymlink, create_symlink)
+DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
+	result = hdfs_string_new(resp->targetpath))
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -465,6 +507,9 @@ static struct _rpc2_dec_lut {
 	_RDEC(fsync),
 	_RDEC(setTimes),
 	_RDEC(getFileInfo),
+	_RDEC(getFileLinkInfo),
+	_RDEC(createSymlink),
+	_RDEC(getLinkTarget),
 	{ NULL, NULL, },
 #undef _RDEC
 };

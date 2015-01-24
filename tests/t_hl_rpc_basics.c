@@ -780,6 +780,37 @@ START_TEST(test_getServerDefaults)
 }
 END_TEST
 
+START_TEST(test_symlinks)
+{
+	const char *tl = "/HADOOFUS_TEST_SYMLINKS",
+	      *td = "/HADOOFUS_TEST_BOGUS";
+	struct hdfs_object *targ, *e, *e2, *fs;
+
+	e = e2 = NULL;
+
+	hdfs2_createSymlink(h, td, tl, 0755, false, &e);
+	if (e)
+		goto err;
+
+	targ = hdfs2_getLinkTarget(h, tl, &e);
+	if (e)
+		goto err;
+	hdfs_object_free(targ);
+
+	fs = hdfs2_getFileLinkInfo(h, tl, &e);
+	if (e)
+		goto err;
+	hdfs_object_free(fs);
+
+err:
+	hdfs_delete(h, tl, false, &e2);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+	if (e2)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+}
+END_TEST
+
 Suite *
 t_hl_rpc_basics_suite()
 {
@@ -864,6 +895,14 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_recoverLease);
 	suite_add_tcase(s, tc);
 
+	/* My implementation of HDFS doesn't support this RPC. */
+	tc = tcase_create("broken2");
+	tcase_add_checked_fixture(tc, setup2, teardown);
+	tcase_add_test(tc, test_symlinks);
+#if 0
+	suite_add_tcase(s, tc);
+#endif
+
 	tc = tcase_create("basic22");
 	tcase_add_checked_fixture(tc, setup22, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
@@ -885,6 +924,14 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
 	suite_add_tcase(s, tc);
+
+	/* My implementation of HDFS doesn't support this RPC. */
+	tc = tcase_create("broken22");
+	tcase_add_checked_fixture(tc, setup22, teardown);
+	tcase_add_test(tc, test_symlinks);
+#if 0
+	suite_add_tcase(s, tc);
+#endif
 
 	tc = tcase_create("slow2");
 	tcase_add_checked_fixture(tc, setup2, teardown);

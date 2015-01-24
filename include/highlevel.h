@@ -217,6 +217,16 @@ void			hdfs_setBalancerBandwidth(struct hdfs_namenode *, int64_t,
 struct hdfs_object *	hdfs2_getServerDefaults(struct hdfs_namenode *,
 			struct hdfs_object **exception_out);
 
+struct hdfs_object *	hdfs2_getFileLinkInfo(struct hdfs_namenode *, const char *,
+			struct hdfs_object **exception_out);
+
+void			hdfs2_createSymlink(struct hdfs_namenode *, const char * /*target*/,
+			const char * /*link*/, int16_t /*dirperms*/, bool /*createparent*/,
+			struct hdfs_object **exception_out);
+
+struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
