@@ -796,8 +796,6 @@ t_hl_rpc_basics_suite()
 	tcase_add_test(tc, test_setReplication);
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
-	tcase_add_test(tc, test_abandonBlock);
-	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_complete);
 	tcase_add_test(tc, test_rename);
 	tcase_add_test(tc, test_delete);
@@ -823,6 +821,8 @@ t_hl_rpc_basics_suite()
 	tc = tcase_create("slow");
 	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_set_timeout(tc, 30./*seconds*/);
+	tcase_add_test(tc, test_abandonBlock);
+	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_getContentSummary);
 
 	suite_add_tcase(s, tc);
@@ -851,7 +851,6 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_setReplication);
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
-
 	tcase_add_test(tc, test_complete);
 
 	tcase_add_test(tc, test_getListing);
@@ -866,10 +865,23 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_setReplication);
 	tcase_add_test(tc, test_setPermission);
 	tcase_add_test(tc, test_setOwner);
-
 	tcase_add_test(tc, test_complete);
 
 	tcase_add_test(tc, test_getListing);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("slow2");
+	tcase_add_checked_fixture(tc, setup2, teardown);
+	tcase_set_timeout(tc, 30./*seconds*/);
+	tcase_add_test(tc, test_abandonBlock);
+	tcase_add_test(tc, test_addBlock);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("slow22");
+	tcase_add_checked_fixture(tc, setup22, teardown);
+	tcase_set_timeout(tc, 30./*seconds*/);
+	tcase_add_test(tc, test_abandonBlock);
+	tcase_add_test(tc, test_addBlock);
 	suite_add_tcase(s, tc);
 
 	return s;

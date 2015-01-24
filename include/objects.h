@@ -212,6 +212,9 @@ struct hdfs_block {
 	int64_t _blkid,
 		_length,
 		_generation;
+
+	/* v2 */
+	char *_pool_id;
 };
 
 struct hdfs_array_byte {

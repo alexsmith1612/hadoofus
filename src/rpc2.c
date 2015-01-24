@@ -166,6 +166,51 @@ ENCODE_PREAMBLE(complete, Complete, COMPLETE)
 }
 ENCODE_POSTSCRIPT(complete)
 
+ENCODE_PREAMBLE(abandonBlock, AbandonBlock, ABANDON_BLOCK)
+	ExtendedBlockProto eb = EXTENDED_BLOCK_PROTO__INIT;
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[0]->ob_val._block._pool_id);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+	ASSERT(rpc->_args[2]->ob_type == H_STRING);
+
+	eb.poolid = rpc->_args[0]->ob_val._block._pool_id;
+	eb.blockid = rpc->_args[0]->ob_val._block._blkid;
+	eb.generationstamp = rpc->_args[0]->ob_val._block._generation;
+	if (rpc->_args[0]->ob_val._block._length) {
+		eb.has_numbytes = true;
+		eb.numbytes = rpc->_args[0]->ob_val._block._length;
+	}
+	req.b = &eb;
+
+	req.src = rpc->_args[1]->ob_val._string._val;
+	req.holder = rpc->_args[2]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(abandon_block)
+
+ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
+{
+	ASSERT(rpc->_nargs == 3);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+	ASSERT(rpc->_args[2]->ob_type == H_ARRAY_DATANODE_INFO ||
+	    (rpc->_args[2]->ob_type == H_NULL &&
+	     rpc->_args[2]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+	req.previous = NULL;
+
+	if (rpc->_args[2]->ob_type != H_NULL) {
+		/* XXX not yet implemented, but it could be */
+		ASSERT(rpc->_args[2]->ob_val._array_datanode_info._len == 0);
+	}
+	req.n_excludenodes = 0;
+	req.n_favorednodes = 0;
+}
+ENCODE_POSTSCRIPT(add_block)
+
 typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -182,6 +227,8 @@ static struct _rpc2_enc_lut {
 	_RENC(setPermission),
 	_RENC(setOwner),
 	_RENC(complete),
+	_RENC(abandonBlock),
+	_RENC(addBlock),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -269,6 +316,8 @@ DECODE_PB(setReplication, SetReplication, set_replication, boolean, result)
 DECODE_PB_VOID(setPermission, SetPermission, set_permission)
 DECODE_PB_VOID(setOwner, SetOwner, set_owner)
 DECODE_PB(complete, Complete, complete, boolean, result)
+DECODE_PB_VOID(abandonBlock, AbandonBlock, abandon_block)
+DECODE_PB(addBlock, AddBlock, add_block, located_block, block)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -285,6 +334,8 @@ static struct _rpc2_dec_lut {
 	_RDEC(setPermission),
 	_RDEC(setOwner),
 	_RDEC(complete),
+	_RDEC(abandonBlock),
+	_RDEC(addBlock),
 	{ NULL, NULL, },
 #undef _RDEC
 };

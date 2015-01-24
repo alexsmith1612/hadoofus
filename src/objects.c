@@ -381,9 +381,16 @@ hdfs_located_block_copy(struct hdfs_object *src)
 	int nlocs;
 	struct hdfs_object *r = _objmalloc(),
 			   **arr_locs = NULL;
+	char *pool_id;
 
 	ASSERT(src);
 	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	if (src->ob_val._located_block._pool_id) {
+		pool_id = strdup(src->ob_val._located_block._pool_id);
+		ASSERT(pool_id);
+	} else
+		pool_id = NULL;
 
 	nlocs = src->ob_val._located_block._num_locs;
 
@@ -406,6 +413,7 @@ hdfs_located_block_copy(struct hdfs_object *src)
 		._locs = arr_locs,
 		._offset = src->ob_val._located_block._offset,
 		._token = hdfs_token_copy(src->ob_val._located_block._token),
+		._pool_id = pool_id,
 	};
 	return r;
 }
@@ -771,9 +779,16 @@ EXPORT_SYM struct hdfs_object *
 hdfs_block_copy(struct hdfs_object *src)
 {
 	struct hdfs_object *r;
+	char *pool_id;
 
 	if (!src)
 		return hdfs_null_new(H_BLOCK);
+
+	if (src->ob_val._block._pool_id) {
+		pool_id = strdup(src->ob_val._block._pool_id);
+		ASSERT(pool_id);
+	} else
+		pool_id = NULL;
 
 	r = _objmalloc();
 
@@ -781,6 +796,7 @@ hdfs_block_copy(struct hdfs_object *src)
 
 	r->ob_type = H_BLOCK;
 	r->ob_val._block = src->ob_val._block;
+	r->ob_val._block._pool_id = pool_id;
 	return r;
 }
 
@@ -788,15 +804,23 @@ EXPORT_SYM struct hdfs_object *
 hdfs_block_from_located_block(struct hdfs_object *src)
 {
 	struct hdfs_object *r = _objmalloc();
+	char *pool_id;
 
 	ASSERT(src);
 	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	if (src->ob_val._located_block._pool_id) {
+		pool_id = strdup(src->ob_val._located_block._pool_id);
+		ASSERT(pool_id);
+	} else
+		pool_id = NULL;
 
 	r->ob_type = H_BLOCK;
 	r->ob_val._block = (struct hdfs_block) {
 		._blkid = src->ob_val._located_block._blockid,
 		._length = src->ob_val._located_block._len,
 		._generation = src->ob_val._located_block._generation,
+		._pool_id = pool_id,
 	};
 	return r;
 }
@@ -1354,7 +1378,9 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._file_status._symlink_target);
 		break;
 	case H_CONTENT_SUMMARY: break;
-	case H_BLOCK: break;
+	case H_BLOCK:
+		free(obj->ob_val._block._pool_id);
+		break;
 	case H_ARRAY_BYTE:
 		if (obj->ob_val._array_byte._bytes)
 			free(obj->ob_val._array_byte._bytes);
