@@ -73,6 +73,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 
 	n->nn_proto = HDFS_NN_v1;
 	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
+	n->nn_error = 0;
 }
 
 EXPORT_SYM void
@@ -580,6 +581,9 @@ _namenode_recv_worker(void *v_nn)
 				if (n->nn_sasl_ssf > 0)
 					_conn_try_desasl(n);
 			} else {
+				int serrno;
+
+				serrno = errno;
 				if (errno == EAGAIN || errno == EWOULDBLOCK) {
 					struct pollfd pfds[] = { {
 						.fd = sock,
@@ -600,6 +604,7 @@ _namenode_recv_worker(void *v_nn)
 				}
 				// bail on socket errors
 				_lock(&n->nn_lock);
+				n->nn_error = serrno;
 				close(n->nn_sock);
 				n->nn_sock = -1;
 				n->nn_dead = true;
@@ -612,6 +617,7 @@ _namenode_recv_worker(void *v_nn)
 		if (result == _HDFS_INVALID_PROTO) {
 			// bail on protocol errors
 			_lock(&n->nn_lock);
+			n->nn_error = EBADMSG;
 			close(n->nn_sock);
 			n->nn_sock = -1;
 			n->nn_dead = true;
@@ -639,6 +645,13 @@ _namenode_recv_worker(void *v_nn)
 out:
 	if (nnlocked)
 		_unlock(&n->nn_lock);
+
+	/*
+	 * Until Namenode communication error is plumbed up to the user, it
+	 * doesn't do them any good to wait on a response to RPC that is never
+	 * coming.
+	 */
+	ASSERT(n->nn_error == 0);
 
 	return NULL;
 }

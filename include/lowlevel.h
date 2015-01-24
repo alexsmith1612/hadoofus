@@ -52,6 +52,7 @@ struct hdfs_namenode {
 
 	enum hdfs_namenode_proto nn_proto;
 	uint8_t nn_client_id[_HDFS_CLIENT_ID_LEN];
+	int nn_error;
 };
 
 struct hdfs_datanode {
