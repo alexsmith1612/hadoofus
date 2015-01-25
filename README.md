@@ -1,7 +1,7 @@
 hadoofus [![Build Status](https://travis-ci.org/cemeyer/hadoofus.png?branch=master)](https://travis-ci.org/cemeyer/hadoofus)
-==============
+============================================================================================================================
 
-#### JRE-free HDFS client library
+#### JRE-free multi-version HDFS client library
 
 The `hadoofus` project is an HDFS (Hadoop Distributed File System) client
 library. It is implemented in C and supports RPC pipelining and out-of-order
@@ -14,6 +14,11 @@ in a seperate library (`libhdfs_hadoofus.so`).
 It also includes a Python wrapper module, implemented in Cython. (Cython
 compiles to a C Python module.) For more information on that, see
 `/wrappers/README.md`.
+
+Unlike libhdfs, Hadoofus speaks multiple versions of the HDFS protocol. At your
+option, you may speak with Hadoop 0.20.203 through 1.x.y (`HDFS_NN_v1` /
+`HDFS_DATANODE_AP_1_0`), Hadoop 2.0.x (`HDFS_NN_v2` / `HDFS_DATANODE_AP_2_0`),
+or Hadoop 2.2.x (`HDFS_NN_v2_2` / `HDFS_DATANODE_AP_2_0`).
 
 #### Using libhadoofus
 
@@ -45,18 +50,17 @@ hdfs_namenode_delete(h);
 
 #### Caveats
 
-Some RPCs provided by the Hadoop `ClientProtocol` interface are not
-implemented.
+Some RPCs provided by the Hadoop `ClientProtocol` interface in v2.x of the
+protocol are not yet implemented (see Issue #29).
 
-Note: This library currently supports the HDFS protocol as spoken by Apache
-Hadoop releases 0.20.203 through 1.0.3. The protocol is expected to stay the
-same for future 1.x.y releases, although Hadoop has been known to change
-semantics slightly between different versions of the software. The protocol has
-no spec; we do the best we can.
+Note: Hadoop has been known to change semantics slightly between different
+versions of the software (especially before v2 was released). The v1 protocol
+has no spec; we do the best we can.
 
-Hadoop-2.x speaks a slightly different protocol (but with similar
-semantics). Currently, libhadoofus does not support the Hadoop-2 HDFS
-protocol.
+Some RPCs that exist in HDFSv1 do not exist in HDFSv2+ — e.g.
+`getProtocolVersion` does not exist in v2.
+
+The Datanode API is somewhat fragile and v2 CRC32C support isn't there yet.
 
 #### HDFS Semantics
 
