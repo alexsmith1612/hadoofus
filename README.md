@@ -18,7 +18,7 @@ compiles to a C Python module.) For more information on that, see
 Unlike libhdfs, Hadoofus speaks multiple versions of the HDFS protocol. At your
 option, you may speak with Hadoop 0.20.203 through 1.x.y (`HDFS_NN_v1` /
 `HDFS_DATANODE_AP_1_0`), Hadoop 2.0.x (`HDFS_NN_v2` / `HDFS_DATANODE_AP_2_0`),
-or Hadoop 2.2.x (`HDFS_NN_v2_2` / `HDFS_DATANODE_AP_2_0`).
+or Hadoop 2.2.x and higher (`HDFS_NN_v2_2` / `HDFS_DATANODE_AP_2_0`).
 
 #### Using libhadoofus
 
