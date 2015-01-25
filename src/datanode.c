@@ -1273,6 +1273,7 @@ _wait_ack2(struct _packet_state *ps)
 	PipelineAckProto *ack;
 	const char *error;
 	int64_t sz;
+	int status;
 
 	h = ps->recvbuf;
 	ack = NULL;
@@ -1325,12 +1326,13 @@ _wait_ack2(struct _packet_state *ps)
 	}
 
 	if (ack->status[0] != STATUS__SUCCESS) {
-		if (ack->status[0] >= 0 && ack->status[0] < nelem(dn_error_msgs))
-			error = dn_error_msgs[ack->status[0]];
+		status = ack->status[0];
+		if (status >= 0 && status < (int)nelem(dn_error_msgs))
+			error = dn_error_msgs[status];
 		else {
 			error = "Bogus ack number, aborting write";
-			fprintf(stderr, "libhadoofus: Got bogus ack status %"
-			    PRIi16 ", aborting write", ack->status[0]);
+			fprintf(stderr, "libhadoofus: Got bogus ack status %d, "
+			    "aborting write", status);
 		}
 		goto out;
 	}
