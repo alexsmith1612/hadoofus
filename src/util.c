@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sysexits.h>
 
+#include <execinfo.h>
+
 #include "util.h"
 
 uint32_t
@@ -47,9 +49,17 @@ _now_ms(void)
 void
 assert_fail(const char *an, const char *fn, const char *file, unsigned line)
 {
+	void *stack[16];
+	size_t nframes;
 
 	fprintf(stderr, "ASSERTION `%s' FAILED in %s (%s:%u)\n", an, fn, file,
 	    line);
+	fprintf(stderr, "Stack:\n--------------------------------------\n");
+	fflush(stderr);
+
+	nframes = backtrace(stack, nelem(stack));
+	backtrace_symbols_fd(stack, nframes, fileno(stderr));
+
 	exit(EX_SOFTWARE);
 }
 

@@ -18,6 +18,9 @@ TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
 LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -lcheck -L../src -lhadoofus \
 	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2
+ifeq ($(shell uname -s),FreeBSD)
+	LINK_FLAGS += -lexecinfo
+endif
 FLAGS = -Wall -Werror -fPIC -g $(CFLAGS) -I/usr/local/include
 
 all: $(TEST_PRGM)
