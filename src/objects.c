@@ -717,7 +717,7 @@ _hdfs_file_type_from_proto(HdfsFileStatusProto__FileType pr)
 	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK);
 
 	ASSERT(HDFS_FT_DIR <= (unsigned)pr && (unsigned)pr <= HDFS_FT_SYMLINK);
-	return pr;
+	return (unsigned)pr;
 }
 
 struct hdfs_object *
@@ -1148,7 +1148,7 @@ _hdfs_csum_from_proto(ChecksumTypeProto pr)
 	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__CRC32C == HDFS_CSUM_CRC32C);
 
 	ASSERT(HDFS_CSUM_NULL <= (unsigned)pr && (unsigned)pr <= HDFS_CSUM_CRC32C);
-	return pr;
+	return (unsigned)pr;
 }
 
 struct hdfs_object *

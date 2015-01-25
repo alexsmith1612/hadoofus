@@ -1,3 +1,4 @@
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #ifdef __linux__
 # include <sys/sendfile.h>
@@ -188,15 +189,15 @@ _sendfile_all(int s, int fd, off_t offset, size_t tosend)
 #elif defined(__FreeBSD__)
 
 const char *
-_sendfile_all_bsd(int s, int fd, off_t offset size_t tosend,
+_sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 	struct iovec *hdrs, int hdrcnt)
 {
 	int rc;
 	off_t sent;
 
 	struct sf_hdtr hdtr = {
-		.headers = hdrs;
-		.hdr_cnt = hdrcnt;
+		.headers = hdrs,
+		.hdr_cnt = hdrcnt,
 	};
 
 	while (hdtr.hdr_cnt > 0 || tosend > 0) {
@@ -207,13 +208,14 @@ _sendfile_all_bsd(int s, int fd, off_t offset size_t tosend,
 			return "EOS writing packet data; aborting write";
 
 		while (hdtr.hdr_cnt > 0 && sent > 0) {
-			if (sent >= hdtr.headers->iov_len) {
+			if ((size_t)sent >= hdtr.headers->iov_len) {
 				sent -= hdtr.headers->iov_len;
 				hdtr.headers++;
 				hdtr.hdr_cnt--;
 				continue;
 			} else {
-				hdtr.headers->iov_base += sent;
+				hdtr.headers->iov_base =
+					(char *)hdtr.headers->iov_base + sent;
 				hdtr.headers->iov_len -= sent;
 				sent = 0;
 			}

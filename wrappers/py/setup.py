@@ -74,7 +74,7 @@ class build_libhadoofus_clib(build_clib):
 # The root directory of the project
 root_dir = realpath(dirname(abspath(__file__)) + "/../..")
 # The C headers files shared between libhadoofus and the hadoofus.pyx
-include_dirs = ["%s/include" % root_dir]
+include_dirs = ["%s/include" % root_dir, "/usr/local/include"]
 
 # The libhadoofus C library
 libhadoofus = ("hadoofus", {

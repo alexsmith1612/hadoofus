@@ -4,7 +4,7 @@ PY_LDFLAGS=
 PY_CPPFLAGS=
 
 CFLAGS=-O2 -g -pipe -Wall -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
-		-mtune=generic $(PY_CFLAGS)
+		-mtune=generic $(PY_CFLAGS) -I/usr/local/include
 
 OBJS = datanode.o \
 	 heapbuf.o \
@@ -42,13 +42,12 @@ WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
 		-Wnested-externs -Wredundant-decls -Wno-error=type-limits
 FLAGS = $(WARNS) $(CFLAGS) -fPIC -g -fvisibility=hidden \
-		$$(pkg-config --cflags 'libprotobuf-c >= 1.0.0')
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz -lrt
+		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lrt
 LIB = libhadoofus.so
 SLIB = libhadoofus.a
 LIBDIR = $(PREFIX)/lib
 
-CC = gcc
 
 $(LIB): $(OBJS)
 	$(CC) -o $@ $(LIBFLAGS) $(OBJS)

@@ -9,6 +9,8 @@ make all
 sudo make install
 ```
 
+(Use `gmake` on FreeBSD. The makefiles are written in GNU Makefile.)
+
 #### Configurable make variables
 
 Aside from `CFLAGS`, you can configure `PREFIX`, `LIBDIR`, and `INCLUDEDIR`.

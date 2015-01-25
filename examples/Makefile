@@ -1,5 +1,5 @@
 LIBS = -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lpthread -lz -lsasl2 -lrt
-FLAGS = -Wall -Werror $(CFLAGS) -g -I../include
+FLAGS = -Wall -Werror $(CFLAGS) -g -I../include -I/usr/local/include
 BIN = \
 	  helloworld \
 	  hl-hello \
@@ -7,7 +7,6 @@ BIN = \
 	  kerb \
 
 LIB = ../src/libhadoofus.so
-CC = gcc
 
 all: $(BIN)
 

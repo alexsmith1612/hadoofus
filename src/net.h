@@ -17,7 +17,7 @@ const char *	_writev_all(int s, struct iovec *iov, int iovcnt);
 #if defined(__linux__)
 const char *	_sendfile_all(int s, int fd, off_t offset, size_t tosend);
 #elif defined(__FreeBSD__)
-const char *	_sendfile_all_bsd(int s, int fd, off_t offset size_t tosend,
+const char *	_sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 		struct iovec *hdrs, int hdrcnt);
 #endif
 void		_setsockopt(int s, int level, int optname, int optval);

@@ -16,8 +16,9 @@ PRIV_OBJS = \
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
-LINK_FLAGS = $(LDFLAGS) -lcheck -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2
-FLAGS = -Wall -Werror -fPIC -g $(CFLAGS)
+LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -lcheck -L../src -lhadoofus \
+	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2
+FLAGS = -Wall -Werror -fPIC -g $(CFLAGS) -I/usr/local/include
 
 all: $(TEST_PRGM)
 

@@ -6,12 +6,11 @@ SRCS = \
 HDR = hdfs.h
 OBJS = $(SRCS:%.c=%.o)
 
-CC = gcc
 
 LIBDIR = $(PREFIX)/lib
 INCLUDEDIR = $(PREFIX)/include
 
-FLAGS = $(CFLAGS) -I../../include
+FLAGS = $(CFLAGS) -I../../include -I/usr/local/include
 LINKFLAGS = $(LDFLAGS) -L../../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt
 
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS)
