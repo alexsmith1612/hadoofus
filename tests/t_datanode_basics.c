@@ -34,7 +34,7 @@ static uint64_t _now(void)
 }
 
 static void
-setup_buf(void)
+_setup_buf(enum hdfs_namenode_proto proto)
 {
 	const char *err = NULL;
 
@@ -48,9 +48,31 @@ setup_buf(void)
 		rbuf[i] = 0;
 	}
 
-	h = hdfs_namenode_new(H_ADDR, "8020", H_USER, HDFS_NO_KERB, &err);
+	h = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
+	    proto, &err);
 	ck_assert_msg((intptr_t)h, "Could not connect to %s=%s (port 8020): %s",
 	    HDFS_T_ENV, H_ADDR, err);
+}
+
+static void
+setup_buf(void)
+{
+
+	_setup_buf(HDFS_NN_v1);
+}
+
+static void
+setup_buf2(void)
+{
+
+	_setup_buf(HDFS_NN_v2);
+}
+
+static void
+setup_buf22(void)
+{
+
+	_setup_buf(HDFS_NN_v2_2);
 }
 
 static void
@@ -67,10 +89,11 @@ teardown_buf(void)
 
 
 static void
-setup_file(void)
+_setup_file(enum hdfs_namenode_proto pr)
 {
 	int rc, written = 0;
-	setup_buf();
+
+	_setup_buf(pr);
 
 	fd = open(localtf, O_RDWR|O_CREAT, 0600);
 	ck_assert_msg(fd != -1, "open failed: %s", strerror(errno));
@@ -82,6 +105,27 @@ setup_file(void)
 		ck_assert_msg(rc > 0, "write failed: %s", strerror(errno));
 		written += rc;
 	}
+}
+
+static void
+setup_file(void)
+{
+
+	_setup_file(HDFS_NN_v1);
+}
+
+static void
+setup_file2(void)
+{
+
+	_setup_file(HDFS_NN_v2);
+}
+
+static void
+setup_file22(void)
+{
+
+	_setup_file(HDFS_NN_v2_2);
 }
 
 static void
@@ -361,6 +405,53 @@ t_datanode_basics_suite()
 	tcase_add_loop_test(tc2, test_dn_write_file, 0, 2);
 
 	suite_add_tcase(s, tc2);
+
+	return s;
+}
+
+Suite *
+t_datanode2_basics_suite()
+{
+	Suite *s;
+	TCase *tc;
+
+	s = suite_create("datanode2");
+
+	tc = tcase_create("buf2");
+	tcase_add_unchecked_fixture(tc, setup_buf2, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("buf22");
+	tcase_add_unchecked_fixture(tc, setup_buf22, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("file2");
+	tcase_add_unchecked_fixture(tc, setup_file2, teardown_file);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("file22");
+	tcase_add_unchecked_fixture(tc, setup_file22, teardown_file);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
 
 	return s;
 }

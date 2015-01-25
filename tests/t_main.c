@@ -27,6 +27,7 @@ main(int argc, char **argv)
 		t_hl_rpc_basics_suite,
 		t_hl_rpc2_basics_suite,
 		t_datanode_basics_suite,
+		t_datanode2_basics_suite,
 		t_unit,
 	};
 	int rc;

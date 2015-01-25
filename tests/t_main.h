@@ -11,6 +11,7 @@
 Suite *		t_hl_rpc_basics_suite(void);
 Suite *		t_hl_rpc2_basics_suite(void);
 Suite *		t_datanode_basics_suite(void);
+Suite *		t_datanode2_basics_suite(void);
 Suite *		t_unit(void);
 
 extern const char *H_ADDR, *H_USER;
