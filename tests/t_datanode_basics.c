@@ -385,6 +385,98 @@ START_TEST(test_dn_write_file)
 }
 END_TEST
 
+START_TEST(test_short_read)
+{
+	struct hdfs_namenode *nn;
+	struct hdfs_datanode *dn;
+	struct hdfs_object *bls, *e, *bl;
+	const char *errs;
+
+#define ABUF_LEN (128*1024)
+	char *abuf = calloc(ABUF_LEN, 1);
+
+	ck_assert_msg((bool)abuf);
+
+	e = NULL;
+	dn = NULL;
+
+	nn = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
+	    HDFS_NN_v2, &errs);
+	ck_assert_msg(nn != NULL, "nn_new: %s", errs);
+
+	bls = hdfs_getBlockLocations(nn, "/README.txt", 0, 10*1024, &e);
+	if (e)
+		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+
+	if (bls->ob_type == H_NULL ||
+	    bls->ob_val._located_blocks._num_blocks == 0)
+		goto out;
+
+	bl = bls->ob_val._located_blocks._blocks[0];
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
+	ck_assert_msg(dn != NULL, "dn_new: %s", errs);
+
+	errs = hdfs_datanode_read(dn, 0, 1032, abuf, false/*verifycrcs*/);
+	ck_assert_msg(errs == NULL, "dn_read: %s", errs);
+
+#if 0
+	printf("%s: '''\n%s\n'''\n", __func__, abuf);
+#endif
+
+out:
+	hdfs_object_free(bls);
+	hdfs_namenode_delete(nn);
+}
+END_TEST
+
+START_TEST(test_short_write)
+{
+	const char *tf = "/HADOOFUS_TEST2_WRITE_SHORT",
+	      *client = "HADOOFUS_CLIENT";
+	struct hdfs_datanode *dn;
+	struct hdfs_object *e, *bl, *fs;
+	const char *errs;
+
+	e = NULL;
+	dn = NULL;
+
+	hdfs_delete(h, tf, false, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_create(h, tf, 0644, client, true, false, 1, blocksz, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
+	ck_assert_msg(dn != NULL, "dn_new: %s", errs);
+
+	errs = hdfs_datanode_write(dn, buf, 33128, false);
+	ck_assert_msg(errs == NULL, "dn_read: %s", errs);
+
+	hdfs_datanode_delete(dn);
+	hdfs_object_free(bl);
+
+	fs = hdfs_getFileInfo(h, tf, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+	ck_assert(fs->ob_val._file_status._size == 33128);
+	hdfs_object_free(fs);
+
+	hdfs_complete(h, tf, client, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+
+	hdfs_delete(h, tf, false, &e);
+	if (e)
+		fail("exception: %s", hdfs_exception_get_message(e));
+}
+END_TEST
+
 Suite *
 t_datanode_basics_suite()
 {
@@ -416,6 +508,12 @@ t_datanode2_basics_suite()
 	TCase *tc;
 
 	s = suite_create("datanode2");
+
+	tc = tcase_create("dn2_short");
+	tcase_add_unchecked_fixture(tc, setup_buf2, teardown_buf);
+	tcase_add_test(tc, test_short_read);
+	tcase_add_test(tc, test_short_write);
+	suite_add_tcase(s, tc);
 
 	tc = tcase_create("buf2");
 	tcase_add_unchecked_fixture(tc, setup_buf2, teardown_buf);

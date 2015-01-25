@@ -89,6 +89,7 @@ static const char *	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_b
 static const char *	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
 			struct _read_state *);
 static const char *	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static const char *	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *);
 static const char *	_recv_packet(struct _packet_state *, struct _read_state *);
 static const char *	_process_recv_packet(struct _packet_state *, struct _read_state *,
 			ssize_t /*hdr_len*/, ssize_t /*plen*/, ssize_t /*dlen*/,
@@ -97,6 +98,7 @@ static const char *	_send_packet(struct _packet_state *);
 static const char *	_verify_crcdata(void *crcdata, int32_t chunksize,
 			int32_t crcdlen, int32_t dlen);
 static const char *	_wait_ack(struct _packet_state *ps);
+static const char *	_wait_ack2(struct _packet_state *ps);
 
 //
 // high-level api
@@ -350,7 +352,60 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 	_bappend_s8(h, OP_WRITE);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
-		/* TODO */
+		BlockTokenIdentifierProto token =
+		    BLOCK_TOKEN_IDENTIFIER_PROTO__INIT;
+		ExtendedBlockProto ebp = EXTENDED_BLOCK_PROTO__INIT;
+		BaseHeaderProto bhdr = BASE_HEADER_PROTO__INIT;
+		ClientOperationHeaderProto hdr =
+		    CLIENT_OPERATION_HEADER_PROTO__INIT;
+		ChecksumProto csum = CHECKSUM_PROTO__INIT;
+		OpWriteBlockProto op = OP_WRITE_BLOCK_PROTO__INIT;
+
+		struct hdfs_token *h_token;
+		size_t sz;
+
+		h_token = &d->dn_token->ob_val._token;
+
+		ASSERT(d->dn_pool_id);
+		ebp.poolid = d->dn_pool_id;
+		ebp.blockid = d->dn_blkid;
+		ebp.generationstamp = d->dn_gen;
+
+		token.identifier.len = h_token->_lens[0];
+		token.identifier.data = (void *)h_token->_strings[0];
+		token.password.len = h_token->_lens[1];
+		token.password.data = (void *)h_token->_strings[1];
+		token.kind = h_token->_strings[2];
+		token.service = h_token->_strings[3];
+
+		bhdr.block = &ebp;
+		bhdr.token = &token;
+
+		hdr.baseheader = &bhdr;
+		hdr.clientname = d->dn_client;
+
+		csum.bytesperchecksum = 512;
+		csum.type = CHECKSUM_TYPE_PROTO__NULL;
+		if (crcs)
+			csum.type = CHECKSUM_TYPE_PROTO__CRC32;
+
+		op.header = &hdr;
+
+		/* XXX maybe SETUP_APPEND iff located_block size > 0? */
+		op.stage = OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+
+		/* Not sure about any of this: */
+		op.pipelinesize = 1;
+		op.minbytesrcvd = d->dn_size;
+		op.maxbytesrcvd = d->dn_size;
+		op.latestgenerationstamp = d->dn_gen;
+		op.requestedchecksum = &csum;
+
+		sz = op_write_block_proto__get_packed_size(&op);
+		_bappend_vlint(h, sz);
+		_hbuf_reserve(h, sz);
+		op_write_block_proto__pack(&op, (void *)&h->buf[h->used]);
+		h->used += sz;
 	} else {
 		_bappend_s64(h, d->dn_blkid);
 		_bappend_s64(h, d->dn_gen);
@@ -476,7 +531,10 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	if (error)
 		goto out;
 
-	error = _read_write_status(d, &recvbuf);
+	if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
+		error = _read_write_status2(d, &recvbuf);
+	else
+		error = _read_write_status(d, &recvbuf);
 	if (error)
 		goto out;
 
@@ -498,7 +556,10 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 
 	// Drain remaining acks to ensure write succeeded
 	while (pstate.unacked_packets > 0) {
-		error = _wait_ack(&pstate);
+		if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
+			error = _wait_ack2(&pstate);
+		else
+			error = _wait_ack(&pstate);
 		if (error)
 			goto out;
 	}
@@ -506,7 +567,8 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	// Write final zero-len packet; error here doesn't always matter. I
 	// think some HDFS versions drop the connection at this point, so we
 	// want to be lenient.
-	_write_all(d->dn_sock, __DECONST(void*, &zero), sizeof zero);
+	if (d->dn_proto < HDFS_DATANODE_AP_2_0)
+		_write_all(d->dn_sock, __DECONST(void*, &zero), sizeof zero);
 
 out:
 	if (header.buf)
@@ -573,8 +635,8 @@ out:
 }
 
 static const char *
-_read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
-	struct _read_state *rs)
+_read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
+	BlockOpResponseProto **opres_out)
 {
 	struct hdfs_heap_buf obuf = { 0 };
 	BlockOpResponseProto *opres;
@@ -620,11 +682,35 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		if (opres->message)
 			printf("%s: Error message? '%s'\n", __func__, opres->message);
 		error = "Server reported error with read request; aborting read";
+		block_op_response_proto__free_unpacked(opres, NULL);
 		goto out;
 	}
 
 	if (opres->message)
 		printf("%s: Got message? '%s'\n", __func__, opres->message);
+
+	// Skip recvbuf past stuff we parsed here
+	h->used -= obuf.used;
+	memmove(h->buf, h->buf + obuf.used, h->used);
+
+	*opres_out = opres;
+
+out:
+	return error;
+}
+
+static const char *
+_read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
+	struct _read_state *rs)
+{
+	const char *error;
+	BlockOpResponseProto *opres;
+
+	opres = NULL;
+
+	error = _read_blockop_resp_status(d, h, &opres);
+	if (error)
+		goto out;
 
 	ASSERT(opres->readopchecksuminfo);
 	ASSERT(opres->readopchecksuminfo->checksum);
@@ -635,10 +721,6 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	rs->has_crcs = (opres->readopchecksuminfo->checksum->type !=
 	    CHECKSUM_TYPE_PROTO__NULL);
 	rs->chunk_size = opres->readopchecksuminfo->checksum->bytesperchecksum;
-
-	// Skip recvbuf past stuff we parsed here
-	h->used -= obuf.used;
-	memmove(h->buf, h->buf + obuf.used, h->used);
 
 out:
 	if (opres)
@@ -714,6 +796,21 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 out:
 	if (statusmsg)
 		free(statusmsg);
+	return error;
+}
+
+static const char *
+_read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
+{
+	const char *error = NULL;
+	BlockOpResponseProto *opres;
+
+	opres = NULL;
+
+	error = _read_blockop_resp_status(d, h, &opres);
+
+	if (opres)
+		block_op_response_proto__free_unpacked(opres, NULL);
 	return error;
 }
 
@@ -982,10 +1079,26 @@ _send_packet(struct _packet_state *ps)
 
 	// construct header:
 	_bappend_s32(&phdr, tosend + 4*crclen + 4);
-	_bappend_s64(&phdr, ps->offset/*from beginning of block*/);
-	_bappend_s64(&phdr, ps->seqno);
-	_bappend_s8(&phdr, last);
-	_bappend_s32(&phdr, tosend);
+	if (ps->proto >= HDFS_DATANODE_AP_2_0) {
+		PacketHeaderProto pkt = PACKET_HEADER_PROTO__INIT;
+		size_t sz;
+
+		pkt.offsetinblock = ps->offset;
+		pkt.seqno = ps->seqno;
+		pkt.lastpacketinblock = last;
+		pkt.datalen = tosend;
+
+		sz = packet_header_proto__get_packed_size(&pkt);
+		_bappend_s16(&phdr, sz);
+		_hbuf_reserve(&phdr, sz);
+		packet_header_proto__pack(&pkt, (void *)&phdr.buf[phdr.used]);
+		phdr.used += sz;
+	} else {
+		_bappend_s64(&phdr, ps->offset/*from beginning of block*/);
+		_bappend_s64(&phdr, ps->seqno);
+		_bappend_s8(&phdr, last);
+		_bappend_s32(&phdr, tosend);
+	}
 
 	ios[0].iov_base = phdr.buf;
 	ios[0].iov_len = phdr.used;
@@ -1149,5 +1262,88 @@ _wait_ack(struct _packet_state *ps)
 		memmove(ps->recvbuf->buf, ps->recvbuf->buf + acksz, ps->recvbuf->used);
 
 out:
+	return error;
+}
+
+static const char *
+_wait_ack2(struct _packet_state *ps)
+{
+	struct hdfs_heap_buf obuf = { 0 },
+			     *h;
+	PipelineAckProto *ack;
+	const char *error;
+	int64_t sz;
+
+	h = ps->recvbuf;
+	ack = NULL;
+	error = NULL;
+	do {
+		error = _read_to_hbuf(ps->sock, h);
+		if (error)
+			goto out;
+
+		obuf.buf = h->buf;
+		obuf.used = 0;
+		obuf.size = h->used;
+
+		sz = _bslurp_vlint(&obuf);
+		if (obuf.used == -2) {
+			error = "bad protocol: invalid vlint";
+			goto out;
+		}
+	} while (obuf.used < 0);
+
+	ASSERT(sz > 0 && sz < INT_MAX - obuf.used);
+	while (h->used < obuf.used + (int)sz) {
+		error = _read_to_hbuf(ps->sock, h);
+		if (error)
+			goto out;
+	}
+	obuf.buf = h->buf;
+	obuf.size = h->used;
+
+	ack = pipeline_ack_proto__unpack(NULL, sz, (void *)&h->buf[obuf.used]);
+	obuf.used += sz;
+	if (ack == NULL) {
+		error = "bad protocol: could not decode PipelineAckProto";
+		goto out;
+	}
+
+	if (ack->seqno != ps->first_unacked) {
+		error = "Got unexpected ACK";
+		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
+		    " expected %" PRIi64 "); aborting write.\n", ack->seqno,
+		    ps->first_unacked);
+		goto out;
+	}
+	ps->first_unacked++;
+
+	// We only connect to one datanode, we should only get one ack:
+	if (ack->n_status != 1) {
+		error = "Got bogus number of ACKs; expected 1";
+		goto out;
+	}
+
+	if (ack->status[0] != STATUS__SUCCESS) {
+		if (ack->status[0] >= 0 && ack->status[0] < nelem(dn_error_msgs))
+			error = dn_error_msgs[ack->status[0]];
+		else {
+			error = "Bogus ack number, aborting write";
+			fprintf(stderr, "libhadoofus: Got bogus ack status %"
+			    PRIi16 ", aborting write", ack->status[0]);
+		}
+		goto out;
+	}
+
+	ps->unacked_packets--;
+
+	// Skip the recv buffer past the ack
+	h->used -= obuf.used;
+	if (h->used)
+		memmove(h->buf, &h->buf[obuf.used], h->used);
+
+out:
+	if (ack)
+		pipeline_ack_proto__free_unpacked(ack, NULL);
 	return error;
 }
