@@ -565,6 +565,10 @@ _hdfs_datanode_info_new_proto(DatanodeInfoProto *pr)
 
 	sprintf(dn_port_str, "%u", pr->id->xferport);
 
+	/*
+	 * XXX: Maybe ipaddr would be better than hostname? They are the same
+	 * for our HDFS impl, but maybe not upstream.
+	 */
 	return hdfs_datanode_info_new(pr->id->hostname,
 	    dn_port_str, pr->location? pr->location : "",
 	    pr->id->ipcport);

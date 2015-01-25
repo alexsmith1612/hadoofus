@@ -66,6 +66,9 @@ struct hdfs_datanode {
 	int dn_sock,
 	    dn_proto;
 	bool dn_used;
+
+	/* v2+ */
+	char *dn_pool_id;
 };
 
 struct hdfs_rpc_response_future {
@@ -169,16 +172,22 @@ void		hdfs_namenode_destroy(struct hdfs_namenode *, hdfs_namenode_destroy_cb cb)
 // Datanode operations
 //
 
+// "DATA_TRANSFER_VERSION"
 // The datanode protocol used by Apache Hadoop 1.0.x (also 0.20.20x):
 #define HDFS_DATANODE_AP_1_0 0x11
 // The datanode protocol used by Cloudera CDH3 (derived from apache 0.20.1):
 #define HDFS_DATANODE_CDH3 0x10
+// The datanode protocol used by Apache Hadoop v2.0+ (at least v2.0.0-2.6.0):
+#define HDFS_DATANODE_AP_2_0 0x1C
 
 // Initializes a datanode connection object. Doesn't connect to the datanode.
 void		hdfs_datanode_init(struct hdfs_datanode *,
 		int64_t blkid, int64_t size, int64_t gen, /* block */
 		int64_t offset, const char *client, struct hdfs_object *token,
 		int proto);
+
+// Sets the pool_id (required in HDFSv2+)
+void		hdfs_datanode_set_pool_id(struct hdfs_datanode *, const char *);
 
 // Attempt to connect to a host and port. Should only be called on a freshly-
 // initialized datanode struct.
