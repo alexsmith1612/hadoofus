@@ -12,14 +12,11 @@ before_install:
       fi
   - wget https://protobuf.googlecode.com/svn/rc/protobuf-2.6.0.tar.gz
   - tar -xzf protobuf-2.6.0.tar.gz
-  - cd protobuf-2.6.0
-  - ./configure --prefix=/usr && make && sudo make install
-  - cd ..
+  - ( cd protobuf-2.6.0 && ./configure --prefix=/usr && make && sudo make install )
   - wget https://github.com/protobuf-c/protobuf-c/releases/download/v1.1.0/protobuf-c-1.1.0.tar.gz
   - tar -xzf protobuf-c-1.1.0.tar.gz
-  - cd protobuf-c-1.1.0
-  - ./configure && make && sudo make install
-  - cd ..
+  - ( cd protobuf-c-1.1.0 && ./configure && make && sudo make install )
+  - ( [ ! -e /usr/bin/gmake ] && cd /usr/bin && sudo ln -s `which make` gmake )
 # TODO:
 # make test requires live HDFS cluster...
 # For now, just compile everything.
