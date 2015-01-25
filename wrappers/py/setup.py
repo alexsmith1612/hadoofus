@@ -14,7 +14,7 @@ from distutils.sysconfig import parse_makefile
 from os.path import abspath, dirname, realpath, splitext
 from glob import glob
 
-if os.environ.get("CLFAGS") is None:
+if os.environ.get("CFLAGS") is None:
     os.environ["CFLAGS"] = ""
 
 try:
@@ -75,14 +75,12 @@ class build_libhadoofus_clib(build_clib):
 root_dir = realpath(dirname(abspath(__file__)) + "/../..")
 # The C headers files shared between libhadoofus and the hadoofus.pyx
 include_dirs = ["%s/include" % root_dir]
-# Environment variables for compiling libhadoofus
-make_vars = parse_makefile("%s/src/Makefile" % root_dir)
 
 # The libhadoofus C library
 libhadoofus = ("hadoofus", {
     "sources": glob("%s/src/*.c" % root_dir),
     "include_dirs": include_dirs,
-    "extra_compile_preargs": ["-DNO_EXPORT_SYMS", "-std=gnu99"] + make_vars["FLAGS"].split()
+    "extra_compile_preargs": "-fPIC -g -fvisibility=hidden -DNO_EXPORT_SYMS -std=gnu99".split(" ")
 })
 
 # The hadoofus python extension, compiled by Cython
