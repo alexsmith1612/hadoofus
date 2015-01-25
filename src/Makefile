@@ -40,7 +40,7 @@ WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
 		-Wno-unused-parameter -Wstrict-prototypes -Wpointer-arith \
 		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
 		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
-		-Wnested-externs -Wredundant-decls
+		-Wnested-externs -Wredundant-decls -Wno-error=type-limits
 FLAGS = $(WARNS) $(CFLAGS) -fPIC -g -fvisibility=hidden \
 		$$(pkg-config --cflags 'libprotobuf-c >= 1.0.0')
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lsasl2 -lz -lrt
