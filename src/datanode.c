@@ -656,7 +656,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		obuf.size = h->used;
 
 		sz = _bslurp_vlint(&obuf);
-		if (obuf.used == -2) {
+		if (obuf.used == _H_PARSE_ERROR) {
 			error = "bad protocol: invalid vlint";
 			goto out;
 		}
@@ -751,7 +751,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 		if (obuf.used >= 0)
 			break;
 
-		if (obuf.used == -2) {
+		if (obuf.used == _H_PARSE_ERROR) {
 			error = "Invalid protocol data";
 			goto out;
 		}
@@ -768,7 +768,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 		if (obuf.used >= 0)
 			break;
 
-		if (obuf.used == -2) {
+		if (obuf.used == _H_PARSE_ERROR) {
 			error = "Invalid protocol data";
 			goto out;
 		}
@@ -1289,7 +1289,7 @@ _wait_ack2(struct _packet_state *ps)
 		obuf.size = h->used;
 
 		sz = _bslurp_vlint(&obuf);
-		if (obuf.used == -2) {
+		if (obuf.used == _H_PARSE_ERROR) {
 			error = "bad protocol: invalid vlint";
 			goto out;
 		}

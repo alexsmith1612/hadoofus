@@ -21,7 +21,7 @@ _oslurp_null(struct hdfs_heap_buf *b)
 	} else {
 		rt = _string_to_type(t);
 		if (rt == _H_INVALID)
-			b->used = -2;
+			b->used = _H_PARSE_ERROR;
 		else
 			res = hdfs_null_new(rt);
 	}
@@ -88,7 +88,7 @@ _oslurp_array_long(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		return NULL;
 	if (n < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
@@ -104,7 +104,7 @@ _oslurp_array_long(struct hdfs_heap_buf *b)
 			eq = streq(s, LONG_TYPE);
 			free(s);
 			if (!eq) {
-				b->used = -2;
+				b->used = _H_PARSE_ERROR;
 				goto out;
 			}
 
@@ -190,7 +190,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		return NULL;
 	if (offset < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
@@ -209,7 +209,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		return NULL;
 	if (n_datanodes < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
@@ -324,7 +324,7 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 
 	port = strchr(name, ':');
 	if (!port) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		goto out;
 	}
 	port++;
@@ -354,7 +354,7 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		return NULL;
 	if (len < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
@@ -418,7 +418,7 @@ _oslurp_file_status(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		goto out;
 	if (perms < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		goto out;
 	}
 	owner = _bslurp_text(b);
@@ -452,7 +452,7 @@ _oslurp_array_datanode_info(struct hdfs_heap_buf *b)
 	if (b->used < 0)
 		return NULL;
 	if (len < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 

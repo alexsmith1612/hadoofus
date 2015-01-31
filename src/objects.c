@@ -2036,7 +2036,7 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 
 	realtype = _string_to_type(otype);
 	if (realtype == _H_INVALID) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2085,7 +2085,7 @@ out:
 	} else {
 		if (o)
 			hdfs_object_free(o);
-		if (rbuf.used == -2)
+		if (rbuf.used == _H_PARSE_ERROR)
 			r = _HDFS_INVALID_PROTO;
 	}
 	return r;
@@ -2122,7 +2122,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 	    (void *)&rbuf.buf[rbuf.used]);
 	rbuf.used += resphdsz;
 	if (resphd == NULL) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2132,7 +2132,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 
 	// Got a response to an unexpected msgno
 	if (i == npend) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2153,7 +2153,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 		goto out;
 	} else if (resphd->status == RPC_STATUS_PROTO__FATAL) {
 		/* This shouldn't happen. */
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2167,7 +2167,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 	rbuf.size = rbuf.used + respsz;
 	obj = pend[i].pd_slurper(&rbuf);
 	if (obj == NULL) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2188,7 +2188,7 @@ out:
 		ASSERT(result != _HDFS_INVALID_PROTO);
 
 		*obj_size = rbuf.used;
-	} else if (rbuf.used == -2)
+	} else if (rbuf.used == _H_PARSE_ERROR)
 		result = _HDFS_INVALID_PROTO;
 
 	return result;
@@ -2228,7 +2228,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 	    resphdsz, (void *)&rbuf.buf[rbuf.used]);
 	rbuf.used += resphdsz;
 	if (resphd == NULL) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2238,7 +2238,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 
 	// Got a response to an unexpected msgno
 	if (i == npend) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2256,7 +2256,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 	} else if (resphd->status ==
 	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__FATAL) {
 		/* This shouldn't happen. */
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 	ASSERT(resphd->status ==
@@ -2271,7 +2271,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 	rbuf.size = rbuf.used + respsz;
 	obj = pend[i].pd_slurper(&rbuf);
 	if (obj == NULL) {
-		rbuf.used = -2;
+		rbuf.used = _H_PARSE_ERROR;
 		goto out;
 	}
 
@@ -2290,7 +2290,7 @@ out:
 		ASSERT(rbuf.used == totalsz + 4);
 
 		*obj_size = rbuf.used;
-	} else if (rbuf.used == -2)
+	} else if (rbuf.used == _H_PARSE_ERROR)
 		result = _HDFS_INVALID_PROTO;
 
 	return result;

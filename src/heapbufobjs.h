@@ -7,8 +7,8 @@
 
 // Slurp functions read data from the passed buf. 'size' represents the size of
 // the buf, 'used' represents the amount already read by other slurpers. On
-// EOS, slurp functions set 'used' to -1. On invalid protocol data, slurp
-// functions set 'used' to -2.
+// EOS, slurp functions set 'used' to _H_PARSE_EOF. On invalid protocol data,
+// slurp functions set 'used' to _H_PARSE_ERROR.
 struct hdfs_object *	_oslurp_void(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_null(struct hdfs_heap_buf *);
 struct hdfs_object *	_oslurp_boolean(struct hdfs_heap_buf *);

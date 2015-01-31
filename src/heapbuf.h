@@ -25,8 +25,10 @@ void	_bappend_mem(struct hdfs_heap_buf *, size_t, const void *);
 
 // Slurp functions read data from the passed buf. 'size' represents the size of
 // the buf, 'used' represents the amount already read by other slurpers. On
-// EOS, slurp functions set 'used' to -1. On invalid protocol data, slurp
-// functions set 'used' to -2.
+// EOS, slurp functions set 'used' to _H_PARSE_EOF. On invalid protocol data,
+// slurp functions set 'used' to _H_PARSE_ERROR.
+#define		_H_PARSE_EOF	(-1)
+#define		_H_PARSE_ERROR	(-2)
 int8_t		_bslurp_s8(struct hdfs_heap_buf *);
 int16_t		_bslurp_s16(struct hdfs_heap_buf *);
 int32_t		_bslurp_s32(struct hdfs_heap_buf *);

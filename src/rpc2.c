@@ -419,7 +419,7 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 	    buf->size - buf->used, (void *)&buf->buf[buf->used]);	\
 	buf->used = buf->size;						\
 	if (resp == NULL) {						\
-		buf->used = -2;						\
+		buf->used = _H_PARSE_ERROR;				\
 		return NULL;						\
 	}								\
 									\

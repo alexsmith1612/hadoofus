@@ -127,7 +127,7 @@ static bool
 _eos(struct hdfs_heap_buf *b, size_t needed)
 {
 	if ((size_t)(b->size - b->used) < needed) {
-		b->used = -1;
+		b->used = _H_PARSE_EOF;
 		return true;
 	}
 	return false;
@@ -208,7 +208,7 @@ _bslurp_vlint(struct hdfs_heap_buf *hb)
 	}
 	if (shift >= 64) {
 		/* Invalid varint >64-bits */
-		hb->used = -2;
+		hb->used = _H_PARSE_ERROR;
 		return -1;
 	}
 	return (int64_t)res;
@@ -240,7 +240,7 @@ _bslurp_string(struct hdfs_heap_buf *b)
 		return NULL;
 
 	if (slen < 0) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
@@ -263,7 +263,7 @@ _bslurp_string32(struct hdfs_heap_buf *b)
 		return NULL;
 
 	if (slen < 0 || slen > 10*1024*1024/*sanity*/) {
-		b->used = -2;
+		b->used = _H_PARSE_ERROR;
 		return NULL;
 	}
 
