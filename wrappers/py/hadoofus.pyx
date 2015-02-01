@@ -12,7 +12,7 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
         hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
-        hdfs_setSafeMode
+        hdfs_setSafeMode, hdfs_getDatanodeReport
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -30,7 +30,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
         hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex, \
-        hdfs_content_summary_new, hdfs_text_new, hdfs_token_new_empty
+        hdfs_content_summary_new, hdfs_text_new, hdfs_token_new_empty, hdfs_array_datanode_info
 cimport clowlevel
 cimport cobjects
 cimport csasl2
@@ -61,6 +61,10 @@ REQUIRE_KERB = clowlevel.HDFS_REQUIRE_KERB
 SAFEMODE_ENTER = "SAFEMODE_ENTER"
 SAFEMODE_LEAVE = "SAFEMODE_LEAVE"
 SAFEMODE_GET = "SAFEMODE_GET"
+
+DNREPORT_ALL = "ALL"
+DNREPORT_LIVE = "LIVE"
+DNREPORT_DEAD = "DEAD"
 
 def sasl_init():
     """
@@ -1744,6 +1748,41 @@ cdef class rpc:
             raise_protocol_error(ex)
 
         return res
+
+    cpdef getDatanodeReport(self, char *dnreporttype):
+        """
+        Get a report on the system's datanodes. Returns an array of
+        datanode_infos, one per datanode matching the query.
+
+        dnreporttype:
+            LIVE, DEAD, or ALL
+
+        raises IOException
+        """
+
+        cdef hdfs_object* res
+        cdef hdfs_object* ex = NULL
+
+        with nogil:
+            res = hdfs_getDatanodeReport(&self.nn, dnreporttype, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        assert res.ob_type == H_ARRAY_DATANODE_INFO
+        py_res = []
+
+        cdef hdfs_array_datanode_info *adi
+        cdef hdfs_object *di
+        cdef datanode_info py_di
+
+        adi = &res._array_datanode_info
+        for i in range(adi._len):
+            with nogil:
+                di = hdfs_datanode_info_copy(adi._values[i])
+            py_di = datanode_info_build(di)
+            py_res.append(py_di)
+
+        return py_res
 
 
 rpcproto = rpc

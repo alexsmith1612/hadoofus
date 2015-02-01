@@ -50,8 +50,6 @@ cdef extern from "hadoofus/objects.h":
         pass
     cdef struct hdfs_long:
         pass
-    cdef struct hdfs_array_datanode_info:
-        pass
     cdef struct hdfs_array_byte:
         pass
     cdef struct hdfs_rpc_invocation:
@@ -97,6 +95,10 @@ cdef extern from "hadoofus/objects.h":
         char* _hostname
         char* _port
         uint16_t _namenodeport
+
+    cdef struct hdfs_array_datanode_info:
+        int _len
+        hdfs_object** _values
 
     cdef struct hdfs_block:
         int64_t _blkid
