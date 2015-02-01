@@ -40,6 +40,7 @@ cdef extern from "hadoofus/highlevel.h":
     hdfs_object *hdfs_getDelegationToken(hdfs_namenode *n, const_char *renewer, hdfs_object **exception_out) nogil
     void hdfs_cancelDelegationToken(hdfs_namenode *n, hdfs_object *dt, hdfs_object **exception_out) nogil
     int64_t hdfs_renewDelegationToken(hdfs_namenode *n, hdfs_object *dt, hdfs_object **exception_out) nogil
+    bint hdfs_setSafeMode(hdfs_namenode *n, const_char *mode, hdfs_object **exception_out) nogil
 
     hdfs_datanode *hdfs_datanode_new(hdfs_object *located_block, const_char *client, int proto, const_char **error_out) nogil
     void hdfs_datanode_delete(hdfs_datanode *) nogil

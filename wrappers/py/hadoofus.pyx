@@ -11,7 +11,8 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_getPreferredBlockSize, hdfs_getFileInfo, hdfs_getContentSummary, \
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
         hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
-        hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken
+        hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
+        hdfs_setSafeMode
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -56,6 +57,10 @@ DATANODE_ERR_NO_CRCS = <char*>clowlevel.DATANODE_ERR_NO_CRCS
 NO_KERB = clowlevel.HDFS_NO_KERB
 TRY_KERB = clowlevel.HDFS_TRY_KERB
 REQUIRE_KERB = clowlevel.HDFS_REQUIRE_KERB
+
+SAFEMODE_ENTER = "SAFEMODE_ENTER"
+SAFEMODE_LEAVE = "SAFEMODE_LEAVE"
+SAFEMODE_GET = "SAFEMODE_GET"
 
 def sasl_init():
     """
@@ -1671,7 +1676,7 @@ cdef class rpc:
 
         return token_build(res)
 
-    cpdef int64_t renewDelegationToken(self, object token_):
+    cpdef int64_t renewDelegationToken(self, object token_) except? -1:
         """
         Renew an existing delegation token.
 
@@ -1720,6 +1725,25 @@ cdef class rpc:
             hdfs_cancelDelegationToken(&self.nn, r_tok.c_tok, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
+
+    cpdef bint setSafeMode(self, char *mode) except *:
+        """
+        Enter, leave, or get safe mode.
+
+        mode:
+            One of SAFEMODE_ENTER, _LEAVE, or _GET.
+
+        raises IOException
+        """
+        cdef hdfs_object* ex = NULL
+        cdef bint res = False
+
+        with nogil:
+            res = hdfs_setSafeMode(&self.nn, mode, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return res
 
 
 rpcproto = rpc
