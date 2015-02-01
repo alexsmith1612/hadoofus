@@ -28,7 +28,9 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
         H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
         H_NULL, H_TEXT, H_TOKEN, H_UPGRADE_STATUS_REPORT, H_FS_SERVER_DEFAULTS, \
-        H_STRING, \
+        H_STRING, H_SECURITY_EXCEPTION, H_QUOTA_EXCEPTION, H_ILLEGAL_ARGUMENT_EXCEPTION, \
+        H_INVALID_TOKEN_EXCEPTION, H_INVALID_PATH_EXCEPTION, H_FILE_ALREADY_EXISTS_EXCEPTION, \
+        H_IPC_EXCEPTION, H_SASL_EXCEPTION, H_RPC_EXCEPTION, H_RPC_NO_SUCH_METHOD_EXCEPTION, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
@@ -142,6 +144,36 @@ class IOException(ProtocolException):
 class LeaseExpiredException(ProtocolException):
     pass
 
+class SecurityException(ProtocolException):
+    pass
+
+class DSQuotaExceededException(ProtocolException):
+    pass
+
+class IllegalArgumentException(ProtocolException):
+    pass
+
+class InvalidToken(ProtocolException):
+    pass
+
+class InvalidPathException(ProtocolException):
+    pass
+
+class FileAlreadyExistsException(ProtocolException):
+    pass
+
+class IpcException(ProtocolException):
+    pass
+
+class SaslException(ProtocolException):
+    pass
+
+class RpcServerException(ProtocolException):
+    pass
+
+class RpcNoSuchMethodException(ProtocolException):
+    pass
+
 # Helper stuffs to raise a pydoofus exception from an hdfs_object exception:
 cdef dict exception_types = {
         H_ACCESS_CONTROL_EXCEPTION: AccessControlException,
@@ -150,6 +182,16 @@ cdef dict exception_types = {
         H_FILE_NOT_FOUND_EXCEPTION: FileNotFoundException,
         H_IO_EXCEPTION: IOException,
         H_LEASE_EXPIRED_EXCEPTION: LeaseExpiredException,
+        H_SECURITY_EXCEPTION: SecurityException,
+        H_QUOTA_EXCEPTION: DSQuotaExceededException,
+        H_ILLEGAL_ARGUMENT_EXCEPTION: IllegalArgumentException,
+        H_INVALID_TOKEN_EXCEPTION: InvalidToken,
+        H_INVALID_PATH_EXCEPTION: InvalidPathException,
+        H_FILE_ALREADY_EXISTS_EXCEPTION: FileAlreadyExistsException,
+        H_IPC_EXCEPTION: IpcException,
+        H_SASL_EXCEPTION: SaslException,
+        H_RPC_EXCEPTION: RpcServerException,
+        H_RPC_NO_SUCH_METHOD_EXCEPTION: RpcNoSuchMethodException,
         }
 
 cdef raise_protocol_error(hdfs_object* ex):

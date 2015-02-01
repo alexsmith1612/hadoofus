@@ -59,6 +59,16 @@ cdef extern from "hadoofus/objects.h":
         H_FILE_NOT_FOUND_EXCEPTION,
         H_IO_EXCEPTION,
         H_LEASE_EXPIRED_EXCEPTION,
+        H_SECURITY_EXCEPTION,
+        H_QUOTA_EXCEPTION,
+        H_ILLEGAL_ARGUMENT_EXCEPTION,
+        H_INVALID_TOKEN_EXCEPTION,
+        H_INVALID_PATH_EXCEPTION,
+        H_FILE_ALREADY_EXISTS_EXCEPTION,
+        H_IPC_EXCEPTION,
+        H_SASL_EXCEPTION,
+        H_RPC_EXCEPTION,
+        H_RPC_NO_SUCH_METHOD_EXCEPTION,
 
     cdef enum hdfs_checksum_type:
         pass
