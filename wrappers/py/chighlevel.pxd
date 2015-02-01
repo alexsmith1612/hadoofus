@@ -44,6 +44,9 @@ cdef extern from "hadoofus/highlevel.h":
     hdfs_object *hdfs_getDatanodeReport(hdfs_namenode *n, const_char *dnreporttype, hdfs_object **exception_out) nogil
     void hdfs_reportBadBlocks(hdfs_namenode *n, hdfs_object *dt, hdfs_object **exception_out) nogil
     hdfs_object *hdfs_distributedUpgradeProgress(hdfs_namenode *n, const_char *upgradeaction, hdfs_object **exception_out) nogil
+    void hdfs_finalizeUpgrade(hdfs_namenode *n, hdfs_object **exception_out) nogil
+    void hdfs_refreshNodes(hdfs_namenode *n, hdfs_object **exception_out) nogil
+    void hdfs_saveNamespace(hdfs_namenode *n, hdfs_object **exception_out) nogil
 
     hdfs_datanode *hdfs_datanode_new(hdfs_object *located_block, const_char *client, int proto, const_char **error_out) nogil
     void hdfs_datanode_delete(hdfs_datanode *) nogil

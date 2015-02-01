@@ -13,7 +13,8 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
         hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks, \
-        hdfs_distributedUpgradeProgress
+        hdfs_distributedUpgradeProgress, hdfs_finalizeUpgrade, hdfs_refreshNodes, \
+        hdfs_saveNamespace
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -1889,6 +1890,50 @@ cdef class rpc:
             raise_protocol_error(ex)
 
         return upgrade_status_report_build(res)
+
+    cpdef finalizeUpgrade(self):
+        """
+        Finalize the previous upgrade. Remove file system state saved during
+        upgrade. The upgrade will become irreversible.
+
+        raises IOException
+        """
+
+        cdef hdfs_object* ex
+        with nogil:
+            hdfs_finalizeUpgrade(&self.nn, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+    cpdef refreshNodes(self):
+        """
+        Tells the namenode to reread the hosts and exclude files.
+
+        raises IOException
+        """
+
+        cdef hdfs_object* ex
+        with nogil:
+            hdfs_refreshNodes(&self.nn, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+    cpdef saveNamespace(self):
+        """
+        Saves current namespace into storage directories and resets edits log.
+        Requires superuser privileges and safe mode.
+
+        raises AccessControlException:
+            if permission is denied
+        raises IOException:
+            if image creation fails
+        """
+
+        cdef hdfs_object* ex
+        with nogil:
+            hdfs_saveNamespace(&self.nn, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
 
 
 rpcproto = rpc
