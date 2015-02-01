@@ -14,7 +14,8 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
         hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks, \
         hdfs_distributedUpgradeProgress, hdfs_finalizeUpgrade, hdfs_refreshNodes, \
-        hdfs_saveNamespace, hdfs_isFileClosed, hdfs_metaSave, hdfs_setBalancerBandwidth
+        hdfs_saveNamespace, hdfs_isFileClosed, hdfs_metaSave, hdfs_setBalancerBandwidth, \
+        hdfs2_getServerDefaults
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -25,7 +26,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
         H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
-        H_NULL, H_TEXT, H_TOKEN, H_UPGRADE_STATUS_REPORT, \
+        H_NULL, H_TEXT, H_TOKEN, H_UPGRADE_STATUS_REPORT, H_FS_SERVER_DEFAULTS, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
@@ -72,6 +73,12 @@ DNREPORT_DEAD = "DEAD"
 UPGRADEACTION_GET = "GET_STATUS"
 UPGRADEACTION_DETAIL = "DETAILED_STATUS"
 UPGRADEACTION_FORCE = "FORCE_PROCEED"
+
+# These are on-wire values:
+CSUM_NULL = 0
+CSUM_CRC32 = 1
+CSUM_CRC32C = 2
+_VALID_CSUMS = frozenset([0, 1, 2])
 
 def sasl_init():
     """
@@ -904,6 +911,99 @@ cdef upgrade_status_report upgrade_status_report_build(hdfs_object* o):
     return res
 
 
+cdef class server_defaults:
+    cdef hdfs_object* c_ob
+
+    def __init__(self):
+        raise TypeError("This class cannot be instatiated from Python")
+
+    def __cinit__(self):
+        self.c_ob = NULL
+
+    cdef init(self, hdfs_object *o):
+        assert o is not NULL
+        assert o.ob_type == H_FS_SERVER_DEFAULTS
+
+        self.c_ob = o
+
+    def __dealloc__(self):
+        if self.c_ob is not NULL:
+            hdfs_object_free(self.c_ob)
+
+    def __repr__(self):
+        return generic_repr(self)
+
+    property blocksize:
+        def __get__(self):
+            return self.c_ob._server_defaults._blocksize
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._blocksize = int(val)
+
+    property bytes_per_checksum:
+        def __get__(self):
+            return self.c_ob._server_defaults._bytes_per_checksum
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._bytes_per_checksum = int(val)
+
+    property write_packet_size:
+        def __get__(self):
+            return self.c_ob._server_defaults._write_packet_size
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._write_packet_size = int(val)
+
+    property replication:
+        def __get__(self):
+            return self.c_ob._server_defaults._replication
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._replication = int(val)
+
+    property filebuffersize:
+        def __get__(self):
+            return self.c_ob._server_defaults._filebuffersize
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._filebuffersize = int(val)
+
+    property encrypt_data_transfer:
+        def __get__(self):
+            return bool(self.c_ob._server_defaults._encrypt_data_transfer)
+
+        def __set__(self, val):
+            cdef bint bv = bool(val)
+            self.c_ob._server_defaults._encrypt_data_transfer = bv
+
+    property trashinterval:
+        def __get__(self):
+            return self.c_ob._server_defaults._trashinterval
+
+        def __set__(self, val):
+            self.c_ob._server_defaults._trashinterval = int(val)
+
+    property checksumtype:
+        def __get__(self):
+            return self.c_ob._server_defaults._checksumtype
+
+        def __set__(self, val):
+            assert int(val) in _VALID_CSUMS
+            self.c_ob._server_defaults._checksumtype = int(val)
+
+
+cdef server_defaults server_defaults_build(hdfs_object* o):
+    cdef server_defaults res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_FS_SERVER_DEFAULTS
+        return None
+
+    res = server_defaults.__new__(server_defaults)
+    res.init(o)
+    return res
+
+
 cdef hdfs_object* convert_list_to_array_datanode_info(list l_di):
     assert l_di is not None
     cdef hdfs_object* res
@@ -1108,6 +1208,8 @@ cdef class rpc:
         """
         Returns remote protocol version
 
+        This RPC is HDFSv1-only.
+
         version:
             an integer; apache hadoop 0.20.203 through 1.0.x all speak
             protocol 61.
@@ -1117,6 +1219,8 @@ cdef class rpc:
         """
         cdef int64_t res
         cdef hdfs_object* ex = NULL
+
+        assert self.protocol < HADOOP_2_0
 
         with nogil:
             res = hdfs_getProtocolVersion(&self.nn, protostr, version, &ex)
@@ -1992,6 +2096,26 @@ cdef class rpc:
             hdfs_setBalancerBandwidth(&self.nn, bw, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
+
+    cpdef server_defaults getServerDefaults(self):
+        """
+        Get server default values.
+
+        This RPC is new in HDFSv2.
+
+        raises IOException
+        """
+        cdef hdfs_object* ex = NULL
+        cdef hdfs_object* res
+
+        assert self.protocol >= HADOOP_2_0
+
+        with nogil:
+            res = hdfs2_getServerDefaults(&self.nn, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return server_defaults_build(res)
 
 
 rpcproto = rpc

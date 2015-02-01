@@ -1,4 +1,5 @@
-from libc.stdint cimport int64_t, int16_t, int32_t, uint16_t, int8_t, uint16_t
+from libc.stdint cimport int64_t, int16_t, int32_t, uint16_t, int8_t, \
+        uint16_t, uint64_t, uint32_t
 from libc.string cimport const_char
 
 cdef extern from "hadoofus/objects.h":
@@ -33,6 +34,24 @@ cdef extern from "hadoofus/objects.h":
         H_SHORT,
         H_ARRAY_STRING,
         H_TEXT,
+        H_SAFEMODEACTION,
+        H_DNREPORTTYPE,
+        H_ARRAY_LOCATEDBLOCK,
+        H_UPGRADE_ACTION,
+
+        _H_PLACEHOLDER_1,
+        _H_PLACEHOLDER_2,
+        _H_PLACEHOLDER_3,
+        _H_PLACEHOLDER_4,
+        _H_PLACEHOLDER_5,
+        _H_PLACEHOLDER_6,
+        _H_PLACEHOLDER_7,
+        _H_PLACEHOLDER_8,
+        _H_PLACEHOLDER_9,
+        _H_PLACEHOLDER_10,
+
+        # v2+ types
+        H_FS_SERVER_DEFAULTS,
 
         H_PROTOCOL_EXCEPTION = 0x100,
         H_ACCESS_CONTROL_EXCEPTION,
@@ -40,6 +59,10 @@ cdef extern from "hadoofus/objects.h":
         H_FILE_NOT_FOUND_EXCEPTION,
         H_IO_EXCEPTION,
         H_LEASE_EXPIRED_EXCEPTION,
+
+    cdef enum hdfs_checksum_type:
+        pass
+
     cdef struct hdfs_void:
         pass
     cdef struct hdfs_boolean:
@@ -132,6 +155,18 @@ cdef extern from "hadoofus/objects.h":
         int32_t _version
         int16_t _status
 
+    cdef struct hdfs_fsserverdefaults:
+        uint64_t _blocksize
+        uint32_t _bytes_per_checksum
+        uint32_t _write_packet_size
+
+        uint32_t _replication
+        uint32_t _filebuffersize
+
+        bint _encrypt_data_transfer
+        uint64_t _trashinterval
+        hdfs_checksum_type _checksumtype
+
     cdef struct hdfs_object:
         hdfs_void _void "ob_val._void"
         hdfs_null _null "ob_val._null"
@@ -157,6 +192,7 @@ cdef extern from "hadoofus/objects.h":
         hdfs_fsperms _fsperms "ob_val._fsperms"
         hdfs_array_string _array_string "ob_val._array_string"
         hdfs_upgrade_status_report _upgrade_status "ob_val._upgrade_status"
+        hdfs_fsserverdefaults _server_defaults "ob_val._server_defaults"
         hdfs_object_type ob_type
 
     cdef struct hdfs_heap_buf:
