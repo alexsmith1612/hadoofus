@@ -1675,7 +1675,12 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 		_bappend_text(&abuf, CLIENT_PROTOCOL);
 		_bappend_s8(&abuf, 1);
 		_bappend_string(&abuf, auth->_username);
-		_bappend_s8(&abuf, 0);
+		if (auth->_real_username == NULL)
+			_bappend_s8(&abuf, 0);
+		else {
+			_bappend_s8(&abuf, 1);
+			_bappend_string(&abuf, auth->_real_username);
+		}
 
 		_bappend_s32(dest, abuf.used);
 		_bappend_mem(dest, abuf.used, abuf.buf);

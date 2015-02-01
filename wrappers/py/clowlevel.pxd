@@ -33,6 +33,7 @@ cdef extern from "hadoofus/lowlevel.h":
     void hdfs_namenode_set_version(hdfs_namenode *n, hdfs_namenode_proto) nogil
     const_char *hdfs_namenode_connect(hdfs_namenode *n, const_char *host, const_char *port) nogil
     const_char *hdfs_namenode_authenticate(hdfs_namenode *n, const_char *username) nogil
+    const_char *hdfs_namenode_authenticate_full(hdfs_namenode *n, const_char *username, const_char *real_user) nogil
     int64_t hdfs_namenode_get_msgno(hdfs_namenode *n) nogil
     const_char *hdfs_namenode_invoke(hdfs_namenode *n, hdfs_object *o, hdfs_rpc_response_future *f) nogil
     void hdfs_future_get(hdfs_rpc_response_future *f, hdfs_object **o_out) nogil

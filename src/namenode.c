@@ -129,6 +129,14 @@ out:
 EXPORT_SYM const char *
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
+
+	return hdfs_namenode_authenticate_full(n, username, NULL);
+}
+
+EXPORT_SYM const char *
+hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
+	const char *real_user)
+{
 	const char *error = NULL;
 	struct hdfs_object *header;
 	struct hdfs_heap_buf hbuf = { 0 };
@@ -145,7 +153,8 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 		    (n->nn_kerb == HDFS_NO_KERB)? 0x50 : 0x51);
 		preamble_len = 6;
 
-		header = hdfs_authheader_new(username);
+		header = hdfs_authheader_new_ext(n->nn_proto, username,
+		    real_user, HDFS_NO_KERB);
 	} else if (n->nn_proto == HDFS_NN_v2) {
 		/* HDFSv2 has used both version 7 (2.0.0-2.0.2) and 8 (2.0.3+). */
 		sprintf(preamble, "hrpc%c%c", 8 /* XXX Configurable? */,
@@ -153,16 +162,16 @@ hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 		/* There is a zero at the end: */
 		preamble_len = 7;
 
-		header = hdfs_authheader_new_ext(n->nn_proto, username, NULL,
-		    n->nn_kerb);
+		header = hdfs_authheader_new_ext(n->nn_proto, username,
+		    real_user, n->nn_kerb);
 	} else if (n->nn_proto == HDFS_NN_v2_2) {
 		memcpy(preamble, "hrpc\x09", 5);
 		preamble[5] = 0;
 		preamble[6] = (n->nn_kerb == HDFS_NO_KERB)? 0 : -33;
 		preamble_len = 7;
 
-		header = hdfs_authheader_new_ext(n->nn_proto, username, NULL,
-		    n->nn_kerb);
+		header = hdfs_authheader_new_ext(n->nn_proto, username,
+		    real_user, n->nn_kerb);
 		_authheader_set_clientid(header, n->nn_client_id);
 	} else {
 		ASSERT(false);

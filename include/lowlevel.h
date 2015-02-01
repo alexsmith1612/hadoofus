@@ -143,6 +143,8 @@ const char *	hdfs_namenode_connect(struct hdfs_namenode *, const char *host, con
 
 // Sends the authentication header. You must do this before issuing any RPCs.
 const char *	hdfs_namenode_authenticate(struct hdfs_namenode *, const char *username);
+const char *	hdfs_namenode_authenticate_full(struct hdfs_namenode *,
+		const char *username, const char *real_user);
 
 int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
 

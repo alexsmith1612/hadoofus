@@ -21,7 +21,7 @@ from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy,
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
         hdfs_datanode_write_file, hdfs_datanode_connect, hdfs_namenode_get_msgno, \
-        hdfs_namenode_set_version
+        hdfs_namenode_set_version, hdfs_namenode_authenticate_full
 from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_exception, \
         H_ACCESS_CONTROL_EXCEPTION, H_PROTOCOL_EXCEPTION, H_ALREADY_BEING_CREATED_EXCEPTION, \
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
@@ -1169,7 +1169,8 @@ cdef class rpc:
     cpdef readonly bytes _ipc_proto
     cpdef readonly str address
     cpdef readonly int protocol
-    cpdef readonly str user
+    cpdef readonly bytes user
+    cpdef readonly bytes real_user
 
     def __cinit__(self):
         with nogil:
@@ -1188,8 +1189,11 @@ cdef class rpc:
         protocol (optional):
             only hadoofus.HADOOP_1_0 for now.
         user (optional):
-            a string username to present to the server for authorization
+            a string username to present to the server for authentication
             purposes. defaults to "root".
+        real_user (optional):
+            a string username to present to the server for authorization
+            purposes (if 'user' is allowed to impersonate 'real_user')
         """
         self._ipc_proto = const_str_to_py(CLIENT_PROTOCOL)
         self.closed = False
@@ -1204,6 +1208,7 @@ cdef class rpc:
         self.address = addr
         self.protocol = protocol
         self.user = user
+        self.real_user = kwargs.get('real_user', None)
 
         cdef char* c_addr = addr
         cdef char* c_port = "8020"
@@ -1223,9 +1228,13 @@ cdef class rpc:
             raise socket.error(errno.ECONNREFUSED, py_err)
 
         cdef char* c_user = user
+        cdef char* c_realuser = NULL
+
+        if self.real_user is not None:
+            c_realuser = self.real_user
 
         with nogil:
-            err = hdfs_namenode_authenticate(&self.nn, c_user)
+            err = hdfs_namenode_authenticate_full(&self.nn, c_user, c_realuser)
         if err is not NULL:
             py_err = const_str_to_py(err)
             raise socket.error(errno.EPIPE, py_err)
