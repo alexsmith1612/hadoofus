@@ -12,7 +12,7 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
         hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
-        hdfs_setSafeMode, hdfs_getDatanodeReport
+        hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -30,7 +30,8 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
         hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex, \
-        hdfs_content_summary_new, hdfs_text_new, hdfs_token_new_empty, hdfs_array_datanode_info
+        hdfs_content_summary_new, hdfs_text_new, hdfs_token_new_empty, hdfs_array_datanode_info, \
+        hdfs_array_locatedblock_append_located_block, hdfs_array_locatedblock_new
 cimport clowlevel
 cimport cobjects
 cimport csasl2
@@ -1783,6 +1784,35 @@ cdef class rpc:
             py_res.append(py_di)
 
         return py_res
+
+    cpdef reportBadBlocks(self, object blocks):
+        """
+        Report corrupted blocks to the namenode.
+
+        blocks:
+            Array (list) of located_blocks to report
+        """
+
+        cdef hdfs_object* ex = NULL
+        cdef hdfs_object* c_blks
+        cdef hdfs_object* c_lb
+
+        c_blks = hdfs_array_locatedblock_new()
+        if blocks is not None and isinstance(blocks, list):
+            for blk in blocks:
+                assert type(blk) is located_block
+
+                c_lb = located_block.get_lb(blk)
+                hdfs_array_locatedblock_append_located_block(c_blks,
+                        hdfs_located_block_copy(c_lb))
+
+        elif blocks is not None:
+            raise TypeError("blocks should be a list of located_block or None")
+
+        with nogil:
+            hdfs_reportBadBlocks(&self.nn, c_blks, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
 
 
 rpcproto = rpc

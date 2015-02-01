@@ -196,11 +196,13 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_array_string_new(int32_t len, const_char **values)
     void hdfs_array_string_add(hdfs_object *, const_char *value)
     hdfs_object *hdfs_text_new(const_char *)
+    hdfs_object *hdfs_array_locatedblock_new()
 
     void hdfs_located_block_append_datanode_info(hdfs_object *located_block, hdfs_object *datanode_info)
     void hdfs_located_blocks_append_located_block(hdfs_object *located_blocks, hdfs_object *located_block)
     void hdfs_directory_listing_append_file_status(hdfs_object *directory_listing, hdfs_object *file_status, hdfs_object *located_blocks)
     void hdfs_array_datanode_info_append_datanode_info(hdfs_object *array, hdfs_object *datanode_info) nogil
+    void hdfs_array_locatedblock_append_located_block(hdfs_object *arr_located_block, hdfs_object *lb)
 
     void hdfs_object_serialize(hdfs_heap_buf *hbuf, hdfs_object *obj)
 
