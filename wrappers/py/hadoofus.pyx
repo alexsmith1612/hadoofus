@@ -14,7 +14,7 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
         hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks, \
         hdfs_distributedUpgradeProgress, hdfs_finalizeUpgrade, hdfs_refreshNodes, \
-        hdfs_saveNamespace
+        hdfs_saveNamespace, hdfs_isFileClosed, hdfs_metaSave, hdfs_setBalancerBandwidth
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -1932,6 +1932,64 @@ cdef class rpc:
         cdef hdfs_object* ex
         with nogil:
             hdfs_saveNamespace(&self.nn, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+    cpdef bint isFileClosed(self, char *path) except *:
+        """
+        Get the 'close status' of a file. Returns true if file is closed.
+
+        path:
+            Absolute path of the file.
+
+        raises AccessControlException:
+            if permission is denied
+        raises FileNotFoundException:
+            if the file does not exist
+        raises IOException:
+            if some other error occurs
+        """
+        cdef hdfs_object* ex = NULL
+        cdef bint res = False
+
+        with nogil:
+            res = hdfs_isFileClosed(&self.nn, path, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return res
+
+    cpdef metaSave(self, char *path):
+        """
+        Dumps namenode data structures into specified file. If file already
+        exists, then append.
+
+        path:
+            Absolute path of the file.
+
+        raises IOException
+        """
+        cdef hdfs_object* ex = NULL
+
+        with nogil:
+            hdfs_metaSave(&self.nn, path, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+    cpdef setBalancerBandwidth(self, int64_t bw):
+        """
+        Tell all datanodes to use a new, non-persistent bandwidth value for
+        'dfs.balance.bandwidthPerSec.'
+
+        bw:
+            Balancer bandwidth in bytes per second.
+
+        raises IOException
+        """
+        cdef hdfs_object* ex = NULL
+
+        with nogil:
+            hdfs_setBalancerBandwidth(&self.nn, bw, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
