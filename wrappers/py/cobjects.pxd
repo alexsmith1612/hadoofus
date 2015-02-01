@@ -81,8 +81,6 @@ cdef extern from "hadoofus/objects.h":
         pass
     cdef struct hdfs_token:
         pass
-    cdef struct hdfs_string:
-        pass
     cdef struct hdfs_fsperms:
         pass
     cdef struct hdfs_array_string:
@@ -90,6 +88,9 @@ cdef extern from "hadoofus/objects.h":
 
     cdef struct hdfs_null:
         hdfs_object_type _type
+
+    cdef struct hdfs_string:
+        char *_val
 
     cdef struct hdfs_content_summary:
         int64_t _length

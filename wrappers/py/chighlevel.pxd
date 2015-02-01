@@ -52,6 +52,9 @@ cdef extern from "hadoofus/highlevel.h":
     void hdfs_setBalancerBandwidth(hdfs_namenode *n, int64_t bw, hdfs_object **exception_out) nogil
 
     hdfs_object *hdfs2_getServerDefaults(hdfs_namenode *n, hdfs_object **exception_out) nogil
+    hdfs_object *hdfs2_getFileLinkInfo(hdfs_namenode *n, const_char *path, hdfs_object **exception_out) nogil
+    void hdfs2_createSymlink(hdfs_namenode *n, const_char *target, const_char *link, int16_t dirperms, bint createparent, hdfs_object **exception_out) nogil
+    hdfs_object *hdfs2_getLinkTarget(hdfs_namenode *n, const_char *path, hdfs_object **exception_out) nogil
 
     hdfs_datanode *hdfs_datanode_new(hdfs_object *located_block, const_char *client, int proto, const_char **error_out) nogil
     void hdfs_datanode_delete(hdfs_datanode *) nogil

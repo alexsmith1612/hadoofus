@@ -15,7 +15,8 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks, \
         hdfs_distributedUpgradeProgress, hdfs_finalizeUpgrade, hdfs_refreshNodes, \
         hdfs_saveNamespace, hdfs_isFileClosed, hdfs_metaSave, hdfs_setBalancerBandwidth, \
-        hdfs2_getServerDefaults
+        hdfs2_getServerDefaults, hdfs2_getFileLinkInfo, hdfs2_createSymlink, \
+        hdfs2_getLinkTarget
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -27,6 +28,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
         H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
         H_NULL, H_TEXT, H_TOKEN, H_UPGRADE_STATUS_REPORT, H_FS_SERVER_DEFAULTS, \
+        H_STRING, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
@@ -2116,6 +2118,106 @@ cdef class rpc:
             raise_protocol_error(ex)
 
         return server_defaults_build(res)
+
+    cpdef file_status getFileLinkInfo(self, char *path):
+        """
+        Get the file info for a specific file or directory. If the path is a
+        symlink, then the FileStatus of the symlink is returned.
+
+        Returns None if no such file exists.
+
+        path:
+            Absolute path to query
+
+        raises AccessControlException:
+            if permission is denied
+        raises UnresolvedLinkException:
+            if 'path' contains a symlink
+        raises IOException:
+            if some other error occurs
+        """
+        cdef hdfs_object* ex = NULL
+        cdef hdfs_object* res
+
+        assert self.protocol >= HADOOP_2_0
+
+        with nogil:
+            res = hdfs2_getFileLinkInfo(&self.nn, path, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return file_status_build(res)
+
+    cpdef char* getLinkTarget(self, char *path) except NULL:
+        """
+        Return the target of the given symlink. If there is an intermediate
+        symlink in the path, the given path is returned with this symlink
+        resolved.
+
+        Returns the path after resolving the *first* symbolic link in the path.
+
+        path:
+            Absolute path to query
+
+        raises AccessControlException:
+            if permission is denied
+        raises FileNotFoundException:
+            if 'path' does not exist
+        raises IOException:
+            if the given path does not refer to a symlink or some other error
+            occurs
+        """
+        cdef hdfs_object* ex = NULL
+        cdef hdfs_object* res
+        cdef char* c_res = NULL
+
+        assert self.protocol >= HADOOP_2_0
+
+        with nogil:
+            res = hdfs2_getLinkTarget(&self.nn, path, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        assert res.ob_type == H_STRING
+        c_res = xstrdup(res._string._val)
+        return c_res
+
+    cpdef createSymlink(self, char *target, char *link, int16_t dirperms, bint createparent):
+        """
+        Create symlink to a file or directory.
+
+        target:
+            Absolute path of link destination.
+        link:
+            Absolute path of the link being created.
+        dirperms:
+            Permissions to use when creating parent directories.
+        createparent:
+            If true, create missing parent directories.
+
+        raises AccessControlException:
+            if permission is denied
+        raises FileAlreadyExistsException:
+            if 'link' already exists
+        raises FileNotFoundException:
+            if parent of 'link' does not exist and 'createparent' is false
+        raises ParentNotDirectoryException:
+            if parent of 'link' is not a directory
+        raises UnresolvedLinkException:
+            if 'link' contains a symlink
+        raises SnapshotAccessControlException:
+            if 'link' is a RO snapshot
+        raises IOException:
+            if some other error occurs
+        """
+        cdef hdfs_object* ex = NULL
+
+        assert self.protocol >= HADOOP_2_0
+
+        with nogil:
+            hdfs2_createSymlink(&self.nn, target, link, dirperms, createparent, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
 
 
 rpcproto = rpc
