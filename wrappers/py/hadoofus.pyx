@@ -44,7 +44,9 @@ import types
 import urlparse
 
 # Public constants from pydoofus
-HADOOP_1_0 = 0x50
+HADOOP_1_0 = clowlevel.HDFS_NN_v1
+HADOOP_2_0 = clowlevel.HDFS_NN_v2
+HADOOP_2_2 = clowlevel.HDFS_NN_v2_2
 
 _WRITE_BLOCK_SIZE = 64*1024*1024
 DATANODE_PROTO_AP_1_0 = clowlevel.DATANODE_AP_1_0
@@ -1003,6 +1005,8 @@ cdef class rpc:
             port = str(port)
             c_port = port
 
+        cdef clowlevel.hdfs_namenode_proto c_pr = protocol
+        hdfs_namenode_set_version(&self.nn, c_pr)
         with nogil:
             err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
         if err is not NULL:

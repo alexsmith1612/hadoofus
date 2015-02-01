@@ -14,6 +14,8 @@ cdef extern from "hadoofus/lowlevel.h":
         pass
     cdef enum hdfs_kerb:
         pass
+    cdef enum hdfs_namenode_proto:
+        pass
     cdef struct hdfs_rpc_response_future:
         pass
     cdef int DATANODE_AP_1_0 "HDFS_DATANODE_AP_1_0"
@@ -22,9 +24,13 @@ cdef extern from "hadoofus/lowlevel.h":
     cdef hdfs_kerb HDFS_NO_KERB "HDFS_NO_KERB"
     cdef hdfs_kerb HDFS_TRY_KERB "HDFS_TRY_KERB"
     cdef hdfs_kerb HDFS_REQUIRE_KERB "HDFS_REQUIRE_KERB"
+    cdef hdfs_namenode_proto HDFS_NN_v1 "HDFS_NN_v1"
+    cdef hdfs_namenode_proto HDFS_NN_v2 "HDFS_NN_v2"
+    cdef hdfs_namenode_proto HDFS_NN_v2_2 "HDFS_NN_v2_2"
 
     void hdfs_rpc_response_future_init(hdfs_rpc_response_future *future) nogil
     void hdfs_namenode_init(hdfs_namenode *n, hdfs_kerb) nogil
+    void hdfs_namenode_set_version(hdfs_namenode *n, hdfs_namenode_proto) nogil
     const_char *hdfs_namenode_connect(hdfs_namenode *n, const_char *host, const_char *port) nogil
     const_char *hdfs_namenode_authenticate(hdfs_namenode *n, const_char *username) nogil
     int64_t hdfs_namenode_get_msgno(hdfs_namenode *n) nogil
