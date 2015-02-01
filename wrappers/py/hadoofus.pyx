@@ -10,25 +10,28 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_mkdirs, hdfs_getListing, hdfs_renewLease, hdfs_getStats, \
         hdfs_getPreferredBlockSize, hdfs_getFileInfo, hdfs_getContentSummary, \
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
-        hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat
+        hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
+        hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
-        hdfs_datanode_write_file, hdfs_datanode_connect, hdfs_namenode_get_msgno
+        hdfs_datanode_write_file, hdfs_datanode_connect, hdfs_namenode_get_msgno, \
+        hdfs_namenode_set_version
 from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_exception, \
         H_ACCESS_CONTROL_EXCEPTION, H_PROTOCOL_EXCEPTION, H_ALREADY_BEING_CREATED_EXCEPTION, \
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
         H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
-        H_NULL, \
+        H_NULL, H_TEXT, H_TOKEN, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
         hdfs_block_new, hdfs_directory_listing, hdfs_file_status_new_ex, hdfs_null_new, \
         hdfs_array_string_new, hdfs_array_string_add, hdfs_located_blocks_new, \
         hdfs_located_block_new, hdfs_datanode_info_new, hdfs_file_status_new_ex, \
-        hdfs_content_summary_new
+        hdfs_content_summary_new, hdfs_text_new, hdfs_token_new_empty
 cimport clowlevel
+cimport cobjects
 cimport csasl2
 
 import errno
@@ -795,6 +798,41 @@ cdef content_summary content_summary_build(hdfs_object* o):
         return None
 
     res = content_summary.__new__(content_summary)
+    res.init(o)
+    return res
+
+
+cdef class token:
+    cdef hdfs_object* c_tok
+
+    def __init__(self):
+        self.c_tok = hdfs_token_new_empty()
+
+    def __cinit__(self):
+        self.c_tok = NULL
+
+    cdef init(self, hdfs_object *o):
+        assert o is not NULL
+        assert o.ob_type == H_TOKEN
+
+        self.c_tok = o
+
+    def __dealloc__(self):
+        if self.c_tok is not NULL:
+            hdfs_object_free(self.c_tok)
+
+    def __repr__(self):
+        return generic_repr(self)
+
+
+cdef token token_build(hdfs_object* o):
+    cdef token res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_TOKEN
+        return None
+
+    res = token.__new__(token)
     res.init(o)
     return res
 
@@ -1571,7 +1609,7 @@ cdef class rpc:
 
         return res
 
-    def concat(self, char *target, object srcs):
+    cpdef concat(self, char *target, object srcs):
         """
         Concatenates several files together into 'target'.
 
@@ -1606,6 +1644,76 @@ cdef class rpc:
 
         with nogil:
             hdfs_concat(&self.nn, target, c_srcs, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+    cpdef token getDelegationToken(self, char *renewer):
+        """
+        Get a valid Delegation Token.
+
+        renewer:
+            The designated renewer for the token
+
+        raises IOException
+        """
+
+        cdef hdfs_object* res
+        cdef hdfs_object* ex = NULL
+
+        with nogil:
+            res = hdfs_getDelegationToken(&self.nn, renewer, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return token_build(res)
+
+    cpdef int64_t renewDelegationToken(self, object token_):
+        """
+        Renew an existing delegation token.
+
+        token:
+            The token to renew
+
+        raises IOException
+        """
+
+        cdef hdfs_object* ex
+        cdef token r_tok
+        cdef int64_t res
+
+        if type(token_) is token:
+            r_tok = token_
+        else:
+            raise TypeError("Argument 'token' has incorrect type (expected hadoofus.token, got %s)" % \
+                    str(type(token_)))
+
+        with nogil:
+            res = hdfs_renewDelegationToken(&self.nn, r_tok.c_tok, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+        return res
+
+    cpdef cancelDelegationToken(self, object token_):
+        """
+        Cancel an existing delegation token.
+
+        token:
+            The token to cancel
+
+        raises IOException
+        """
+
+        cdef hdfs_object* ex
+        cdef token r_tok
+
+        if type(token_) is token:
+            r_tok = token_
+        else:
+            raise TypeError("Argument 'token' has incorrect type (expected hadoofus.token, got %s)" % \
+                    str(type(token_)))
+
+        with nogil:
+            hdfs_cancelDelegationToken(&self.nn, r_tok.c_tok, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
