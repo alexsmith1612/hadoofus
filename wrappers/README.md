@@ -1,6 +1,22 @@
 pydoofus and libhdfs
 ====================
 
+#### Using the Python urllib2.urlopen handler
+
+```py
+import urllib2
+import hadoofus
+
+response = urllib2.urlopen("hdfs://user@namenode.abc.com:8020/big/data.txt")
+print "Size", response.info()["Content-length"]
+print response.read()
+response.close()
+```
+
+If omitted, user defaults to "root." If omitted, port defaults to "8020." One
+may specify "hdfs2://" or "hdfs22://" instead of "hdfs://" to connect with HDFS
+versions 2.0 or 2.2+, respectively.
+
 #### Using the Python file-like wrappers
 
 ```py

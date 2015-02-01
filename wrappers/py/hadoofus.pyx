@@ -44,13 +44,21 @@ cimport cobjects
 cimport csasl2
 
 import errno
+import io
+import mimetypes
 import os
+import os.path
 import random
 import socket
 import sys
 import time
 import types
 import urlparse
+
+if sys.version_info.major == 2:
+    import urllib2
+else:
+    import urllib.request as urllib2
 
 # Public constants from pydoofus
 HADOOP_1_0 = clowlevel.HDFS_NN_v1
@@ -2623,6 +2631,9 @@ class hdfs_file(object):
 
         return res
 
+    def readline(self, size=-1):
+        return io.IOBase.readline(self, size)
+
 
 class easy(object):
     @staticmethod
@@ -2638,3 +2649,48 @@ class easy(object):
         return hdfs_file(conn, fn, perms)
 
     # TODO other useful operations (see: os.utimes(), etc)
+
+
+class HDFSHandler(urllib2.BaseHandler):
+    """
+    Adds hdfs://, hdfs2://, and hdfs22:// handlers to urllib2 (urllib.request
+    in Py3). (hdfs:// uses HDFSv1, hdfs2:// uses HDFSv2, and hdfs22:// uses
+    HDFSv2.2+.)
+
+    Example usage:
+
+        response = urllib2.urlopen('hdfs22://mapred@my.namenode.com/big/data.txt')
+        print response.read()
+        response.close()
+
+    For more information on urllib2.urlopen, see
+    https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
+    """
+
+    def hdfs_open(self, req, version=HADOOP_1_0):
+        path = req.get_selector()
+        server = req.get_host()
+
+        host, port = urllib2.splitport(server)
+        user, host = urllib2.splituser(host)
+        if user:
+            user, _ = urllib2.splitpasswd(user)
+
+        _, filename = os.path.split(path)
+        content = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+
+        nn = rpc(host, protocol=version, user=user, port=port)
+        fp = hdfs_file(nn, path, "r")
+
+        headers = { 'Content-type': content, 'Content-length': fp._get_eof() }
+
+        return urllib2.addinfourl(fp, headers, req.get_full_url())
+
+    def hdfs2_open(self, req):
+        return self.hdfs_open(req, version=HADOOP_2_0)
+
+    def hdfs22_open(self, req):
+        return self.hdfs_open(req, version=HADOOP_2_2)
+
+
+urllib2.install_opener(urllib2.build_opener(HDFSHandler()))
