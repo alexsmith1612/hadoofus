@@ -1231,8 +1231,9 @@ cdef class rpc:
             raise socket.error(errno.EPIPE, py_err)
 
         # pydoofus checks getProtocolVersion(), we should too.
-        pv = kwargs.get('protocol_version', 61)
-        assert pv == self.getProtocolVersion(pv)
+        if c_pr == clowlevel.HDFS_NN_v1:
+            pv = kwargs.get('protocol_version', 61)
+            assert pv == self.getProtocolVersion(pv)
 
     def __repr__(self):
         return generic_repr(self)
