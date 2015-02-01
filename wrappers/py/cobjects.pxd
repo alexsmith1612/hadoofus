@@ -128,6 +128,10 @@ cdef extern from "hadoofus/objects.h":
         hdfs_object_type _etype
         char* _msg
 
+    cdef struct hdfs_upgrade_status_report:
+        int32_t _version
+        int16_t _status
+
     cdef struct hdfs_object:
         hdfs_void _void "ob_val._void"
         hdfs_null _null "ob_val._null"
@@ -152,6 +156,7 @@ cdef extern from "hadoofus/objects.h":
         hdfs_string _string "ob_val._string"
         hdfs_fsperms _fsperms "ob_val._fsperms"
         hdfs_array_string _array_string "ob_val._array_string"
+        hdfs_upgrade_status_report _upgrade_status "ob_val._upgrade_status"
         hdfs_object_type ob_type
 
     cdef struct hdfs_heap_buf:

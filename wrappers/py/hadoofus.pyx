@@ -12,7 +12,8 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs_setQuota, hdfs_fsync, hdfs_setTimes, hdfs_recoverLease, \
         hdfs_datanode_new, hdfs_datanode_delete, hdfs_concat, \
         hdfs_getDelegationToken, hdfs_cancelDelegationToken, hdfs_renewDelegationToken, \
-        hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks
+        hdfs_setSafeMode, hdfs_getDatanodeReport, hdfs_reportBadBlocks, \
+        hdfs_distributedUpgradeProgress
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
@@ -23,7 +24,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
         H_LOCATED_BLOCKS, H_LOCATED_BLOCK, H_BLOCK, H_DATANODE_INFO, H_DIRECTORY_LISTING, \
         H_ARRAY_LONG, H_FILE_STATUS, H_CONTENT_SUMMARY, H_ARRAY_DATANODE_INFO, \
-        H_NULL, H_TEXT, H_TOKEN, \
+        H_NULL, H_TEXT, H_TOKEN, H_UPGRADE_STATUS_REPORT, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
@@ -66,6 +67,10 @@ SAFEMODE_GET = "SAFEMODE_GET"
 DNREPORT_ALL = "ALL"
 DNREPORT_LIVE = "LIVE"
 DNREPORT_DEAD = "DEAD"
+
+UPGRADEACTION_GET = "GET_STATUS"
+UPGRADEACTION_DETAIL = "DETAILED_STATUS"
+UPGRADEACTION_FORCE = "FORCE_PROCEED"
 
 def sasl_init():
     """
@@ -845,6 +850,55 @@ cdef token token_build(hdfs_object* o):
         return None
 
     res = token.__new__(token)
+    res.init(o)
+    return res
+
+
+cdef class upgrade_status_report:
+    cdef hdfs_object* c_ob
+
+    def __init__(self):
+        raise TypeError("This class cannot be instatiated from Python")
+
+    def __cinit__(self):
+        self.c_ob = NULL
+
+    cdef init(self, hdfs_object *o):
+        assert o is not NULL
+        assert o.ob_type == H_UPGRADE_STATUS_REPORT
+
+        self.c_ob = o
+
+    def __dealloc__(self):
+        if self.c_ob is not NULL:
+            hdfs_object_free(self.c_ob)
+
+    def __repr__(self):
+        return generic_repr(self)
+
+    property version:
+        def __get__(self):
+            return self.c_ob._upgrade_status._version
+
+        def __set__(self, val):
+            self.c_ob._upgrade_status._version = int(val)
+
+    property status:
+        def __get__(self):
+            return self.c_ob._upgrade_status._status
+
+        def __set__(self, val):
+            self.c_ob._upgrade_status._status = int(val)
+
+
+cdef upgrade_status_report upgrade_status_report_build(hdfs_object* o):
+    cdef upgrade_status_report res
+
+    if o.ob_type is H_NULL:
+        assert o._null._type is H_UPGRADE_STATUS_REPORT
+        return None
+
+    res = upgrade_status_report.__new__(upgrade_status_report)
     res.init(o)
     return res
 
@@ -1813,6 +1867,28 @@ cdef class rpc:
             hdfs_reportBadBlocks(&self.nn, c_blks, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
+
+    cpdef upgrade_status_report distributedUpgradeProgress(self, char *upgradeaction):
+        """
+        Report distributed upgrade progress or force current upgrade to
+        proceed. Returns upgrade_status_report or None if no upgrades are in
+        progress.
+
+        upgradeaction:
+            GET_STATUS, DETAILED_STATUS, or FORCE_PROCEED.
+
+        raises IOException
+        """
+
+        cdef hdfs_object* res
+        cdef hdfs_object* ex = NULL
+
+        with nogil:
+            res = hdfs_distributedUpgradeProgress(&self.nn, upgradeaction, &ex)
+        if ex is not NULL:
+            raise_protocol_error(ex)
+
+        return upgrade_status_report_build(res)
 
 
 rpcproto = rpc
