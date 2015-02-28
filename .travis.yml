@@ -4,10 +4,10 @@ before_install:
   - sudo apt-get -y install check libsasl2-dev libsasl2-2
   - >
       if [ "x`uname -m`" = "xx86_64" ]; then
-        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.21.1-1_amd64.deb ;
+        wget http://mirrors.kernel.org/ubuntu/pool/main/c/cython/cython_0.21.1-1_amd64.deb ;
         sudo dpkg -i cython_0.21.1-1_amd64.deb ;
       else
-        wget http://mirror.anl.gov/pub/ubuntu/pool/main/c/cython/cython_0.21.1-1_i386.deb ;
+        wget http://mirrors.kernel.org/ubuntu/pool/main/c/cython/cython_0.21.1-1_i386.deb ;
         sudo dpkg -i cython_0.21.1-1_i386.deb ;
       fi
   - wget https://protobuf.googlecode.com/svn/rc/protobuf-2.6.0.tar.gz
