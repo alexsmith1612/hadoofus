@@ -1244,7 +1244,7 @@ _wait_ack(struct _packet_state *ps)
 	}
 
 	if (ack != STATUS_SUCCESS) {
-		if (ack < 0 || ack > (int)nelem(dn_error_msgs)) {
+		if (ack < 0 || ack >= (int)nelem(dn_error_msgs)) {
 			error = "Bogus ack number, aborting write";
 			fprintf(stderr, "libhadoofus: Got bogus ack status %"
 			    PRIi16 ", aborting write", ack);
