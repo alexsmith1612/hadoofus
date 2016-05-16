@@ -210,6 +210,7 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 	struct hdfsFS_internal *fsclient = fs;
 	enum hdfsFile_mode mode;
 	char *client = NULL, *path_abs;
+	int accmode;
 
 	union {
 		int64_t num;
@@ -218,26 +219,23 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 
 	const int clientlen = 32;
 
-	if (flags & O_RDWR) {
-		ERR(ENOTSUP, "Cannot open an hdfs file in O_RDWR mode");
-		return NULL;
-	}
+	accmode = (flags & O_ACCMODE);
 
-	if ((flags & O_RDONLY) && (flags & O_WRONLY)) {
-		ERR(EINVAL, "O_RDONLY and O_WRONLY are mutually exclusive");
+	if (accmode == O_RDWR) {
+		ERR(ENOTSUP, "Cannot open an hdfs file in O_RDWR mode");
 		return NULL;
 	}
 
 	if ((flags & O_CREAT) || (flags & O_EXCL))
 		WARN("hdfs does not really support O_CREAT and O_EXCL");
 
-	if (flags & O_WRONLY) {
+	if (accmode == O_WRONLY) {
 		if (flags & O_APPEND)
 			mode = FILE_APPEND;
 		else
 			mode = FILE_WRITE;
 	} else {
-		// Assume READ (even without O_RDONLY) to match libhdfs:
+		assert(accmode == O_RDONLY);
 		mode = FILE_READ;
 	}
 
