@@ -1468,6 +1468,7 @@ _flush(struct hdfs_namenode *fs, struct hdfsFile_internal *f, const void *buf, s
 
 		msg_fmt = "write failed";
 		err = hdfs_datanode_write(dn, wbuf, wbuf_len, true/*crcs*/);
+		hdfs_datanode_delete(dn);
 		if (!err)
 			break;
 
@@ -1524,8 +1525,6 @@ out:
 		hdfs_object_free(block);
 	if (excl)
 		hdfs_object_free(excl);
-	if (dn)
-		hdfs_datanode_delete(dn);
 	return res;
 }
 
