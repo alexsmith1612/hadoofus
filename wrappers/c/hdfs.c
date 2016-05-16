@@ -211,8 +211,6 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 	enum hdfsFile_mode mode;
 	char *client = NULL, *path_abs;
 
-	path_abs = _makeabs(fs, path);
-
 	union {
 		int64_t num;
 		char bytes[8];
@@ -242,6 +240,8 @@ hdfsOpenFile(hdfsFS fs, const char* path, int flags, int bufferSize,
 		// Assume READ (even without O_RDONLY) to match libhdfs:
 		mode = FILE_READ;
 	}
+
+	path_abs = _makeabs(fs, path);
 
 	// Defaults
 	if (replication == 0)
