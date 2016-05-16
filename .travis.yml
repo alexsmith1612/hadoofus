@@ -10,7 +10,7 @@ before_install:
         wget http://mirrors.kernel.org/ubuntu/pool/main/c/cython/cython_0.21.1-1_i386.deb ;
         sudo dpkg -i cython_0.21.1-1_i386.deb ;
       fi
-  - wget https://protobuf.googlecode.com/svn/rc/protobuf-2.6.0.tar.gz
+  - wget https://github.com/google/protobuf/releases/download/v2.6.0/protobuf-2.6.0.tar.gz
   - tar -xzf protobuf-2.6.0.tar.gz
   - ( cd protobuf-2.6.0 && ./configure --prefix=/usr && make && sudo make install )
   - wget https://github.com/protobuf-c/protobuf-c/releases/download/v1.1.0/protobuf-c-1.1.0.tar.gz
