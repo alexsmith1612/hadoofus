@@ -522,11 +522,13 @@ _namenode_recv_worker(void *v_nn)
 	const size_t RESIZE = 16*1024;
 
 	bool nnlocked = false;
-	int sock, obj_size;
+	int sock, obj_size, error, i;
 
 	struct _hdfs_result *result;
 	struct hdfs_rpc_response_future *future;
 	struct hdfs_namenode *n = v_nn;
+
+	error = 0;
 
 	while (true) {
 		char *objbuffer;
@@ -612,26 +614,16 @@ _namenode_recv_worker(void *v_nn)
 					continue;
 				}
 				// bail on socket errors
-				_lock(&n->nn_lock);
-				n->nn_error = serrno;
-				close(n->nn_sock);
-				n->nn_sock = -1;
-				n->nn_dead = true;
-				_unlock(&n->nn_lock);
-				break;
+				error = serrno;
+				goto out;
 			}
 			continue;
 		}
 
 		if (result == _HDFS_INVALID_PROTO) {
 			// bail on protocol errors
-			_lock(&n->nn_lock);
-			n->nn_error = EBADMSG;
-			close(n->nn_sock);
-			n->nn_sock = -1;
-			n->nn_dead = true;
-			_unlock(&n->nn_lock);
-			break;
+			error = EBADMSG;
+			goto out;
 		}
 
 		// if we got here, we have read a valid / complete hdfs result
@@ -652,15 +644,28 @@ _namenode_recv_worker(void *v_nn)
 	}
 
 out:
-	if (nnlocked)
-		_unlock(&n->nn_lock);
+	if (!nnlocked)
+		_lock(&n->nn_lock);
+	if (error != 0)
+		n->nn_error = error;
+	if (n->nn_sock >= 0) {
+		close(n->nn_sock);
+		n->nn_sock = -1;
+	}
+	n->nn_dead = true;
+	n->nn_recver_started = false;
 
-	/*
-	 * Until Namenode communication error is plumbed up to the user, it
-	 * doesn't do them any good to wait on a response to RPC that is never
-	 * coming.
-	 */
-	ASSERT(n->nn_error == 0);
+	/* Clear pending RPCs with an error */
+	for (i = 0; i < n->nn_pending_len; i++) {
+		struct hdfs_object *obj;
+
+		future = n->nn_pending[i].pd_future;
+		obj = hdfs_protocol_exception_new(H_PROTOCOL_EXCEPTION,
+		    "socket error");
+		_future_complete(future, obj);
+	}
+	n->nn_pending_len = 0;
+	_unlock(&n->nn_lock);
 
 	return NULL;
 }
