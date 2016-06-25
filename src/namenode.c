@@ -724,7 +724,7 @@ _getssf(sasl_conn_t *ctx)
 {
 	int *ssfp, r;
 
-	r = sasl_getprop(ctx, SASL_SSF, (const void **)&ssfp);
+	r = sasl_getprop(ctx, SASL_SSF, (const void **)(void *)&ssfp);
 	ASSERT(r == SASL_OK);
 
 	return *ssfp;
