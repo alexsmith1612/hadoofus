@@ -26,6 +26,8 @@
 #include "RpcPayloadHeader.pb-c.h"
 #include "Rpc2_2Header.pb-c.h"
 
+_Static_assert(_H_V2_MAX <= H_PROTOCOL_EXCEPTION, "overlapping type ranges");
+
 static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
 struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
 

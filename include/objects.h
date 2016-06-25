@@ -82,6 +82,7 @@ enum hdfs_object_type {
 
 	/* v2+ types */
 	H_FS_SERVER_DEFAULTS,
+	_H_V2_MAX,
 
 	/* Leaving room for new types */
 
