@@ -1879,6 +1879,8 @@ cdef class rpc:
 
         with nogil:
             hdfs_concat(&self.nn, target, c_srcs, &ex)
+            if c_srcs is not NULL:
+                hdfs_object_free(c_srcs)
         if ex is not NULL:
             raise_protocol_error(ex)
 
@@ -2032,6 +2034,7 @@ cdef class rpc:
 
         with nogil:
             hdfs_reportBadBlocks(&self.nn, c_blks, &ex)
+            hdfs_object_free(c_blks)
         if ex is not NULL:
             raise_protocol_error(ex)
 
