@@ -1027,7 +1027,10 @@ _send_packet(struct _packet_state *ps)
 	// Delay sending data while N packets remain unacknowledged.
 	// Apache Hadoop default is N=80, for a 5MB window.
 	if (ps->unacked_packets >= MAX_UNACKED_PACKETS) {
-		error = _wait_ack(ps);
+		if (ps->proto >= HDFS_DATANODE_AP_2_0)
+			error = _wait_ack2(ps);
+		else
+			error = _wait_ack(ps);
 		if (error)
 			goto out;
 	}
@@ -1275,6 +1278,8 @@ _wait_ack2(struct _packet_state *ps)
 	const char *error;
 	int64_t sz;
 	int status;
+
+	ASSERT(ps->proto >= HDFS_DATANODE_AP_2_0);
 
 	h = ps->recvbuf;
 	ack = NULL;
