@@ -1,0 +1,16 @@
+freebsd_instance:
+  image: freebsd-12-0-rc3-amd64
+
+freebsd_task:
+  install_script:
+    - uname -a
+    - "pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf protobuf-c
+      py27-cython"
+  test_script:
+    - uname -a
+    - gmake -j$(sysctl -n hw.ncpu) all all-test
+
+# only_if feature seems to be broken, at least on FreeBSD, or documented
+# incorrectly :/.  The environment variable is populated during scripts, but
+# does not appear to exist globally in tasks.
+#only_if: $CIRRUS_OS == freebsd

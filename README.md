@@ -1,4 +1,4 @@
-hadoofus [![Build Status](https://travis-ci.org/cemeyer/hadoofus.png?branch=master)](https://travis-ci.org/cemeyer/hadoofus)
+hadoofus [![Build Status (travis)](https://travis-ci.org/cemeyer/hadoofus.png?branch=master)](https://travis-ci.org/cemeyer/hadoofus) [![Build Status (cirrus)](https://api.cirrus-ci.com/github/cemeyer/hadoofus.svg)](https://cirrus-ci.com/github/cemeyer/hadoofus)
 ============================================================================================================================
 
 #### JRE-free multi-version HDFS client library
