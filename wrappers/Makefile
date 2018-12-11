@@ -1,16 +1,16 @@
 all: python libhdfs
 
 python: py
-	gmake -C py all
+	$(MAKE) -C py all
 
 libhdfs: c
-	gmake -C c all
+	$(MAKE) -C c all
 
 clean:
-	gmake -C py clean
-	gmake -C c clean
+	$(MAKE) -C py clean
+	$(MAKE) -C c clean
 
 
 install: all
-	gmake -C c install
-	gmake -C py install
+	$(MAKE) -C c install
+	$(MAKE) -C py install
