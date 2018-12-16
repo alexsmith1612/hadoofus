@@ -170,7 +170,7 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 	ASSERT(proto == HDFS_DATANODE_AP_1_0 || proto == HDFS_DATANODE_CDH3 ||
 	    proto == HDFS_DATANODE_AP_2_0);
 
-	d->dn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	_mtx_init(&d->dn_lock);
 	d->dn_sock = -1;
 	d->dn_used = false;
 
@@ -217,6 +217,7 @@ hdfs_datanode_destroy(struct hdfs_datanode *d)
 	free(d->dn_pool_id);
 	_unlock(&d->dn_lock);
 
+	_mtx_destroy(&d->dn_lock);
 	memset(d, 0, sizeof *d);
 }
 
