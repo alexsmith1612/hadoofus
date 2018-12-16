@@ -47,8 +47,8 @@ hdfs_namenode_allocate(void)
 EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
-	n->nn_lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-	n->nn_sendlock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	_mtx_init(&n->nn_lock);
+	_mtx_init(&n->nn_sendlock);
 	n->nn_refs = 1;
 	n->nn_sock = -1;
 	n->nn_dead = false;
@@ -562,6 +562,8 @@ _namenode_decref(struct hdfs_namenode *n)
 			dcb = n->nn_destroy_cb;
 		if (n->nn_sasl_ctx)
 			sasl_dispose(&n->nn_sasl_ctx);
+		_mtx_destroy(&n->nn_lock);
+		_mtx_destroy(&n->nn_sendlock);
 		memset(n, 0, sizeof *n);
 		if (dcb)
 			dcb(n);
