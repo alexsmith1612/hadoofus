@@ -411,9 +411,61 @@ out:
 	return error;
 }
 
+EXPORT_SYM struct hdfs_rpc_response_future *
+hdfs_rpc_response_future_alloc(void)
+{
+	struct hdfs_rpc_response_future *result;
+
+	result = malloc(sizeof(*result));
+	ASSERT(result != NULL);
+	result->fu_inited = false;
+	return result;
+}
+
+EXPORT_SYM void
+hdfs_rpc_response_future_free(struct hdfs_rpc_response_future **f)
+{
+
+	ASSERT(f != NULL && !(*f)->fu_inited);
+	free(*f);
+	*f = NULL;
+}
+
+// XXX: Some optimization could be done for repeated users of the same
+// heap-allocated futures.  There is no need to destroy and init the pthread
+// objects every reuse.  Be careful not to break the use in src/highlevel.c,
+// though, where pthread object destruction is necessary.
+EXPORT_SYM void
+hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
+{
+
+	ASSERT(!future->fu_inited);
+
+	_mtx_init(&future->fu_lock);
+	_cond_init(&future->fu_cond);
+	future->fu_res = NULL;
+	future->fu_namenode = NULL;
+	future->fu_inited = true;
+}
+
+EXPORT_SYM void
+hdfs_rpc_response_future_clean(struct hdfs_rpc_response_future *future)
+{
+
+	if (future->fu_inited) {
+		_mtx_destroy(&future->fu_lock);
+		_cond_destroy(&future->fu_cond);
+		if (future->fu_namenode != NULL)
+			_namenode_decref(future->fu_namenode);
+		memset(future, 0, sizeof *future);
+	}
+}
+
 EXPORT_SYM void
 hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
 {
+
+	ASSERT(future->fu_inited);
 
 	_lock(&future->fu_lock);
 	while (!future->fu_res)
@@ -421,14 +473,15 @@ hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **ob
 	_unlock(&future->fu_lock);
 	*object = future->fu_res;
 
-	_namenode_decref(future->fu_namenode);
-	memset(future, 0, sizeof *future);
+	hdfs_rpc_response_future_clean(future);
 }
 
 EXPORT_SYM bool
 hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_object **object, uint64_t ms)
 {
 	uint64_t absms;
+
+	ASSERT(future->fu_inited);
 
 	absms = _now_ms() + ms;
 	_lock(&future->fu_lock);
@@ -441,8 +494,7 @@ hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_obj
 	_unlock(&future->fu_lock);
 	*object = future->fu_res;
 
-	_namenode_decref(future->fu_namenode);
-	memset(future, 0, sizeof *future);
+	hdfs_rpc_response_future_clean(future);
 	return true;
 }
 

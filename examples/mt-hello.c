@@ -15,7 +15,7 @@ athread(void *v)
 
 	const char *error;
 
-	struct hdfs_rpc_response_future futures[100];
+	struct hdfs_rpc_response_future *futures[100];
 	unsigned i;
 
 	bool ok;
@@ -30,8 +30,9 @@ athread(void *v)
 	    NULL);
 
 	for (i = 0; i < 100; i++) {
-		futures[i] = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER;
-		error = hdfs_namenode_invoke(nn, rpc, &futures[i]);
+		futures[i] = hdfs_rpc_response_future_alloc();
+		hdfs_rpc_response_future_init(futures[i]);
+		error = hdfs_namenode_invoke(nn, rpc, futures[i]);
 		if (error) {
 			warnx("namenode_invoke: %s", error);
 			goto out;
@@ -40,11 +41,12 @@ athread(void *v)
 
 	for (i = 0; i < 100; i++) {
 		// Get the response (should be long(61))
-		ok = hdfs_future_get_timeout(&futures[i], &object, 2000/*ms*/);
+		ok = hdfs_future_get_timeout(futures[i], &object, 2000/*ms*/);
 		if (!ok) {
 			warnx("timeout waiting for result from NN server");
 			continue;
 		}
+		hdfs_rpc_response_future_free(&futures[i]);
 
 		if (object->ob_type != H_LONG ||
 		    object->ob_val._long._val != 61L)
@@ -52,6 +54,9 @@ athread(void *v)
 
 		hdfs_object_free(object);
 	}
+
+	// N.B., this demo leaks any futures that timed out during
+	// hdfs_future_get_timeout().
 
 out:
 	hdfs_object_free(rpc);

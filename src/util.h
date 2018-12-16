@@ -6,7 +6,17 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <pthread.h>
+
 #include <protobuf-c/protobuf-c.h>
+
+struct hdfs_rpc_response_future {
+	pthread_mutex_t fu_lock;
+	pthread_cond_t fu_cond;
+	struct hdfs_object *fu_res;
+	struct hdfs_namenode *fu_namenode;
+	bool fu_inited;
+};
 
 #define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
 
