@@ -8,11 +8,14 @@ library. It is implemented in C and supports RPC pipelining and out-of-order
 execution. It does not require Java.
 
 It provides a C API for directly calling Namenode RPCs and performing Datanode
-block read and write operations, as well as a `libhdfs`-compatible interface
-in a seperate library (`libhdfs_hadoofus.so`).
+block read and write operations.
 
-It also includes a Python wrapper module, implemented in Cython. (Cython
-compiles to a C Python module.) For more information on that, see
+There is an example `libhdfs`-compatible interface using libhadoofus provided
+in a seperate library (`libhdfs_hadoofus.so`).  It should be considered alpha
+quality, provided as a proof of concept.
+
+Hadoofus also includes a Python 2 wrapper module, implemented in Cython.
+(Cython compiles to a C Python module.) For more information on that, see
 `/wrappers/README.md`.
 
 Unlike libhdfs, Hadoofus speaks multiple versions of the HDFS protocol. At your
@@ -50,8 +53,8 @@ hdfs_namenode_delete(h);
 
 #### Caveats
 
-Some RPCs provided by the Hadoop `ClientProtocol` interface in v2.x of the
-protocol are not yet implemented (see Issue #29).
+Some less common RPCs provided by the Hadoop `ClientProtocol` interface in v2.x
+of the protocol are not yet implemented (see Issue #29).
 
 Note: Hadoop has been known to change semantics slightly between different
 versions of the software (especially before v2 was released). The v1 protocol
@@ -77,19 +80,6 @@ For more information, see [wikipedia's article on Hadoop][0] or the
 
 [0]: https://en.wikipedia.org/wiki/Apache_Hadoop#Hadoop_distributed_file_system "Hadoop distributed file system"
 [1]: https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html
-
-#### ABI Compatibility notes
-
-We aim to preserve ABI compatibility OF THE HIGH-LEVEL C API in future versions
-of this library, with some caveats.
-
-1. Users MUST NOT access struct members directly (even though structs are in
-   public headers).
-2. Users MUST allow for new types of exceptions and do something appropriate
-   with surprising types (i.e., abort, treat it as `IOError`, etc).
-3. Additional HDFS methods may be added. They will follow the naming scheme
-   used throughout this project; users should avoid using such names so that
-   future changes will not cause symbol conflicts.
 
 #### Installing
 
