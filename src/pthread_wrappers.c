@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdbool.h>
 
 #include "pthread_wrappers.h"
@@ -35,7 +36,7 @@ _waitlimit(pthread_mutex_t *l, pthread_cond_t *c, uint64_t absms)
 
 	_ms_to_tspec(absms, &abstime);
 	rc = pthread_cond_timedwait(c, l, &abstime);
-	ASSERT(rc == 0);
+	ASSERT(rc == 0 || rc == ETIMEDOUT);
 }
 
 void
