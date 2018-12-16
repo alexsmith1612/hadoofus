@@ -67,10 +67,12 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 
 #define _HDFS_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
 { \
-	struct hdfs_rpc_response_future future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER; \
+	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc, *object; \
 	const char *error; \
 \
+	future.fu_inited = false; \
+	hdfs_rpc_response_future_init(&future); \
 	rpc = hdfs_rpc_invocation_new( \
 	    #name, \
 	    ##args, \
@@ -112,10 +114,12 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 
 #define _HDFS_OBJ_RPC_BODY(name, htype, args...) \
 { \
-	struct hdfs_rpc_response_future future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER; \
+	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc, *object; \
 	const char *error; \
 \
+	future.fu_inited = false; \
+	hdfs_rpc_response_future_init(&future); \
 	rpc = hdfs_rpc_invocation_new( \
 	    #name, \
 	    ##args, \

@@ -15,7 +15,7 @@ main(int argc, char **argv)
 	struct hdfs_namenode namenode;
 
 	struct hdfs_object *rpc;
-	struct hdfs_rpc_response_future future;
+	struct hdfs_rpc_response_future *future;
 	struct hdfs_object *object;
 
 	if (argc > 1) {
@@ -40,19 +40,21 @@ main(int argc, char **argv)
 		goto out;
 
 	// Call getProtocolVersion(61)
-	future = HDFS_RPC_RESPONSE_FUTURE_INITIALIZER;
+	future = hdfs_rpc_response_future_alloc();
+	hdfs_rpc_response_future_init(future);
 	rpc = hdfs_rpc_invocation_new(
 	    "getProtocolVersion",
 	    hdfs_string_new(HADOOFUS_CLIENT_PROTOCOL_STR),
 	    hdfs_long_new(61),
 	    NULL);
-	err = hdfs_namenode_invoke(&namenode, rpc, &future);
+	err = hdfs_namenode_invoke(&namenode, rpc, future);
 	hdfs_object_free(rpc);
 	if (err)
 		goto out;
 
 	// Get the response (should be long(61))
-	hdfs_future_get(&future, &object);
+	hdfs_future_get(future, &object);
+	hdfs_rpc_response_future_free(&future);
 
 	if (object->ob_type == H_LONG &&
 	    object->ob_val._long._val == 61L)

@@ -16,12 +16,14 @@
 
 #include <sasl/sasl.h>
 
-// EINTR is, explicitly, handled poorly.
+// EINTR is, explicitly, handled poorly.  I encourage application developers to
+// mask signals in threads that interact with libhadoofus.
 
 #include <hadoofus/objects.h>
 
 struct hdfs_namenode;
 struct _hdfs_pending;
+struct hdfs_rpc_response_future;
 
 typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
 
@@ -71,46 +73,9 @@ struct hdfs_datanode {
 	char *dn_pool_id;
 };
 
-struct hdfs_rpc_response_future {
-	pthread_mutex_t fu_lock;
-	pthread_cond_t fu_cond;
-	struct hdfs_object *fu_res;
-	struct hdfs_namenode *fu_namenode;
-};
-
 //
 // Namenode operations
 //
-
-#define HDFS_RPC_RESPONSE_FUTURE_INITIALIZER		\
-	(struct hdfs_rpc_response_future) {		\
-		.fu_lock = PTHREAD_MUTEX_INITIALIZER,	\
-		.fu_cond = PTHREAD_COND_INITIALIZER,	\
-		.fu_res = NULL,				\
-		.fu_namenode = NULL,			\
-	}
-
-static inline void
-hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
-{
-	int rc;
-
-	memset(future, 0, sizeof(*future));
-
-	/* This really shouldn't fail. Abort hard if it does. */
-	rc = pthread_mutex_init(&future->fu_lock, NULL);
-	if (rc) {
-		errno = rc;
-		err(EX_SOFTWARE, "pthread_mutex_init");
-	}
-	rc = pthread_cond_init(&future->fu_cond, NULL);
-	if (rc) {
-		errno = rc;
-		err(EX_SOFTWARE, "pthread_cond_init");
-	}
-	future->fu_res = NULL;
-	future->fu_namenode = NULL;
-}
 
 // Allocate a namenode object. (This allows us to add fields to hdfs_namenode
 // without breaking ABI in the future.)
@@ -156,13 +121,25 @@ int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
 const char *	hdfs_namenode_invoke(struct hdfs_namenode *, struct hdfs_object *,
 		struct hdfs_rpc_response_future *);
 
-// After this returns, caller can do whatever they like with the "future"
-// object.
+// Allocate, initialize, clean, and release resources associated with RPC future objects.
+struct hdfs_rpc_response_future *hdfs_rpc_response_future_alloc(void);
+// Allocated futures are uninitialized.  Use init() before invoking an RPC with one.
+void		hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *);
+// Futures may be reused multiple times by clean()ing and re-init()ing.
+// We lack a cancellation system at this time, so it is invalid to clean or free
+// a future that has been passed to hdfs_namenode_invoke().
+void		hdfs_rpc_response_future_clean(struct hdfs_rpc_response_future *);
+// Either way, clean() and free() to release allocated resources.
+void		hdfs_rpc_response_future_free(struct hdfs_rpc_response_future **);
+
+// hdfs_future_get invokes hdfs_rpc_response_future_clean, and the caller does
+// not need to.
 void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
 
 // Returns 'false' if the RPC received no response in the time limit. The
 // Namenode object still references the future.
-// If 'true' is returned, same result as hdfs_future_get.
+// If 'true' is returned, same result as hdfs_future_get (including
+// hdfs_rpc_response_future_clean).
 bool		hdfs_future_get_timeout(struct hdfs_rpc_response_future *, struct hdfs_object **, uint64_t limitms);
 
 // Destroys the connection. Note that the memory may still be in use by a child
