@@ -5,6 +5,38 @@
 #include "util.h"
 
 void
+_mtx_init(pthread_mutex_t *l)
+{
+	int rc;
+	rc = pthread_mutex_init(l, NULL);
+	ASSERT(rc == 0);
+}
+
+void
+_mtx_destroy(pthread_mutex_t *l)
+{
+	int rc;
+	rc = pthread_mutex_destroy(l);
+	ASSERT(rc == 0);
+}
+
+void
+_cond_init(pthread_cond_t *c)
+{
+	int rc;
+	rc = pthread_cond_init(c, NULL);
+	ASSERT(rc == 0);
+}
+
+void
+_cond_destroy(pthread_cond_t *c)
+{
+	int rc;
+	rc = pthread_cond_destroy(c);
+	ASSERT(rc == 0);
+}
+
+void
 _lock(pthread_mutex_t *l)
 {
 	int rc;
