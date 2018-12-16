@@ -28,11 +28,12 @@ struct hdfs_rpc_response_future {
 	if ((intptr_t)(cond))					\
 		break;						\
 								\
-	assert_fail(#cond, __func__, __FILE__, __LINE__);	\
+	assert_fail("ASSERTION `%s' FAILED in %s (%s:%u)\n",	\
+	    #cond, __func__, __FILE__, __LINE__);		\
 } while (false)
 
-void	assert_fail(const char *an, const char *fn, const char *file, unsigned line)
-	__attribute__((noreturn));
+void	assert_fail(const char *fmt, ...)
+	__attribute__((noreturn)) __attribute__((format(printf, 1, 2)));
 
 #ifdef NO_EXPORT_SYMS
 # define EXPORT_SYM

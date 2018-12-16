@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,13 +48,16 @@ _now_ms(void)
 }
 
 void
-assert_fail(const char *an, const char *fn, const char *file, unsigned line)
+assert_fail(const char *fmt, ...)
 {
 	void *stack[16];
 	size_t nframes;
+	va_list ap;
 
-	fprintf(stderr, "ASSERTION `%s' FAILED in %s (%s:%u)\n", an, fn, file,
-	    line);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+
 	fprintf(stderr, "Stack:\n--------------------------------------\n");
 	fflush(stderr);
 
