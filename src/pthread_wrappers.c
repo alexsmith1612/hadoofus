@@ -1,6 +1,8 @@
 #include <errno.h>
 #include <stdbool.h>
 
+#include <hadoofus/lowlevel.h>
+
 #include "pthread_wrappers.h"
 #include "util.h"
 

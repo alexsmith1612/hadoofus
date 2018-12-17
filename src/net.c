@@ -10,16 +10,18 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <hadoofus/lowlevel.h>
+
 #include "net.h"
 #include "util.h"
 
-const char *
+struct hdfs_error
 _connect(int *s, const char *host, const char *port)
 {
 	struct addrinfo *ai, *rp,
 			hints = { 0 };
 	int rc, sfd = -1, serrno;
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 
 	hints.ai_family = AF_INET/* hadoop is ipv4-only for now */;
 	hints.ai_socktype = SOCK_STREAM;
@@ -28,8 +30,8 @@ _connect(int *s, const char *host, const char *port)
 	rc = getaddrinfo(host, port, &hints, &ai);
 	if (rc) {
 		if (rc == EAI_SYSTEM)
-			return strerror(errno);
-		return gai_strerror(rc);
+			return error_from_errno(errno);
+		return error_from_gai(rc);
 	}
 
 	for (rp = ai; rp; rp = rp->ai_next) {
@@ -47,11 +49,11 @@ _connect(int *s, const char *host, const char *port)
 	}
 
 	if (rp == NULL || sfd == -1)
-		error = strerror(errno);
+		error = error_from_errno(errno);
 
 	freeaddrinfo(ai);
 
-	if (!error) {
+	if (!hdfs_is_error(error)) {
 		ASSERT(sfd != -1);
 		_setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, 1);
 		_setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, 1024*1024);
@@ -62,16 +64,17 @@ _connect(int *s, const char *host, const char *port)
 	return error;
 }
 
-const char *
+struct hdfs_error
 _write_all(int s, void *vbuf, int buflen)
 {
 	char *buf = vbuf;
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
+
 	while (buflen > 0) {
 		ssize_t w;
 		w = write(s, buf, buflen);
 		if (w == -1) {
-			error = strerror(errno);
+			error = error_from_errno(errno);
 			goto out;
 		}
 		buf += w;
@@ -81,7 +84,7 @@ out:
 	return error;
 }
 
-const char *
+struct hdfs_error
 _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 {
 	const int RESIZE_BY = 8*1024,
@@ -99,15 +102,15 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 
 	rc = read(s, h->buf + h->used, remain);
 	if (rc == 0)
-		return "EOS";
+		return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 	if (rc < 0)
-		return strerror(errno);
+		return error_from_errno(errno);
 
 	h->used += rc;
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
-const char *
+struct hdfs_error
 _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 {
 	char *buf = vbuf;
@@ -115,17 +118,17 @@ _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 	while (len > 0) {
 		rc = pread(fd, buf, len, offset);
 		if (rc == -1)
-			return strerror(errno);
+			return error_from_errno(errno);
 		if (rc == 0)
-			return "EOF reading from fd; bailing";
+			return error_from_hdfs(HDFS_ERR_END_OF_FILE);
 		len -= rc;
 		buf += rc;
 		offset += rc;
 	}
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
-const char *
+struct hdfs_error
 _read_all(int fd, void *vbuf, size_t len)
 {
 	char *buf = vbuf;
@@ -133,16 +136,16 @@ _read_all(int fd, void *vbuf, size_t len)
 	while (len > 0) {
 		rc = read(fd, buf, len);
 		if (rc == -1)
-			return strerror(errno);
+			return error_from_errno(errno);
 		if (rc == 0)
-			return "EOF reading from fd; bailing";
+			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 		len -= rc;
 		buf += rc;
 	}
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
-const char *
+struct hdfs_error
 _writev_all(int s, struct iovec *iov, int iovcnt)
 {
 	int rc = 0;
@@ -159,16 +162,16 @@ _writev_all(int s, struct iovec *iov, int iovcnt)
 
 		rc = writev(s, iov, iovcnt);
 		if (rc == -1)
-			return strerror(errno);
+			return error_from_errno(errno);
 		if (rc == 0)
-			return "EOS writing packet; aborting write";
+			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 	}
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
 #if defined(__linux__)
 
-const char *
+struct hdfs_error
 _sendfile_all(int s, int fd, off_t offset, size_t tosend)
 {
 	int rc;
@@ -176,19 +179,19 @@ _sendfile_all(int s, int fd, off_t offset, size_t tosend)
 	while (tosend > 0) {
 		rc = sendfile(s, fd, &offset, tosend);
 		if (rc == -1)
-			return strerror(errno);
+			return error_from_errno(errno);
 		if (rc == 0)
-			return "EOS writing packet data; aborting write";
+			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 
 		tosend -= rc;
 	}
 
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
 #elif defined(__FreeBSD__)
 
-const char *
+struct hdfs_error
 _sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 	struct iovec *hdrs, int hdrcnt)
 {
@@ -203,9 +206,9 @@ _sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 	while (hdtr.hdr_cnt > 0 || tosend > 0) {
 		rc = sendfile(fd, s, offset, tosend, &hdtr, &sent, 0);
 		if (rc == -1)
-			return strerror(errno);
+			return error_from_errno(errno);
 		if (sent == 0)
-			return "EOS writing packet data; aborting write";
+			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 
 		while (hdtr.hdr_cnt > 0 && sent > 0) {
 			if ((size_t)sent >= hdtr.headers->iov_len) {
@@ -227,7 +230,7 @@ _sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 		}
 	}
 
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
 #endif

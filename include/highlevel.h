@@ -11,7 +11,7 @@
 //
 
 // Creates a new namenode connection. On error, returns NULL and sets
-// *error_out to a description of the problem.
+// *error_out to an error value.
 //
 // Kerb setting one of:
 //   HDFS_NO_KERB      -- "Authenticate" with plaintext username (hadoop default)
@@ -20,18 +20,15 @@
 //
 // N.B.: TRY_KERB or REQUIRE_KERB mean the caller has already initialized SASL,
 // using sasl_client_init().
-struct hdfs_namenode *	hdfs_namenode_new(const char *host, const char *port,
-				const char *username, enum hdfs_kerb,
-				const char **error_out);
-
-// As above; protocol version setting one of:
+//
+// Protocol version setting one of:
 //   HDFS_NN_v1
 //   HDFS_NN_v2
 //   HDFS_NN_v2_2
 struct hdfs_namenode *	hdfs_namenode_new_version(const char *host,
 				const char *port, const char *username,
 				enum hdfs_kerb, enum hdfs_namenode_proto,
-				const char **error_out);
+				struct hdfs_error *error_out);
 
 // Tears down the connection and frees memory.
 void			hdfs_namenode_delete(struct hdfs_namenode *);
@@ -232,9 +229,9 @@ struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
 //
 
 // Creates a new datanode connection. On error, returns NULL and sets
-// *error_out to an error message.
+// *error_out to an error value.
 struct hdfs_datanode *	hdfs_datanode_new(struct hdfs_object *located_block,
-			const char *client, int proto, const char **error_out);
+			const char *client, int proto, struct hdfs_error *error_out);
 
 // Destroys the connection and frees memory.
 void			hdfs_datanode_delete(struct hdfs_datanode *);

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <hadoofus/lowlevel.h>
+
 #include "heapbuf.h"
 #include "util.h"
 

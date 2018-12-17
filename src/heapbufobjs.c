@@ -1,5 +1,7 @@
 #include <stdlib.h>
 
+#include <hadoofus/lowlevel.h>
+
 #include "heapbuf.h"
 #include "heapbufobjs.h"
 #include "objects-internal.h"
