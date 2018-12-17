@@ -100,10 +100,10 @@ hdfs_namenode_set_version(struct hdfs_namenode *n, enum hdfs_namenode_proto vers
 	}
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_sock == -1);
@@ -112,13 +112,13 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
 		    NULL/*remoteip*/, NULL/*CBs*/, 0/*sec flags*/, &n->nn_sasl_ctx);
 		if (r != SASL_OK) {
-			error = sasl_errstring(r, NULL, NULL);
+			error = error_from_sasl(r);
 			goto out;
 		}
 	}
 
 	error = _connect(&n->nn_sock, host, port);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 out:
@@ -126,18 +126,18 @@ out:
 	return error;
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
 
 	return hdfs_namenode_authenticate_full(n, username, NULL);
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 	const char *real_user)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_object *header;
 	struct hdfs_heap_buf hbuf = { 0 };
 	char *inh = NULL, preamble[12];
@@ -217,7 +217,7 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 		} while (r == SASL_INTERACT);
 
 		if (r != SASL_CONTINUE) {
-			error = sasl_errstring(r, NULL, NULL);
+			error = error_from_sasl(r);
 			goto out;
 		}
 
@@ -231,32 +231,31 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 		iov[2].iov_len = outlen;
 
 		error = _writev_all(n->nn_sock, iov, 3);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 
 		do {
 			// read success / error status
 			error = _read_all(n->nn_sock, in, 4);
-			if (error)
+			if (hdfs_is_error(error))
 				goto out;
 
 			if (memcmp(in, zero, 4)) {
 				// error. exception will be next on the wire,
 				// but let's skip it.
-				error = "Got error from server, bailing";
+				error = error_from_hdfs(HDFS_ERR_KERBEROS_NEGOTIATION);
 				goto out;
 			}
 
 			// read token len
 			error = _read_all(n->nn_sock, in, 4);
-			if (error)
+			if (hdfs_is_error(error))
 				goto out;
 			inlen = _be32dec(in);
 
 			if (inlen == SWITCH_TO_SIMPLE_AUTH) {
 				if (n->nn_kerb == HDFS_REQUIRE_KERB) {
-					error = "Server tried to drop kerberos but "
-					    "client requires it";
+					error = error_from_hdfs(HDFS_ERR_KERBEROS_DOWNGRADE);
 					goto out;
 				}
 				goto send_header;
@@ -270,7 +269,7 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 				inh = malloc(inlen);
 				ASSERT(inh);
 				error = _read_all(n->nn_sock, inh, inlen);
-				if (error)
+				if (hdfs_is_error(error))
 					goto out;
 			}
 
@@ -291,13 +290,13 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 				iov[1].iov_len = outlen;
 
 				error = _writev_all(n->nn_sock, iov, 2);
-				if (error)
+				if (hdfs_is_error(error))
 					goto out;
 			}
 		} while (r == SASL_INTERACT || r == SASL_CONTINUE);
 
 		if (r != SASL_OK) {
-			error = sasl_errstring(r, NULL, NULL);
+			error = error_from_sasl(r);
 			goto out;
 		}
 
@@ -333,11 +332,11 @@ hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 	return res;
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	bool nnlocked, needs_kick;
 	int64_t msgno;
 	struct hdfs_heap_buf hbuf = { 0 };
@@ -357,11 +356,11 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	ASSERT(!n->nn_dead);
 
 	if (n->nn_sock == -1) {
-		error = "Not connected";
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
 		goto out;
 	}
 	if (!n->nn_authed) {
-		error = "Not authenticated";
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNAUTHENTICATED);
 		goto out;
 	}
 

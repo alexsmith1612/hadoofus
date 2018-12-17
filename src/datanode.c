@@ -20,43 +20,27 @@
 
 #include "datatransfer.pb-c.h"
 
-EXPORT_SYM const char *HDFS_DATANODE_ERR_NO_CRCS =
-    "Server doesn't send CRCs, can't verify. Aborting read";
-
+/*
+ * These are HDFS wire values.
+ */
 #define OP_WRITE 0x50
 #define OP_READ 0x51
 
-enum {
-	STATUS_SUCCESS = 0,
-	STATUS_ERROR,
-	STATUS_ERROR_CHECKSUM,
-	STATUS_ERROR_INVALID,
-	STATUS_ERROR_EXISTS,
-	STATUS_ERROR_ACCESS_TOKEN,
-	STATUS_CHECKSUM_OK,
-};
+_Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
+_Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
 
 static char DN_CHECKSUM_OK[2] = {
-	(char)(STATUS_CHECKSUM_OK >> 8),
-	(char)(STATUS_CHECKSUM_OK & 0xff),
+	(char)(STATUS__CHECKSUM_OK >> 8),
+	(char)(STATUS__CHECKSUM_OK & 0xff),
 };
 static char DN_ERROR_CHECKSUM[2] = {
-	(char)(STATUS_ERROR_CHECKSUM >> 8),
-	(char)(STATUS_ERROR_CHECKSUM & 0xff),
+	(char)(STATUS__ERROR_CHECKSUM >> 8),
+	(char)(STATUS__ERROR_CHECKSUM & 0xff),
 };
 
-static const char *dn_error_msgs[] = {
-	"Datanode write success, ???",
-	"Datanode error, aborting write",
-	"Datanode checksum error, aborting write",
-	"Datanode error 'invalid', aborting write",
-	"Datanode error 'exists', aborting write",
-	"Datanode access token error, aborting write",
-};
-
-static const int MAX_UNACKED_PACKETS = 80/*same as apache*/,
+static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
 	     CHUNK_SIZE = 512,
-	     PACKET_SIZE = 64*1024;
+	     PACKET_SIZE = 64 * 1024;
 
 struct _packet_state {
 	int64_t seqno,
@@ -80,26 +64,28 @@ struct _read_state {
 	bool has_crcs;
 };
 
+static struct hdfs_error	error_from_datanode(int);
 
-static const char *	_datanode_read(struct hdfs_datanode *, off_t bloff, off_t len,
-			int fd, off_t fdoff, void *buf, bool verify);
-static const char *	_datanode_write(struct hdfs_datanode *, const void *buf, int fd, off_t len,
-			off_t offset, bool sendcrcs);
-static const char *	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
-			struct _read_state *);
-static const char *	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
-			struct _read_state *);
-static const char *	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
-static const char *	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *);
-static const char *	_recv_packet(struct _packet_state *, struct _read_state *);
-static const char *	_process_recv_packet(struct _packet_state *, struct _read_state *,
-			ssize_t /*hdr_len*/, ssize_t /*plen*/, ssize_t /*dlen*/,
-			int64_t /*offset*/, bool /*lastpacket*/);
-static const char *	_send_packet(struct _packet_state *);
-static const char *	_verify_crcdata(void *crcdata, int32_t chunksize,
-			int32_t crcdlen, int32_t dlen);
-static const char *	_wait_ack(struct _packet_state *ps);
-static const char *	_wait_ack2(struct _packet_state *ps);
+static struct hdfs_error	_datanode_read(struct hdfs_datanode *, off_t bloff, off_t len,
+				int fd, off_t fdoff, void *buf, bool verify);
+static struct hdfs_error	_datanode_write(struct hdfs_datanode *, const void *buf, int fd, off_t len,
+				off_t offset, bool sendcrcs);
+static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
+				struct _read_state *);
+static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
+				struct _read_state *);
+static struct hdfs_error	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static struct hdfs_error	_recv_packet(struct _packet_state *, struct _read_state *);
+static struct hdfs_error	_process_recv_packet(struct _packet_state *, struct _read_state *,
+				ssize_t /*hdr_len*/, ssize_t /*plen*/, ssize_t /*dlen*/,
+				int64_t /*offset*/, bool /*lastpacket*/);
+static struct hdfs_error	_send_packet(struct _packet_state *);
+static void			_set_opres_msg(const char *);
+static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
+				int32_t crcdlen, int32_t dlen);
+static struct hdfs_error	_wait_ack(struct _packet_state *ps);
+static struct hdfs_error	_wait_ack2(struct _packet_state *ps);
 
 //
 // high-level api
@@ -107,15 +93,23 @@ static const char *	_wait_ack2(struct _packet_state *ps);
 
 EXPORT_SYM struct hdfs_datanode *
 hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
-	int proto, const char **error_out)
+	int proto, struct hdfs_error *error_out)
 {
-	const char *error = "LocatedBlock has zero datanodes";
-	struct hdfs_datanode *d = malloc(sizeof *d);
+	struct hdfs_datanode *d;
+	struct hdfs_error error;
 	int32_t n;
 
-	ASSERT(d);
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
+
+	/* Bail early if the LB is non-actionable */
+	if (__predict_false(located_block->ob_val._located_block._num_locs == 0)) {
+		*error_out = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		return NULL;
+	}
+
+	d = malloc(sizeof(*d));
+	ASSERT(d);
 
 	hdfs_datanode_init(d,
 	    located_block->ob_val._located_block._blockid,
@@ -136,10 +130,11 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	for (int32_t i = 0; i < n; i++) {
 		struct hdfs_object *di =
 		    located_block->ob_val._located_block._locs[i];
+
 		error = hdfs_datanode_connect(d,
 		    di->ob_val._datanode_info._hostname,
 		    di->ob_val._datanode_info._port);
-		if (!error)
+		if (!hdfs_is_error(error))
 			return d;
 	}
 
@@ -221,10 +216,10 @@ hdfs_datanode_destroy(struct hdfs_datanode *d)
 	memset(d, 0, sizeof *d);
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *port)
 {
-	const char *error;
+	struct hdfs_error error;
 
 	ASSERT(d);
 
@@ -240,7 +235,7 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 
 // Datanode write operations
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
 {
 	ASSERT(buf);
@@ -248,7 +243,7 @@ hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool s
 	return _datanode_write(d, buf, -1, len, -1, sendcrcs);
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
 	bool sendcrcs)
 {
@@ -260,7 +255,7 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 
 // Datanode read operations
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	bool verifycrc)
 {
@@ -270,7 +265,7 @@ hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	    verifycrc);
 }
 
-EXPORT_SYM const char *
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 	int fd, off_t fdoff, bool verifycrc)
 {
@@ -279,6 +274,41 @@ hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 	ASSERT(fd >= 0);
 
 	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/, verifycrc);
+}
+
+static struct hdfs_error
+error_from_datanode(int dnstatus)
+{
+	enum hdfs_error_numeric ecode;
+
+	ASSERT(dnstatus != STATUS__SUCCESS);
+
+	switch (dnstatus) {
+	case STATUS__ERROR:
+		ecode = HDFS_ERR_DN_ERROR;
+		break;
+	case STATUS__ERROR_CHECKSUM:
+		ecode = HDFS_ERR_DN_ERROR_CHECKSUM;
+		break;
+	case STATUS__ERROR_INVALID:
+		ecode = HDFS_ERR_DN_ERROR_INVALID;
+		break;
+	case STATUS__ERROR_EXISTS:
+		ecode = HDFS_ERR_DN_ERROR_EXISTS;
+		break;
+	case STATUS__ERROR_ACCESS_TOKEN:
+		ecode = HDFS_ERR_DN_ERROR_ACCESS_TOKEN;
+		break;
+	case STATUS__CHECKSUM_OK:
+		ecode = HDFS_ERR_INVALID_DN_ERROR;
+		hdfs_datanode_unknown_status = dnstatus;
+		break;
+	default:
+		ecode = HDFS_ERR_UNRECOGNIZED_DN_ERROR;
+		hdfs_datanode_unknown_status = dnstatus;
+		break;
+	}
+	return error_from_hdfs(ecode);
 }
 
 static void
@@ -422,11 +452,11 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 	}
 }
 
-const char *
+static struct hdfs_error
 _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 	int fd, off_t fdoff, void *buf, bool verify)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf header = { 0 },
 			     recvbuf = { 0 };
 	struct _packet_state pstate = { 0 };
@@ -442,18 +472,18 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 
 	_compose_read_header(&header, d, bloff, len, verify);
 	error = _write_all(d->dn_sock, header.buf, header.used);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
 		error = _read_read_status2(d, &recvbuf, &rinfo);
 	else
 		error = _read_read_status(d, &recvbuf, &rinfo);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	if (!rinfo.has_crcs && verify) {
-		error = HDFS_DATANODE_ERR_NO_CRCS;
+		error = error_from_hdfs(HDFS_ERR_DATANODE_NO_CRCS);
 		goto out;
 	}
 
@@ -470,7 +500,7 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 	pstate.proto = d->dn_proto;
 	while (pstate.remains > 0) {
 		error = _recv_packet(&pstate, &rinfo);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -497,7 +527,7 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 		error = _write_all(d->dn_sock, header.buf, header.used);
 	} else
 		error = _write_all(d->dn_sock, DN_CHECKSUM_OK, 2);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 out:
@@ -509,11 +539,11 @@ out:
 	return error;
 }
 
-const char *
+static struct hdfs_error
 _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	off_t offset, bool sendcrcs)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf header = { 0 },
 			     recvbuf = { 0 };
 
@@ -530,14 +560,14 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 
 	_compose_write_header(&header, d, sendcrcs);
 	error = _write_all(d->dn_sock, header.buf, header.used);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
 		error = _read_write_status2(d, &recvbuf);
 	else
 		error = _read_write_status(d, &recvbuf);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	// we're good to write. start sending packets.
@@ -552,7 +582,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	pstate.offset = d->dn_size;
 	while (pstate.remains > 0) {
 		error = _send_packet(&pstate);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -562,7 +592,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			error = _wait_ack2(&pstate);
 		else
 			error = _wait_ack(&pstate);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -581,11 +611,11 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	struct _read_state *rs)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf obuf = { 0 };
 	int16_t status;
 	int32_t chunk_size;
@@ -594,7 +624,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 
 	while (h->used < 2) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -604,14 +634,14 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	status = _bslurp_s16(&obuf);
 	ASSERT(obuf.used > 0);
 
-	if (status != STATUS_SUCCESS) {
-		error = "Server reported error with read request; aborting read";
+	if (status != STATUS__SUCCESS) {
+		error = error_from_datanode(status);
 		goto out;
 	}
 
 	while (h->used < 15) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -636,20 +666,19 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	BlockOpResponseProto **opres_out)
 {
 	struct hdfs_heap_buf obuf = { 0 };
 	BlockOpResponseProto *opres;
-	const char *error;
+	struct hdfs_error error;
 	int64_t sz;
 
-	error = NULL;
 	opres = NULL;
 	do {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 
 		obuf.buf = h->buf;
@@ -658,7 +687,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 
 		sz = _bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
-			error = "bad protocol: invalid vlint";
+			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
 	} while (obuf.used < 0);
@@ -666,7 +695,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	ASSERT(sz < INT_MAX - obuf.used);
 	while (h->used < obuf.used + (int)sz) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 	obuf.buf = h->buf;
@@ -676,42 +705,42 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	    (void *)&h->buf[obuf.used]);
 	obuf.used += sz;
 	if (opres == NULL) {
-		error = "bad protocol: could not decode BlockOpResponseProto";
+		error = error_from_hdfs(HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO);
 		goto out;
 	}
 
-	if (opres->status != STATUS__SUCCESS) {
-		if (opres->message)
-			printf("%s: Error message? '%s'\n", __func__, opres->message);
-		error = "Server reported error with read request; aborting read";
+	_set_opres_msg(opres->message);
+	if (opres->status != STATUS__SUCCESS)
+		error = error_from_datanode(opres->status);
+
+	// Shouldn't happen, I believe; call it a protocol error.
+	if (opres->message != NULL)
+		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
+
+	if (hdfs_is_error(error))
 		block_op_response_proto__free_unpacked(opres, NULL);
-		goto out;
-	}
-
-	if (opres->message)
-		printf("%s: Got message? '%s'\n", __func__, opres->message);
+	else
+		*opres_out = opres;
 
 	// Skip recvbuf past stuff we parsed here
 	h->used -= obuf.used;
 	memmove(h->buf, h->buf + obuf.used, h->used);
 
-	*opres_out = opres;
-
 out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	struct _read_state *rs)
 {
-	const char *error;
+	struct hdfs_error error;
 	BlockOpResponseProto *opres;
 
 	opres = NULL;
 
 	error = _read_blockop_resp_status(d, h, &opres);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	ASSERT(opres->readopchecksuminfo);
@@ -730,10 +759,10 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf obuf = { 0 };
 	int16_t status;
 	char *statusmsg = NULL;
@@ -741,7 +770,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 
 	while (true) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 
 		obuf.buf = h->buf;
@@ -753,7 +782,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 			break;
 
 		if (obuf.used == _H_PARSE_ERROR) {
-			error = "Invalid protocol data";
+			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 			goto out;
 		}
 	}
@@ -770,25 +799,27 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 			break;
 
 		if (obuf.used == _H_PARSE_ERROR) {
-			error = "Invalid protocol data";
+			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 			goto out;
 		}
 
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
 	statussz += obuf.used;
 
-	if (status != 0) {
-		error = "Datanode responded with error; aborting write";
-		fprintf(stderr, "libhadoofus: datanode error message: %s\n",
-		    statusmsg);
-		goto out;
+	if (status == STATUS__SUCCESS && strlen(statusmsg) == 0)
+		_set_opres_msg(NULL);
+	else {
+		// Shouldn't happen, I believe; call it a protocol error.
+		if (status == STATUS__SUCCESS)
+			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
+		else
+			error = error_from_datanode(status);
+		_set_opres_msg(statusmsg);
 	}
-
-	ASSERT(strlen(statusmsg) == 0); /* no message on success */
 
 	// Skip the recv buffer past the read objects
 	h->used -= statussz;
@@ -801,10 +832,10 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	BlockOpResponseProto *opres;
 
 	opres = NULL;
@@ -816,10 +847,10 @@ _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf *recvbuf = ps->recvbuf,
 			     obuf = { 0 };
 	int32_t plen, dlen;
@@ -834,7 +865,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 		// slurp packet header
 		while (recvbuf->used < 25) {
 			error = _read_to_hbuf(ps->sock, recvbuf);
-			if (error)
+			if (hdfs_is_error(error))
 				goto out;
 		}
 
@@ -859,7 +890,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 
 	while (recvbuf->used < 6) {
 		error = _read_to_hbuf(ps->sock, recvbuf);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -873,14 +904,14 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 
 	while (recvbuf->used < 6 + hlen) {
 		error = _read_to_hbuf(ps->sock, recvbuf);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
 	phdr = packet_header_proto__unpack(NULL, hlen,
 	    (void *)&recvbuf->buf[6]);
 	if (phdr == NULL) {
-		error = "bad protocol: could not decode PacketHeaderProto";
+		error = error_from_hdfs(HDFS_ERR_INVALID_PACKETHEADERPROTO);
 		goto out;
 	}
 
@@ -897,27 +928,25 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _process_recv_packet(struct _packet_state *ps, struct _read_state *rs,
 	ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset,
 	bool lastpacket)
 {
 	struct hdfs_heap_buf *recvbuf = ps->recvbuf;
 	const int ONEGB = 1024*1024*1024;
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	int32_t c_begin, c_len;
 	ssize_t crcdlen;
 
 	crcdlen = plen - dlen - 4;
-	if (plen < 0 || dlen < 0 || dlen > ONEGB || plen > ONEGB)
-		error = "got bogus packet; aborting read";
-	else if (crcdlen < 0)
-		error = "got bogus packet size; aborting read";
+	if (plen < 0 || dlen < 0 || dlen > ONEGB || plen > ONEGB || crcdlen < 0)
+		error = error_from_hdfs(HDFS_ERR_DATANODE_PACKET_SIZE);
 	else if (rs->has_crcs && crcdlen != ((dlen + rs->chunk_size - 1) / rs->chunk_size) * 4)
-		error = "got bogus packet crc data; aborting read";
+		error = error_from_hdfs(HDFS_ERR_DATANODE_CRC_LEN);
 	else if (!rs->has_crcs && crcdlen > 0)
-		error = "didn't expect crc data but got some anyway; aborting read";
-	if (error)
+		error = error_from_hdfs(HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN);
+	if (hdfs_is_error(error))
 		goto out;
 
 	/*
@@ -933,13 +962,13 @@ _process_recv_packet(struct _packet_state *ps, struct _read_state *rs,
 
 	while (recvbuf->used < hdr_len + crcdlen + dlen) {
 		error = _read_to_hbuf(ps->sock, recvbuf);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
 	if (crcdlen > 0) {
 		error = _verify_crcdata(recvbuf->buf + hdr_len, rs->chunk_size, crcdlen, dlen);
-		if (error) {
+		if (hdfs_is_error(error)) {
 			// On CRC errors, let the server know before aborting:
 			_write_all(ps->sock, DN_ERROR_CHECKSUM, 2);
 			goto out;
@@ -952,7 +981,7 @@ _process_recv_packet(struct _packet_state *ps, struct _read_state *rs,
 	else
 		c_begin = 0;
 	if (c_begin >= dlen) {
-		error = "Server started read before requested offset; aborting read";
+		error = error_from_hdfs(HDFS_ERR_DATANODE_UNEXPECTED_READ_OFFSET);
 		goto out;
 	}
 	c_len = _min(dlen - c_begin, ps->remains);
@@ -968,11 +997,11 @@ _process_recv_packet(struct _packet_state *ps, struct _read_state *rs,
 			    c_len - written,
 			    ps->fdoffset + written);
 			if (rc == -1)
-				error = strerror(errno);
+				error = error_from_errno(errno);
 			else if (rc == 0)
-				error = "EOF writing out to file; aborting read";
+				error = error_from_hdfs(HDFS_ERR_END_OF_FILE);
 
-			if (error)
+			if (hdfs_is_error(error))
 				goto out;
 			written += rc;
 		}
@@ -984,10 +1013,8 @@ _process_recv_packet(struct _packet_state *ps, struct _read_state *rs,
 		ps->buf = (char*)ps->buf + c_len;
 
 check_remainder:
-	if (ps->remains > 0 && lastpacket) {
-		error = "Got last packet before read completed; aborting read";
-		goto out;
-	}
+	if (ps->remains > 0 && lastpacket)
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_LASTPACKET);
 
 	// skip recvbuf over this packet. this is probably excessive memcopying
 	// especially if/when multiple packets queue up. TODO: something
@@ -999,11 +1026,11 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _send_packet(struct _packet_state *ps)
 {
 
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf phdr = { 0 };
 	uint32_t *crcdata = NULL;
 	size_t crclen = 0, tosend;
@@ -1032,7 +1059,7 @@ _send_packet(struct _packet_state *ps)
 			error = _wait_ack2(ps);
 		else
 			error = _wait_ack(ps);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -1047,7 +1074,7 @@ _send_packet(struct _packet_state *ps)
 			int rc;
 			rc = fstat(ps->fd, &sb);
 			if (rc == -1) {
-				error = strerror(errno);
+				error = error_from_errno(errno);
 				goto out;
 			}
 			// Sendfile (on linux) doesn't work with device files
@@ -1061,7 +1088,7 @@ _send_packet(struct _packet_state *ps)
 		data = malloc(tosend);
 		ASSERT(data);
 		error = _pread_all(ps->fd, data, tosend, ps->fdoffset);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	} else
 		data = ps->buf;
@@ -1115,24 +1142,24 @@ _send_packet(struct _packet_state *ps)
 		ios[2].iov_len = tosend;
 
 		error = _writev_all(ps->sock, ios, 3);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	} else {
 #if defined(__linux__)
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 1);
 
 		error = _writev_all(ps->sock, ios, 1);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 		error = _sendfile_all(ps->sock, ps->fd, ps->fdoffset, tosend);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 0);
 #elif defined(__FreeBSD__)
 		error = _sendfile_all_bsd(ps->sock, ps->fd, ps->fdoffset, tosend,
 		    ios, 1);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 #else
 		// !data => freebsd or linux. this branch should never be taken
@@ -1159,7 +1186,20 @@ out:
 	return error;
 }
 
-static const char *
+static void
+_set_opres_msg(const char *newmsg)
+{
+	if (hdfs_datanode_opresult_message != NULL)
+		free(__DECONST(char *, hdfs_datanode_opresult_message));
+	if (newmsg == NULL)
+		hdfs_datanode_opresult_message = NULL;
+	else {
+		hdfs_datanode_opresult_message = strdup(newmsg);
+		ASSERT(hdfs_datanode_opresult_message != NULL);
+	}
+}
+
+static struct hdfs_error
 _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 {
 	uint32_t crcinit;
@@ -1179,20 +1219,20 @@ _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 		    (uint32_t) (*((uint8_t *)crcdata + i*4 + 3));
 
 		if (crc != pcrc)
-			return "Got bad CRC during read; aborting";
+			return error_from_hdfs(HDFS_ERR_DATANODE_BAD_CHECKSUM);
 	}
 
-	return NULL;
+	return HDFS_SUCCESS;
 }
 
-static const char *
+static struct hdfs_error
 _wait_ack(struct _packet_state *ps)
 {
-	const char *error = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf obuf = { 0 };
 
 	int64_t seqno;
-	int16_t nacks, ack = STATUS_ERROR;
+	int16_t nacks, ack = STATUS__ERROR;
 
 	int acksz = 0;
 
@@ -1206,7 +1246,7 @@ _wait_ack(struct _packet_state *ps)
 
 	while (ps->recvbuf->used < acksz) {
 		error = _read_to_hbuf(ps->sock, ps->recvbuf);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 
@@ -1218,7 +1258,7 @@ _wait_ack(struct _packet_state *ps)
 	ASSERT(obuf.used >= 0);
 
 	if (seqno != ps->first_unacked) {
-		error = "Got unexpected ACK";
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
 		    " expected %" PRIi64 "); aborting write.\n", seqno,
 		    ps->first_unacked);
@@ -1236,7 +1276,7 @@ _wait_ack(struct _packet_state *ps)
 
 		// We only connect to one datanode, we should only get one ack:
 		if (nacks != 1) {
-			error = "Got bogus number of ACKs; expected 1";
+			error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 			goto out;
 		}
 
@@ -1247,19 +1287,10 @@ _wait_ack(struct _packet_state *ps)
 		ASSERT(obuf.used >= 0);
 	}
 
-	if (ack != STATUS_SUCCESS) {
-		if (ack < 0 || ack >= (int)nelem(dn_error_msgs)) {
-			error = "Bogus ack number, aborting write";
-			fprintf(stderr, "libhadoofus: Got bogus ack status %"
-			    PRIi16 ", aborting write", ack);
-			goto out;
-		}
-
-		error = dn_error_msgs[ack];
-		goto out;
-	}
-
-	ps->unacked_packets--;
+	if (ack == STATUS__SUCCESS)
+		ps->unacked_packets--;
+	else
+		error = error_from_datanode(ack);
 
 	// Skip the recv buffer past the ack
 	ps->recvbuf->used -= acksz;
@@ -1270,24 +1301,22 @@ out:
 	return error;
 }
 
-static const char *
+static struct hdfs_error
 _wait_ack2(struct _packet_state *ps)
 {
 	struct hdfs_heap_buf obuf = { 0 },
 			     *h;
 	PipelineAckProto *ack;
-	const char *error;
+	struct hdfs_error error;
 	int64_t sz;
-	int status;
 
 	ASSERT(ps->proto >= HDFS_DATANODE_AP_2_0);
 
 	h = ps->recvbuf;
 	ack = NULL;
-	error = NULL;
 	do {
 		error = _read_to_hbuf(ps->sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 
 		obuf.buf = h->buf;
@@ -1296,7 +1325,7 @@ _wait_ack2(struct _packet_state *ps)
 
 		sz = _bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
-			error = "bad protocol: invalid vlint";
+			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
 	} while (obuf.used < 0);
@@ -1304,7 +1333,7 @@ _wait_ack2(struct _packet_state *ps)
 	ASSERT(sz > 0 && sz < INT_MAX - obuf.used);
 	while (h->used < obuf.used + (int)sz) {
 		error = _read_to_hbuf(ps->sock, h);
-		if (error)
+		if (hdfs_is_error(error))
 			goto out;
 	}
 	obuf.buf = h->buf;
@@ -1313,12 +1342,12 @@ _wait_ack2(struct _packet_state *ps)
 	ack = pipeline_ack_proto__unpack(NULL, sz, (void *)&h->buf[obuf.used]);
 	obuf.used += sz;
 	if (ack == NULL) {
-		error = "bad protocol: could not decode PipelineAckProto";
+		error = error_from_hdfs(HDFS_ERR_INVALID_PIPELINEACKPROTO);
 		goto out;
 	}
 
 	if (ack->seqno != ps->first_unacked) {
-		error = "Got unexpected ACK";
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
 		    " expected %" PRIi64 "); aborting write.\n", ack->seqno,
 		    ps->first_unacked);
@@ -1328,23 +1357,14 @@ _wait_ack2(struct _packet_state *ps)
 
 	// We only connect to one datanode, we should only get one ack:
 	if (ack->n_status != 1) {
-		error = "Got bogus number of ACKs; expected 1";
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 		goto out;
 	}
 
-	if (ack->status[0] != STATUS__SUCCESS) {
-		status = ack->status[0];
-		if (status >= 0 && status < (int)nelem(dn_error_msgs))
-			error = dn_error_msgs[status];
-		else {
-			error = "Bogus ack number, aborting write";
-			fprintf(stderr, "libhadoofus: Got bogus ack status %d, "
-			    "aborting write", status);
-		}
-		goto out;
-	}
-
-	ps->unacked_packets--;
+	if (ack->status[0] == STATUS__SUCCESS)
+		ps->unacked_packets--;
+	else
+		error = error_from_datanode(ack->status[0]);
 
 	// Skip the recv buffer past the ack
 	h->used -= obuf.used;

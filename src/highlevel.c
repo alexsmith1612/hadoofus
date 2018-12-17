@@ -5,30 +5,21 @@
 
 #include "util.h"
 
-static void
-_assert_not_err(const char *error)
-{
-	if (error) {
-		fprintf(stderr, "libhadoofus: Got error, bailing: %s\n", error);
-		ASSERT(!error);
-	}
-}
-
-EXPORT_SYM struct hdfs_namenode *
-hdfs_namenode_new(const char *host, const char *port, const char *username,
-	enum hdfs_kerb kerb_pref, const char **error_out)
-{
-
-	return hdfs_namenode_new_version(host, port, username, kerb_pref,
-	    HDFS_NN_v1, error_out);
-}
+#define BAIL_ON_ERR(error) do {						\
+	if (__predict_true(!hdfs_is_error(error)))			\
+		break;							\
+	assert_fail("The high-level interface cannot handle errors\n"	\
+	    "below the protocol level.  Got unexpected error %s:%s\n"	\
+	    "in %s (%s:%u)\n", hdfs_error_str_kind(error),		\
+	    hdfs_error_str(error), __func__, __FILE__, __LINE__);	\
+} while (false)
 
 EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new_version(const char *host, const char *port,
 	const char *username, enum hdfs_kerb kerb_pref,
-	enum hdfs_namenode_proto vers, const char **error_out)
+	enum hdfs_namenode_proto vers, struct hdfs_error *error_out)
 {
-	const char *error;
+	struct hdfs_error error;
 	struct hdfs_namenode *h;
 
 	h = hdfs_namenode_allocate();
@@ -37,15 +28,15 @@ hdfs_namenode_new_version(const char *host, const char *port,
 	hdfs_namenode_set_version(h, vers);
 
 	error = hdfs_namenode_connect(h, host, port);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	error = hdfs_namenode_authenticate(h, username);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 out:
-	if (error) {
+	if (hdfs_is_error(error)) {
 		hdfs_namenode_delete(h);
 		h = NULL;
 		*error_out = error;
@@ -69,7 +60,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 { \
 	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc, *object; \
-	const char *error; \
+	struct hdfs_error error; \
 \
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
@@ -78,7 +69,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	    ##args, \
 	    NULL); \
 	error = hdfs_namenode_invoke(h, rpc, &future); \
-	_assert_not_err(error); \
+	BAIL_ON_ERR(error); \
 \
 	hdfs_object_free(rpc); \
 \
@@ -116,7 +107,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 { \
 	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc, *object; \
-	const char *error; \
+	struct hdfs_error error; \
 \
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
@@ -125,7 +116,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	    ##args, \
 	    NULL); \
 	error = hdfs_namenode_invoke(h, rpc, &future); \
-	_assert_not_err(error); \
+	BAIL_ON_ERR(error); \
 \
 	hdfs_object_free(rpc); \
 \

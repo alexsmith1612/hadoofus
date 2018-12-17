@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <hadoofus/lowlevel.h>
 #include <hadoofus/objects.h>
 
 #include "heapbuf.h"

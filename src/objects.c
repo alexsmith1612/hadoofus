@@ -150,7 +150,7 @@ _string_to_etype(const char *etype)
 	return H_PROTOCOL_EXCEPTION;
 }
 
-const char *
+EXPORT_SYM const char *
 hdfs_etype_to_string(enum hdfs_object_type e)
 {
 	const char *res;
