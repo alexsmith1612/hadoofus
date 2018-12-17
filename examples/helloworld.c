@@ -8,11 +8,12 @@
 int
 main(int argc, char **argv)
 {
-	const char *err,
+	const char
 	      *host = "localhost",
 	      *port = "8020";
 
 	struct hdfs_namenode namenode;
+	struct hdfs_error err;
 
 	struct hdfs_object *rpc;
 	struct hdfs_rpc_response_future *future;
@@ -31,12 +32,12 @@ main(int argc, char **argv)
 	// Initialize the connection object and connect to the local namenode
 	hdfs_namenode_init(&namenode, HDFS_NO_KERB);
 	err = hdfs_namenode_connect(&namenode, host, port);
-	if (err)
+	if (hdfs_is_error(err))
 		goto out;
 
 	// Pretend to be the user "mapred"
 	err = hdfs_namenode_authenticate(&namenode, "mapred");
-	if (err)
+	if (hdfs_is_error(err))
 		goto out;
 
 	// Call getProtocolVersion(61)
@@ -49,7 +50,7 @@ main(int argc, char **argv)
 	    NULL);
 	err = hdfs_namenode_invoke(&namenode, rpc, future);
 	hdfs_object_free(rpc);
-	if (err)
+	if (hdfs_is_error(err))
 		goto out;
 
 	// Get the response (should be long(61))
@@ -65,11 +66,12 @@ main(int argc, char **argv)
 	hdfs_object_free(object);
 
 out:
-	if (err)
-		fprintf(stderr, "hdfs error: %s\n", err);
+	if (hdfs_is_error(err))
+		fprintf(stderr, "hdfs error (%s): %s\n",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
 
 	// Destroy any resources used by the connection
 	hdfs_namenode_destroy(&namenode, NULL);
 
-	return 0;
+	return hdfs_is_error(err);
 }

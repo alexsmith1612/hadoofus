@@ -13,7 +13,7 @@ athread(void *v)
 	struct hdfs_object *rpc;
 	struct hdfs_object *object;
 
-	const char *error;
+	struct hdfs_error error;
 
 	struct hdfs_rpc_response_future *futures[100];
 	unsigned i;
@@ -33,8 +33,9 @@ athread(void *v)
 		futures[i] = hdfs_rpc_response_future_alloc();
 		hdfs_rpc_response_future_init(futures[i]);
 		error = hdfs_namenode_invoke(nn, rpc, futures[i]);
-		if (error) {
-			warnx("namenode_invoke: %s", error);
+		if (hdfs_is_error(error)) {
+			warnx("namenode_invoke: %s:%s",
+			    hdfs_error_str_kind(error), hdfs_error_str(error));
 			goto out;
 		}
 	}
@@ -66,11 +67,12 @@ out:
 int
 main(int argc, char **argv)
 {
-	const char *error,
+	const char
 	      *host = "localhost",
 	      *port = "8020";
 
 	struct hdfs_namenode namenode;
+	struct hdfs_error error;
 
 #define NTHR 100
 	pthread_t threads[NTHR];
@@ -90,12 +92,12 @@ main(int argc, char **argv)
 	// Initialize the connection object and connect to the local namenode
 	hdfs_namenode_init(&namenode, HDFS_NO_KERB);
 	error = hdfs_namenode_connect(&namenode, host, port);
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	// Pretend to be the user "root"
 	error = hdfs_namenode_authenticate(&namenode, "root");
-	if (error)
+	if (hdfs_is_error(error))
 		goto out;
 
 	for (i = 0; i < NTHR; i++) {
@@ -117,11 +119,12 @@ main(int argc, char **argv)
 	}
 
 out:
-	if (error)
-		fprintf(stderr, "hdfs error: %s\n", error);
+	if (hdfs_is_error(error))
+		fprintf(stderr, "hdfs error (%s): %s\n",
+		    hdfs_error_str_kind(error), hdfs_error_str(error));
 
 	// Destroy any resources used by the connection
 	hdfs_namenode_destroy(&namenode, NULL);
 
-	return 0;
+	return hdfs_is_error(error);
 }
