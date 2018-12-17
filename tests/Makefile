@@ -16,13 +16,14 @@ PRIV_OBJS = \
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
-LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -lcheck -L../src -lhadoofus \
+LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -L../src -lhadoofus \
+	     `pkg-config --libs --static check` \
 	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2 \
 	     -lpthread -lm
 ifeq ($(shell uname -s),FreeBSD)
 	LINK_FLAGS += -lexecinfo
 endif
-FLAGS = -Wall -Werror -fPIC -g $(CFLAGS) -I/usr/local/include
+FLAGS = -Wall -Werror -fPIC -g $(CFLAGS) `pkg-config --cflags check`
 
 all: $(TEST_PRGM)
 
