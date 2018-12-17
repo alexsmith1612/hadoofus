@@ -21,7 +21,8 @@ from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy,
         hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
         hdfs_datanode_write_file, hdfs_datanode_connect, hdfs_namenode_get_msgno, \
-        hdfs_namenode_set_version, hdfs_namenode_authenticate_full
+        hdfs_namenode_set_version, hdfs_namenode_authenticate_full, hdfs_error, \
+        hdfs_error_str_kind, hdfs_error_str, hdfs_is_error
 from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_exception, \
         H_ACCESS_CONTROL_EXCEPTION, H_PROTOCOL_EXCEPTION, H_ALREADY_BEING_CREATED_EXCEPTION, \
         H_FILE_NOT_FOUND_EXCEPTION, H_IO_EXCEPTION, H_LEASE_EXPIRED_EXCEPTION, \
@@ -68,7 +69,6 @@ HADOOP_2_2 = clowlevel.HDFS_NN_v2_2
 _WRITE_BLOCK_SIZE = 64*1024*1024
 DATANODE_PROTO_AP_1_0 = clowlevel.DATANODE_AP_1_0
 DATANODE_PROTO_CDH3 = clowlevel.DATANODE_CDH3
-DATANODE_ERR_NO_CRCS = <char*>clowlevel.DATANODE_ERR_NO_CRCS
 
 NO_KERB = clowlevel.HDFS_NO_KERB
 TRY_KERB = clowlevel.HDFS_TRY_KERB
@@ -126,6 +126,9 @@ cdef char* pydup(object o):
     cdef bytes py_s
     py_s = bytes(str(o))
     return xstrdup(py_s)
+
+cdef bytes err_to_py(hdfs_error error):
+    return bytes("%s: %s" % (<char*>hdfs_error_str_kind(error), <char*>hdfs_error_str(error)))
 
 # Exceptions from pydoofus
 class DisconnectException(Exception):
@@ -1220,7 +1223,7 @@ cdef class rpc:
 
         cdef char* c_addr = addr
         cdef char* c_port = "8020"
-        cdef const_char* err
+        cdef hdfs_error err
         cdef bytes py_err
 
         if port is not None:
@@ -1231,8 +1234,8 @@ cdef class rpc:
         hdfs_namenode_set_version(&self.nn, c_pr)
         with nogil:
             err = hdfs_namenode_connect(&self.nn, c_addr, c_port)
-        if err is not NULL:
-            py_err = const_str_to_py(err)
+        if hdfs_is_error(err):
+            py_err = err_to_py(err)
             raise socket.error(errno.ECONNREFUSED, py_err)
 
         cdef char* c_user = user
@@ -1243,8 +1246,8 @@ cdef class rpc:
 
         with nogil:
             err = hdfs_namenode_authenticate_full(&self.nn, c_user, c_realuser)
-        if err is not NULL:
-            py_err = const_str_to_py(err)
+        if hdfs_is_error(err):
+            py_err = err_to_py(err)
             raise socket.error(errno.EPIPE, py_err)
 
         # pydoofus checks getProtocolVersion(), we should too.
@@ -2341,13 +2344,13 @@ cdef class data:
         cdef hdfs_datanode* dn
         cdef int c_proto = self.protocol
         cdef char* c_client = self.client
-        cdef const_char* err = NULL
+        cdef hdfs_error err
 
         with nogil:
             dn = hdfs_datanode_new(self.orig_lb, c_client, c_proto, &err)
         if dn is NULL:
             raise ValueError("Failed to create datanode connection: %s" % \
-                    const_str_to_py(err))
+                    err_to_py(err))
         self.dn = dn
 
     def __dealloc__(self):
@@ -2395,7 +2398,7 @@ cdef class data:
         Caveat: If you pass a file object for data, you must give us
                 maxlen so we know where the last packet is!
         """
-        cdef const_char* err
+        cdef hdfs_error err
         cdef char* inp
         cdef int fd
         cdef int towrite
@@ -2410,9 +2413,9 @@ cdef class data:
                 towrite = maxlen
             with nogil:
                 err = hdfs_datanode_write(self.dn, inp, towrite, sendcrcs)
-            if err is not NULL:
-                err_s = const_str_to_py(err)
-                if err_s == "EOS":
+            if hdfs_is_error(err):
+                err_s = err_to_py(err)
+                if err.her_kind is clowlevel.he_hdfserr and err.her_num is clowlevel.HDFS_ERR_END_OF_STREAM:
                     raise DisconnectException(err_s)
                 raise Exception(err_s)
         elif type(data) is file:
@@ -2426,9 +2429,9 @@ cdef class data:
 
             with nogil:
                 err = hdfs_datanode_write_file(self.dn, fd, maxlen, offset, sendcrcs)
-            if err is not NULL:
-                err_s = const_str_to_py(err)
-                if err_s == "EOS":
+            if hdfs_is_error(err):
+                err_s = err_to_py(err)
+                if err.her_kind is clowlevel.he_hdfserr and err.her_num is clowlevel.HDFS_ERR_END_OF_STREAM:
                     raise DisconnectException(err_s)
                 raise Exception(err_s)
         else:
@@ -2451,7 +2454,7 @@ cdef class data:
 
         Ex: dn.read() -> "AAAAAAAAAAAAa..."
         """
-        cdef const_char* err
+        cdef hdfs_error err
         cdef bytes res = PyBytes_FromStringAndSize(NULL, self.size)
         cdef char* buf = <char*>res
         cdef bytes err_s
@@ -2461,15 +2464,16 @@ cdef class data:
         with nogil:
             err = hdfs_datanode_read(self.dn, 0, self.size, buf, verifycrcs)
 
-        if verifycrcs and err is clowlevel.DATANODE_ERR_NO_CRCS:
+        if verifycrcs and err.her_kind is clowlevel.he_hdfserr and \
+                err.her_num is clowlevel.HDFS_ERR_DATANODE_NO_CRCS:
             hdfs_datanode_delete(self.dn)
             self.dn = NULL
             self.init()
             err = hdfs_datanode_read(self.dn, 0, self.size, buf, False)
 
-        if err is not NULL:
-            err_s = const_str_to_py(err)
-            if err_s == "EOS":
+        if hdfs_is_error(err):
+            err_s = err_to_py(err)
+            if err.her_kind is clowlevel.he_hdfserr and err.her_num is clowlevel.HDFS_ERR_END_OF_STREAM:
                 raise DisconnectException(err_s)
             raise Exception(err_s)
 

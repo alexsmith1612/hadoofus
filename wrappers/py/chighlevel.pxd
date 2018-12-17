@@ -1,11 +1,11 @@
 from libc.stdint cimport int64_t, uint16_t, int16_t
 from libc.string cimport const_char
 
-from clowlevel cimport hdfs_namenode, hdfs_datanode, const_char, hdfs_kerb
+from clowlevel cimport hdfs_namenode, hdfs_namenode_proto, hdfs_datanode, hdfs_error, hdfs_kerb
 from cobjects cimport hdfs_object, hdfs_object_type
 
 cdef extern from "hadoofus/highlevel.h":
-    hdfs_namenode *hdfs_namenode_new(const_char *host, const_char *port, const_char *username, hdfs_kerb, const_char **error_out)
+    hdfs_namenode *hdfs_namenode_new_version(const_char *host, const_char *port, const_char *username, hdfs_kerb, hdfs_namenode_proto, hdfs_error *error_out)
     void hdfs_namenode_delete(hdfs_namenode *n)
     bint hdfs_object_is_null(hdfs_object *o)
     hdfs_object_type hdfs_null_type(hdfs_object *o)
@@ -56,5 +56,5 @@ cdef extern from "hadoofus/highlevel.h":
     void hdfs2_createSymlink(hdfs_namenode *n, const_char *target, const_char *link, int16_t dirperms, bint createparent, hdfs_object **exception_out) nogil
     hdfs_object *hdfs2_getLinkTarget(hdfs_namenode *n, const_char *path, hdfs_object **exception_out) nogil
 
-    hdfs_datanode *hdfs_datanode_new(hdfs_object *located_block, const_char *client, int proto, const_char **error_out) nogil
+    hdfs_datanode *hdfs_datanode_new(hdfs_object *located_block, const_char *client, int proto, hdfs_error *error_out) nogil
     void hdfs_datanode_delete(hdfs_datanode *) nogil
