@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <err.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <check.h>
@@ -15,11 +16,21 @@
 
 const char *H_ADDR, *H_USER = "root";
 
+static const char *
+format_error(struct hdfs_error error)
+{
+	static char buf[1024];
+
+	snprintf(buf, sizeof(buf), "%s:%s", hdfs_error_str_kind(error),
+	    hdfs_error_str(error));
+	return buf;
+}
+
 int
 main(int argc, char **argv)
 {
 	int64_t proto_ver;
-	const char *err;
+	struct hdfs_error error;
 	struct hdfs_namenode *nn;
 	struct hdfs_object *exception = NULL;
 	bool success = true;
@@ -49,11 +60,12 @@ main(int argc, char **argv)
 	}
 
 	// Test basic connectivity
-	nn = hdfs_namenode_new(H_ADDR, "8020", "root", HDFS_NO_KERB, &err);
+	nn = hdfs_namenode_new_version(H_ADDR, "8020", "root", HDFS_NO_KERB,
+	    HDFS_NN_v1, &error);
 	if (!nn)
 		errx(EXIT_FAILURE,
 		    "Could not connect to namenode %s: %s",
-		    H_ADDR, err);
+		    H_ADDR, format_error(error));
 
 	// And verify liveness at a protocol level
 	proto_ver = hdfs_getProtocolVersion(nn, HADOOFUS_CLIENT_PROTOCOL_STR,
