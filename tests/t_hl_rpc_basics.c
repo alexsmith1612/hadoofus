@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <check.h>
 
 #include <hadoofus/highlevel.h>
@@ -6,16 +8,26 @@
 
 static struct hdfs_namenode *h;
 
+static const char *
+format_error(struct hdfs_error error)
+{
+	static char buf[1024];
+
+	snprintf(buf, sizeof(buf), "%s:%s", hdfs_error_str_kind(error),
+	    hdfs_error_str(error));
+	return buf;
+}
+
 static void
 _setup(enum hdfs_namenode_proto vers)
 {
-	const char *err = NULL;
+	struct hdfs_error error;
 
 	h = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
-	    vers, &err);
+	    vers, &error);
 	ck_assert_msg((intptr_t)h,
 	    "Could not connect to %s=%s @ %s=%s (port 8020): %s",
-	    HDFS_T_USER, H_USER, HDFS_T_ENV, H_ADDR, err);
+	    HDFS_T_USER, H_USER, HDFS_T_ENV, H_ADDR, format_error(error));
 }
 
 static void
