@@ -90,7 +90,7 @@ _imin(int a, int b)
 hdfsFS
 hdfsConnectAsUser(const char* host, tPort port, const char *user)
 {
-	const char *err = NULL;
+	struct hdfs_error error;
 	char sport[40];
 	bool port_set = false;
 	struct hdfs_namenode *nn;
@@ -118,9 +118,11 @@ hdfsConnectAsUser(const char* host, tPort port, const char *user)
 	if (!port_set)
 		sprintf(sport, "%d", port);
 
-	nn = hdfs_namenode_new(host, sport, user, HDFS_NO_KERB, &err);
+	nn = hdfs_namenode_new_version(host, sport, user, HDFS_NO_KERB,
+	    HDFS_NN_v1, &error);
 	if (!nn) {
-		ERR(ECONNABORTED, "%s", err);
+		ERR(ECONNABORTED, "%s: %s", hdfs_error_str_kind(error),
+		    hdfs_error_str(error));
 		return NULL;
 	}
 
@@ -498,7 +500,7 @@ hdfsPread(hdfsFS fs, hdfsFile file, tOffset position, void* buffer, tSize length
 	// We may need to read multiple blocks to satisfy the read
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl = bls->ob_val._located_blocks._blocks[i];
-		const char *err = NULL;
+		struct hdfs_error error;
 
 		int64_t blbegin = 0,
 			blend = bl->ob_val._located_block._len,
@@ -511,9 +513,10 @@ hdfsPread(hdfsFS fs, hdfsFile file, tOffset position, void* buffer, tSize length
 		if (bloff >= position + length)
 			break;
 
-		dn = hdfs_datanode_new(bl, f->fi_client, HDFS_DATANODE_AP_1_0, &err);
+		dn = hdfs_datanode_new(bl, f->fi_client, HDFS_DATANODE_AP_1_0, &error);
 		if (!dn) {
-			ERR(EIO, "Error connecting to datanode: %s", err);
+			ERR(EIO, "Error connecting to datanode: %s: %s",
+			    hdfs_error_str_kind(error), hdfs_error_str(error));
 			goto out;
 		}
 
@@ -523,32 +526,35 @@ hdfsPread(hdfsFS fs, hdfsFile file, tOffset position, void* buffer, tSize length
 		if (bloff + blend > position + length)
 			blend = position + length - bloff;
 
-		err = hdfs_datanode_read(dn, blbegin/* offset in block */,
+		error = hdfs_datanode_read(dn, blbegin/* offset in block */,
 		    blend - blbegin/* len */, buffer, verifycrcs);
 
 		// Disable crc verification if the server doesn't support them
-		if (err == HDFS_DATANODE_ERR_NO_CRCS) {
+		if (error.her_kind == he_hdfserr && error.her_num == HDFS_ERR_DATANODE_NO_CRCS) {
 			WARN("Server doesn't support CRCs, cannot verify integrity");
 			verifycrcs = false;
-			err = NULL;
+			error = HDFS_SUCCESS;
 
 			// Re-connect to datanode to retry read without CRC
 			// verification:
 			hdfs_datanode_delete(dn);
-			dn = hdfs_datanode_new(bl, f->fi_client, HDFS_DATANODE_AP_1_0, &err);
+			dn = hdfs_datanode_new(bl, f->fi_client, HDFS_DATANODE_AP_1_0, &error);
 			if (!dn) {
-				ERR(EIO, "Error connecting to datanode: %s", err);
+				ERR(EIO, "Error connecting to datanode: %s: %s",
+				    hdfs_error_str_kind(error),
+				    hdfs_error_str(error));
 				goto out;
 			}
 
-			err = hdfs_datanode_read(dn, blbegin/* offset in block */,
+			error = hdfs_datanode_read(dn, blbegin/* offset in block */,
 			    blend - blbegin/* len */, buffer, verifycrcs);
 		}
 
 		hdfs_datanode_delete(dn);
 
-		if (err) {
-			ERR(EIO, "Error during read: %s", err);
+		if (hdfs_is_error(error)) {
+			ERR(EIO, "Error during read: %s: %s",
+			    hdfs_error_str_kind(error), hdfs_error_str(error));
 			goto out;
 		}
 
@@ -1424,7 +1430,8 @@ _flush(struct hdfs_namenode *fs, struct hdfsFile_internal *f, const void *buf, s
 	struct hdfs_object *lb = NULL, *ex = NULL, *excl = NULL, *block = NULL;
 	struct hdfs_datanode *dn = NULL;
 	int res = 0, tries = 3;
-	const char *err = NULL, *msg_fmt;
+	const char *msg_fmt;
+	struct hdfs_error error = HDFS_SUCCESS;
 
 	const char *wbuf = f->fi_wbuf;
 	size_t wbuf_len = f->fi_wbuf_used;
@@ -1460,25 +1467,27 @@ _flush(struct hdfs_namenode *fs, struct hdfsFile_internal *f, const void *buf, s
 		}
 
 		msg_fmt = "connect to datanode failed";
-		dn = hdfs_datanode_new(lb, f->fi_client, HDFS_DATANODE_AP_1_0, &err);
+		dn = hdfs_datanode_new(lb, f->fi_client, HDFS_DATANODE_AP_1_0, &error);
 		if (!dn)
 			goto dn_failed;
 
 		msg_fmt = "write failed";
-		err = hdfs_datanode_write(dn, wbuf, wbuf_len, true/*crcs*/);
+		error = hdfs_datanode_write(dn, wbuf, wbuf_len, true/*crcs*/);
 		hdfs_datanode_delete(dn);
-		if (!err)
+		if (!hdfs_is_error(error))
 			break;
 
 dn_failed:
 		// On failure, either warn and try again, or give up
 		if (tries == 1) {
-			ERR(ECONNREFUSED, "%s: %s%s", msg_fmt, err, "");
+			ERR(ECONNREFUSED, "%s: %s: %s", msg_fmt,
+			    hdfs_error_str_kind(error), hdfs_error_str(error));
 			res = -1;
 			goto out;
 		}
 
-		WARN("%s: %s%s", msg_fmt, err, ", retrying");
+		WARN("%s: %s: %s%s", msg_fmt, hdfs_error_str_kind(error),
+		    hdfs_error_str(error), ", retrying");
 
 		block = hdfs_block_from_located_block(lb);
 		hdfs_abandonBlock(fs, block, f->fi_path, f->fi_client, &ex);
