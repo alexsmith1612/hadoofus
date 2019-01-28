@@ -580,6 +580,7 @@ _namenode_recv_worker(void *v_nn)
 	struct _hdfs_result *result;
 	struct hdfs_rpc_response_future *future;
 	struct hdfs_namenode *n = v_nn;
+	struct hdfs_error herror;
 
 	error = 0;
 
@@ -592,8 +593,10 @@ _namenode_recv_worker(void *v_nn)
 		sock = n->nn_sock;
 
 		// If hdfs_namenode_destroy() happened, die:
-		if (n->nn_dead && n->nn_refs == 0)
+		if (n->nn_dead) {
+			herror = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
 			break;
+		}
 
 		_unlock(&n->nn_lock);
 		nnlocked = false;
@@ -638,37 +641,36 @@ _namenode_recv_worker(void *v_nn)
 
 			r = recv(sock, n->nn_recvbuf + n->nn_recvbuf_used,
 			    remain, MSG_DONTWAIT);
-			if (r == 0)
+			if (r == 0) {
+				herror = error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 				goto out;
+			}
 			if (r > 0) {
 				n->nn_recvbuf_used += r;
 				if (n->nn_sasl_ssf > 0)
 					_conn_try_desasl(n);
 			} else {
-				int serrno;
-
-				serrno = errno;
-				if (errno == EAGAIN || errno == EWOULDBLOCK) {
-					struct pollfd pfds[] = { {
-						.fd = sock,
-						.events = POLLIN,
-					}, {
-						.fd = n->nn_recv_sigpipe[0],
-						.events = POLLIN,
-					} };
-					int rc;
-
-					do {
-						rc = poll(pfds, nelem(pfds),
-						    -1 /* infinite */);
-					} while (rc < 0 && errno == EINTR);
-					ASSERT(rc > 0);
-
-					continue;
+				if (errno != EAGAIN && errno != EWOULDBLOCK) {
+					// bail on socket errors
+					error = errno;
+					herror = error_from_errno(error);
+					goto out;
 				}
-				// bail on socket errors
-				error = serrno;
-				goto out;
+
+				struct pollfd pfds[] = { {
+					.fd = sock,
+					.events = POLLIN,
+				}, {
+					.fd = n->nn_recv_sigpipe[0],
+					.events = POLLIN,
+				} };
+				int rc;
+
+				do {
+					rc = poll(pfds, nelem(pfds),
+					    -1 /* infinite */);
+				} while (rc < 0 && errno == EINTR);
+				ASSERT(rc > 0);
 			}
 			continue;
 		}
@@ -676,6 +678,7 @@ _namenode_recv_worker(void *v_nn)
 		if (result == _HDFS_INVALID_PROTO) {
 			// bail on protocol errors
 			error = EBADMSG;
+			herror = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 			goto out;
 		}
 
@@ -713,8 +716,7 @@ out:
 		struct hdfs_object *obj;
 
 		future = n->nn_pending[i].pd_future;
-		obj = hdfs_protocol_exception_new(H_PROTOCOL_EXCEPTION,
-		    "socket error");
+		obj = hdfs_pseudo_exception_new(herror);
 		_future_complete(future, obj);
 	}
 	n->nn_pending_len = 0;
