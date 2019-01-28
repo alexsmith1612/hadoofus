@@ -434,34 +434,36 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,				\
 	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield))
 
+#define _DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield, nullctor)	\
+	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,					\
+		if (resp->respfield != NULL) {						\
+			result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield);	\
+		} else {								\
+			result = nullctor;					\
+		}									\
+	)
+
+#define DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield, htype)	\
+	_DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield,	\
+	    hdfs_null_new(htype))
+
+#define DECODE_PB_VOIDABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+	_DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield,	\
+	    hdfs_void_new())
+
 #define DECODE_PB_VOID(lowerCamel, CamelCase, lower_case)		\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,			\
 	    result = hdfs_void_new())
 
 
 DECODE_PB(getServerDefaults, GetServerDefaults, get_server_defaults, fsserverdefaults, serverdefaults)
-DECODE_PB(getListing, GetListing, get_listing, directory_listing, dirlist)
-DECODE_PB(getBlockLocations, GetBlockLocations, get_block_locations, located_blocks, locations)
-#if 0
-DECODE_PB_EX(create, Create, create,
-	/* HDFSv2.2+ returns a FileStatus, while 2.0.x returns void. */
-	if (resp->fs)
-		result = _hdfs_file_status_new_proto(resp->fs);
-	else
-		result = hdfs_void_new())
-#else
-/*
- * The HDFSv1 routine returns void, so we can't return a FileStatus even though
- * v2.2+ provide it.
- */
-DECODE_PB_VOID(create, Create, create)
-#endif
+DECODE_PB_NULLABLE(getListing, GetListing, get_listing, directory_listing, dirlist, H_DIRECTORY_LISTING)
+DECODE_PB_NULLABLE(getBlockLocations, GetBlockLocations, get_block_locations, located_blocks, locations, H_LOCATED_BLOCKS)
+/* HDFSv2.2+ returns a FileStatus, while 2.0.x and 1.x return void. */
+DECODE_PB_VOIDABLE(create, Create, create, file_status, fs)
 DECODE_PB(delete, Delete, delete, boolean, result)
-DECODE_PB_EX(append, Append, append,
-	if (resp->block)
-		result = _hdfs_located_block_new_proto(resp->block);
-	else
-		result = hdfs_null_new(H_LOCATED_BLOCK))
+DECODE_PB_NULLABLE(append, Append, append, located_block, block,
+    H_LOCATED_BLOCK);
 DECODE_PB(setReplication, SetReplication, set_replication, boolean, result)
 DECODE_PB_VOID(setPermission, SetPermission, set_permission)
 DECODE_PB_VOID(setOwner, SetOwner, set_owner)
@@ -476,8 +478,8 @@ DECODE_PB(getContentSummary, GetContentSummary, get_content_summary, content_sum
 DECODE_PB_VOID(setQuota, SetQuota, set_quota)
 DECODE_PB_VOID(fsync, Fsync, fsync)
 DECODE_PB_VOID(setTimes, SetTimes, set_times)
-DECODE_PB(getFileInfo, GetFileInfo, get_file_info, file_status, fs)
-DECODE_PB(getFileLinkInfo, GetFileLinkInfo, get_file_link_info, file_status, fs)
+DECODE_PB_NULLABLE(getFileInfo, GetFileInfo, get_file_info, file_status, fs, H_FILE_STATUS)
+DECODE_PB_NULLABLE(getFileLinkInfo, GetFileLinkInfo, get_file_link_info, file_status, fs, H_FILE_STATUS)
 DECODE_PB_VOID(createSymlink, CreateSymlink, create_symlink)
 DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
 	result = hdfs_string_new(resp->targetpath))
