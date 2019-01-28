@@ -111,7 +111,8 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO] = "bad protocol: could not decode BlockOpResponseProto",
 	[HDFS_ERR_INVALID_PACKETHEADERPROTO] = "bad protocol: could not decode PacketHeaderProto",
 	[HDFS_ERR_INVALID_PIPELINEACKPROTO] = "bad protocol: could not decode PipelineAckProto",
-	[HDFS_ERR_V1_DATANODE_PROTOCOL] = "Invalid protocol data",
+	[HDFS_ERR_V1_DATANODE_PROTOCOL] = "invalid Datanode protocol data",
+	[HDFS_ERR_NAMENODE_PROTOCOL] = "could not parse response from Namenode",
 
 	[HDFS_ERR_INVALID_DN_OPRESP_MSG] = "successful datanode operation had non-empty error message",
 	[HDFS_ERR_DATANODE_PACKET_SIZE] = "got bogus packet size",

@@ -9,6 +9,116 @@
 #define HADOOFUS_CLIENT_PROTOCOL_STR "org.apache.hadoop.hdfs.protocol.ClientProtocol"
 #define _HDFS_CLIENT_ID_LEN 16
 
+enum hdfs_error_kind {
+	he_errno,
+	he_gaierr,
+	he_saslerr,
+	he_hdfserr,
+};
+#define _he_num_kinds (he_hdfserr + 1)
+
+#define _HDFS_ERR_MINIMUM HDFS_ERR_END_OF_STREAM
+enum hdfs_error_numeric {
+	// I.e., remote end closed the TCP connection or middleman injected
+	// RST.
+	HDFS_ERR_END_OF_STREAM = 1,
+	// Input file shorter than expected, or unexpected zero write(2)ing
+	// output.
+	HDFS_ERR_END_OF_FILE,
+
+	// Programmer misuse of API
+	HDFS_ERR_NAMENODE_UNCONNECTED,
+	HDFS_ERR_NAMENODE_UNAUTHENTICATED,
+
+	// Error returned on reads if the user requested CRC validation but the
+	// server did not transmit CRCs.
+	HDFS_ERR_DATANODE_NO_CRCS,
+	// Need at least one datanode to connect, obviously.
+	HDFS_ERR_ZERO_DATANODES,
+
+// Direct translations of Datanode STATUS codes.  More information may be
+// available in the hdfs_datanode_opresult_message (optionally provided by HDFS
+// datanode).  If no message was provided, the pointer will be NULL.
+	HDFS_ERR_DN_ERROR,
+	HDFS_ERR_DN_ERROR_CHECKSUM,
+	HDFS_ERR_DN_ERROR_INVALID,
+	HDFS_ERR_DN_ERROR_EXISTS,
+	HDFS_ERR_DN_ERROR_ACCESS_TOKEN,
+	// Or STATUS code not recognized by libhadoofus; check
+	// hdfs_datanode_unknown_status to determine value.
+	HDFS_ERR_UNRECOGNIZED_DN_ERROR,
+	// STATUS code was recognized, but not valid in the scenario.  The
+	// value can be checked with hdfs_datanode_unknown_status.
+	HDFS_ERR_INVALID_DN_ERROR,
+
+// Protocol encoding errors
+	// HDFS wire messages are prefixed with a length.  That length is
+	// itself variable in length.  This error means the encoding of that
+	// length prefix was erroneous.
+	HDFS_ERR_INVALID_VLINT,
+	// Protobuf decode failures:
+	HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO,
+	HDFS_ERR_INVALID_PACKETHEADERPROTO,
+	HDFS_ERR_INVALID_PIPELINEACKPROTO,
+	// v1 DN wire protocol errors
+	HDFS_ERR_V1_DATANODE_PROTOCOL,
+
+	// Other namenode protocol response parsing failures
+	HDFS_ERR_NAMENODE_PROTOCOL,
+
+// Other protocol errors
+	// A SUCCESS OpRes had a message attached; as usual, the message can be
+	// found in hdfs_datanode_opresult_message.
+	HDFS_ERR_INVALID_DN_OPRESP_MSG,
+	HDFS_ERR_DATANODE_PACKET_SIZE,
+	// The packet's expressed CRCs length doesn't match the data length
+	HDFS_ERR_DATANODE_CRC_LEN,
+	// We got a non-zero CRCs length when we didn't expect CRCs
+	HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN,
+	HDFS_ERR_DATANODE_UNEXPECTED_READ_OFFSET,
+	HDFS_ERR_DATANODE_BAD_CHECKSUM,
+	HDFS_ERR_DATANODE_BAD_SEQNO,
+	// Packet ACK count did not match the number of datanodes in the
+	// pipeline
+	HDFS_ERR_DATANODE_BAD_ACK_COUNT,
+	// Last packet flag set when we expected more packets
+	HDFS_ERR_DATANODE_BAD_LASTPACKET,
+	// Kerberos downgrade attempt when client requested enforcing mode;
+	// possible MITM attack.
+	HDFS_ERR_KERBEROS_DOWNGRADE,
+	// Unexpected and unhandled error negotiating kerberos
+	HDFS_ERR_KERBEROS_NEGOTIATION,
+	_HDFS_ERR_END
+};
+#define _HDFS_ERR_MAXIMUM (_HDFS_ERR_END - 1)
+
+#define _HE_KIND_BITS 2
+#define _HE_NUM_BITS (32 - _HE_KIND_BITS)
+struct hdfs_error {
+	enum hdfs_error_kind her_kind : _HE_KIND_BITS;
+	int her_num : _HE_NUM_BITS;
+};
+_Static_assert((1 << _HE_KIND_BITS) >= _he_num_kinds,
+    "if we grow more kinds of error, we need to expand the width of her_kind");
+_Static_assert(sizeof(struct hdfs_error) == sizeof(uint32_t),
+    "for now, attempt to return a 32-bit value for 32-bit platforms where a "
+    "64-bit return is slightly more expenisve");
+
+#define HDFS_SUCCESS	(struct hdfs_error) {}
+
+// Return true if the struct represents an unsucessful result.
+static inline bool
+hdfs_is_error(struct hdfs_error herr)
+{
+	return (herr.her_kind != 0 || herr.her_num != 0);
+}
+
+// Return a string representation of hdfs_error::her_kind.
+const char *hdfs_error_str_kind(struct hdfs_error);
+
+// Return a string representation of hdfs_error::her_num.
+const char *hdfs_error_str(struct hdfs_error);
+
 enum hdfs_kerb {
 	HDFS_NO_KERB,      // plaintext username (default)
 	HDFS_TRY_KERB,     // attempt kerb, but allow fallback to plaintext
@@ -102,6 +212,9 @@ enum hdfs_object_type {
 	H_SASL_EXCEPTION,
 	H_RPC_EXCEPTION,
 	H_RPC_NO_SUCH_METHOD_EXCEPTION,
+	/* Namenode recv_worker encountered an error, or was destroyed. */
+	H_HADOOFUS_RPC_ABORTED,
+
 	_H_END,
 	_H_INVALID = _H_END,
 };
@@ -303,7 +416,10 @@ struct hdfs_fsserverdefaults {
 };
 
 struct hdfs_exception {
-	char *_msg;
+	union {
+		char *_msg;
+		struct hdfs_error _error;
+	};
 	enum hdfs_object_type _etype;
 };
 
@@ -379,6 +495,8 @@ struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
 			const char * /*user*/, const char * /*real user*/,
 			enum hdfs_kerb);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
+struct hdfs_object *	hdfs_pseudo_exception_new(struct hdfs_error);
+struct hdfs_error	hdfs_pseudo_exception_get_error(const struct hdfs_object *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
 struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,
