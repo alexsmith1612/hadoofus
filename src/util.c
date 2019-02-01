@@ -70,6 +70,9 @@ assert_fail(const char *fmt, ...)
 	nframes = backtrace(stack, nelem(stack));
 	backtrace_symbols_fd(stack, nframes, fileno(stderr));
 
+	/* Dump core and exit with signal status. */
+	abort();
+	/* If SIGABRT is masked, go ahead and exit. */
 	exit(EX_SOFTWARE);
 }
 
