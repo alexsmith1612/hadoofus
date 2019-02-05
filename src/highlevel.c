@@ -62,6 +62,9 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	struct hdfs_object *rpc, *object; \
 	struct hdfs_error error; \
 \
+	_Static_assert(htype >= _H_START && htype < _H_V2_MAX, \
+	    "htype must be a valid type"); \
+\
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
 	rpc = hdfs_rpc_invocation_new( \
@@ -81,11 +84,13 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	if (object->ob_type == H_PROTOCOL_EXCEPTION) { \
 		*exception_out = object; \
 		return dflt ; \
-	} else { \
-		result; \
-		hdfs_object_free(object); \
-		return retval; \
 	} \
+\
+	*exception_out = NULL; \
+\
+	result; \
+	hdfs_object_free(object); \
+	return retval; \
 }
 
 _HDFS_PRIM_RPC_DECL(int64_t, getProtocolVersion,
@@ -103,11 +108,16 @@ _HDFS_PRIM_RPC_BODY(getProtocolVersion,
 EXPORT_SYM struct hdfs_object * \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
-#define _HDFS_OBJ_RPC_BODY(name, htype, args...) \
+#define _HDFS_OBJ_RPC_BODY_IMPL(name, void_ok, htype, args...) \
 { \
 	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc, *object; \
 	struct hdfs_error error; \
+\
+	_Static_assert(void_ok == true || void_ok == false, \
+	    "void_ok must be bool"); \
+	_Static_assert(htype >= _H_START && htype < _H_V2_MAX, \
+	    "htype must be a valid type"); \
 \
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
@@ -123,7 +133,8 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	hdfs_future_get(&future, &object); \
 \
 	ASSERT(object->ob_type == htype || \
-	    (object->ob_type == H_NULL && object->ob_val._null._type == htype ) || \
+	    (object->ob_type == H_NULL && object->ob_val._null._type == htype) || \
+	    (void_ok && object->ob_type == H_VOID) || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \
 	if (object->ob_type == H_PROTOCOL_EXCEPTION) { \
@@ -131,8 +142,18 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 		return NULL; \
 	} \
 \
+	*exception_out = NULL; \
+\
+	if (object->ob_type == H_NULL || \
+	    (void_ok && object->ob_type == H_VOID)) { \
+		hdfs_object_free(object); \
+		object = NULL; \
+	} \
+\
 	return object; \
 }
+
+#define _HDFS_OBJ_RPC_BODY(name, htype, args...) _HDFS_OBJ_RPC_BODY_IMPL(name, false, htype, ## args)
 
 _HDFS_OBJ_RPC_DECL(getBlockLocations,
 	const char *path, int64_t offset, int64_t length)
@@ -143,15 +164,13 @@ _HDFS_OBJ_RPC_BODY(getBlockLocations,
 	hdfs_long_new(length)
 )
 
-_HDFS_PRIM_RPC_DECL(void, create,
+_HDFS_OBJ_RPC_DECL(create,
 	const char *path, uint16_t perms, const char *clientname,
 	bool overwrite, bool create_parent, int16_t replication,
 	int64_t blocksize)
-_HDFS_PRIM_RPC_BODY(create,
-	H_VOID,
-	,
-	,
-	,
+_HDFS_OBJ_RPC_BODY_IMPL(create,
+	true,
+	H_FILE_STATUS,
 	hdfs_string_new(path),
 	hdfs_fsperms_new(perms),
 	hdfs_string_new(clientname),
