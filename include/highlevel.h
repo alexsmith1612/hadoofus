@@ -79,13 +79,15 @@ hdfs_exception_get_message(struct hdfs_object *o)
 //
 // TODO: borrow individual routine documentation from pyhdfs
 //
-// These routines set exception_out on exception; callers should check this
-// first. When an RPC sets exception_out, the return value is undefined.
+// These routines set *exception_out on exception; callers should check this
+// first. When an RPC sets *exception_out, the return value is undefined.
 // (Callers are responsible for freeing the exception object.)
 //
 // When these routines return an hdfs_object, the caller is responsible for
-// freeing it. The hdfs_object will be an H_NULL value or the expected type for
-// the given RPC.
+// freeing it. The hdfs_object will be the expected type for the given RPC.
+//
+// Some routine may return NULL and set *exception_out to NULL. This indicates
+// a successful RPC invocation, with NULL or no result.
 //
 
 int64_t			hdfs_getProtocolVersion(struct hdfs_namenode *,
@@ -95,7 +97,8 @@ int64_t			hdfs_getProtocolVersion(struct hdfs_namenode *,
 struct hdfs_object *	hdfs_getBlockLocations(struct hdfs_namenode *, const char *path,
 			int64_t offset, int64_t length, struct hdfs_object **exception_out);
 
-void			hdfs_create(struct hdfs_namenode *, const char *path,
+// 'void' prior to v2.2, and result will always be NULL for those versions.
+struct hdfs_object *	hdfs_create(struct hdfs_namenode *, const char *path,
 			uint16_t perms, const char *clientname, bool overwrite,
 			bool create_parent, int16_t replication, int64_t blocksize,
 			struct hdfs_object **exception_out);

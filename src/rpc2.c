@@ -447,10 +447,6 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 	_DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield,	\
 	    hdfs_null_new(htype))
 
-#define DECODE_PB_VOIDABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
-	_DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield,	\
-	    hdfs_void_new())
-
 #define DECODE_PB_VOID(lowerCamel, CamelCase, lower_case)		\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,			\
 	    result = hdfs_void_new())
@@ -459,8 +455,14 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
 DECODE_PB(getServerDefaults, GetServerDefaults, get_server_defaults, fsserverdefaults, serverdefaults)
 DECODE_PB_NULLABLE(getListing, GetListing, get_listing, directory_listing, dirlist, H_DIRECTORY_LISTING)
 DECODE_PB_NULLABLE(getBlockLocations, GetBlockLocations, get_block_locations, located_blocks, locations, H_LOCATED_BLOCKS)
-/* HDFSv2.2+ returns a FileStatus, while 2.0.x and 1.x return void. */
-DECODE_PB_VOIDABLE(create, Create, create, file_status, fs)
+/*
+ * HDFSv2.2+ returns a FileStatus, while 2.0.x and 1.x return void.
+ *
+ * This is represented in the shared protobuf as a NULL 'fs'.  Also, the same
+ * high-level wrapper is used across all versions, so we represent void in
+ * earlier versions as a return value of (FileStatus *)NULL.
+ */
+DECODE_PB_NULLABLE(create, Create, create, file_status, fs, H_FILE_STATUS)
 DECODE_PB(delete, Delete, delete, boolean, result)
 DECODE_PB_NULLABLE(append, Append, append, located_block, block,
     H_LOCATED_BLOCK);
