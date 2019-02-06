@@ -25,18 +25,14 @@ struct hdfs_namenode;
 struct _hdfs_pending;
 struct hdfs_rpc_response_future;
 
-typedef void (*hdfs_namenode_destroy_cb)(struct hdfs_namenode *);
-
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
 	char *nn_recvbuf,
 	     *nn_objbuf;
-	hdfs_namenode_destroy_cb nn_destroy_cb;
 	struct _hdfs_pending *nn_pending;
 	sasl_conn_t *nn_sasl_ctx;
-	int nn_refs,
-	    nn_sock,
+	int nn_sock,
 	    nn_pending_len,
 	    nn_sasl_ssf;
 	enum hdfs_kerb nn_kerb;
@@ -116,11 +112,11 @@ struct hdfs_error	hdfs_namenode_authenticate_full(struct hdfs_namenode *,
 
 int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
 
-// The caller must initialize the future object before invoking the rpc. Once
-// this routine is called, the future belongs to this library until one of two
-// things happens:
+// The caller must initialize the input future object before invoking the rpc.
+// Once this routine is called, the future belongs to the library until one of
+// two things happens:
 //   1) hdfs_future_get() on that future returns, or:
-//   2) hdfs_namenode_destroy()'s user callback is invoked.
+//   2) the caller cancels the future by invoking hdfs_namenode_destroy().
 struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *,
 			struct hdfs_object *, struct hdfs_rpc_response_future *);
 
@@ -171,10 +167,12 @@ void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
 // Namenode object still owns the future.
 bool		hdfs_future_get_timeout(struct hdfs_rpc_response_future *, struct hdfs_object **, uint64_t limitms);
 
-// Destroys the connection. Note that the memory may still be in use by a child
-// thread when this function returns. However, the memory can be freed or
-// re-used when the user's callback is invoked.
-void		hdfs_namenode_destroy(struct hdfs_namenode *, hdfs_namenode_destroy_cb cb);
+// Aborts any pending completions, stops the worker thread, if any, and releases
+// resources associated with a namenode object.
+//
+// Like any other RPC cancellation, pending operations that have not been
+// acknowledged by the server are indeterminate.
+void		hdfs_namenode_destroy(struct hdfs_namenode *);
 
 //
 // Datanode operations

@@ -71,7 +71,7 @@ out:
 		    hdfs_error_str_kind(err), hdfs_error_str(err));
 
 	// Destroy any resources used by the connection
-	hdfs_namenode_destroy(&namenode, NULL);
+	hdfs_namenode_destroy(&namenode);
 
 	return hdfs_is_error(err);
 }
