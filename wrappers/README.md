@@ -1,6 +1,11 @@
 pydoofus and libhdfs
 ====================
 
+#### Python users
+
+While hadoofus can be used for Python 2 applications, Python developers may be
+better served by [Snakebite](https://github.com/spotify/snakebite/).
+
 #### Using the Python urllib2.urlopen handler
 
 ```py
