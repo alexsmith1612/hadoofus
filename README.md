@@ -4,8 +4,9 @@ hadoofus [![Build Status (travis)](https://travis-ci.org/cemeyer/hadoofus.png?br
 #### JRE-free multi-version HDFS client library
 
 The `hadoofus` project is an HDFS (Hadoop Distributed File System) client
-library. It is implemented in C and supports RPC pipelining and out-of-order
-execution. It does not require Java.
+library. Like [Snakebite](https://github.com/spotify/snakebite/), it does not
+require Java. Unlike Snakebite, hadoofus is implemented in C. It supports RPC
+pipelining and out-of-order execution.
 
 It provides a C API for directly calling Namenode RPCs and performing Datanode
 block read and write operations.
