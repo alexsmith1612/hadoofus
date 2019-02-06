@@ -14,8 +14,6 @@
 #include "rpc2-internal.h"
 #include "util.h"
 
-static struct hdfs_namenode *	_namenode_copyref_unlocked(struct hdfs_namenode *);
-static void			_namenode_decref(struct hdfs_namenode *);
 static void *			_namenode_recv_worker(void *);
 
 static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
@@ -49,12 +47,10 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
 	_mtx_init(&n->nn_lock);
 	_mtx_init(&n->nn_sendlock);
-	n->nn_refs = 1;
 	n->nn_sock = -1;
 	n->nn_dead = false;
 	n->nn_authed = false;
 	n->nn_msgno = 0;
-	n->nn_destroy_cb = NULL;
 	n->nn_pending = NULL;
 	n->nn_pending_len = 0;
 	n->nn_recver_started = false;
@@ -344,7 +340,7 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	needs_kick = false;
 
 	ASSERT(future);
-	ASSERT(!future->fu_namenode);
+	ASSERT(future->fu_inited && !future->fu_invoked);
 
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
@@ -352,7 +348,6 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	_lock(&n->nn_lock);
 	nnlocked = true;
 
-	ASSERT(n->nn_refs >= 1);
 	ASSERT(!n->nn_dead);
 
 	if (n->nn_sock == -1) {
@@ -368,7 +363,7 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	msgno = n->nn_msgno;
 	n->nn_msgno++;
 
-	future->fu_namenode = _namenode_copyref_unlocked(n);
+	future->fu_invoked = true;
 	_namenode_pending_insert_unlocked(n, msgno, future,
 	    _rpc2_slurper_for_rpc(rpc));
 
@@ -443,7 +438,7 @@ hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
 	_mtx_init(&future->fu_lock);
 	_cond_init(&future->fu_cond);
 	future->fu_res = NULL;
-	future->fu_namenode = NULL;
+	future->fu_invoked = false;
 	future->fu_inited = true;
 }
 
@@ -454,8 +449,6 @@ hdfs_rpc_response_future_clean(struct hdfs_rpc_response_future *future)
 	if (future->fu_inited) {
 		_mtx_destroy(&future->fu_lock);
 		_cond_destroy(&future->fu_cond);
-		if (future->fu_namenode != NULL)
-			_namenode_decref(future->fu_namenode);
 		memset(future, 0, sizeof *future);
 	}
 }
@@ -464,7 +457,7 @@ EXPORT_SYM void
 hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
 {
 
-	ASSERT(future->fu_inited);
+	ASSERT(future->fu_inited && future->fu_invoked);
 
 	_lock(&future->fu_lock);
 	while (!future->fu_res)
@@ -480,7 +473,7 @@ hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_obj
 {
 	uint64_t absms;
 
-	ASSERT(future->fu_inited);
+	ASSERT(future->fu_inited && future->fu_invoked);
 
 	absms = _now_ms() + ms;
 	_lock(&future->fu_lock);
@@ -497,20 +490,18 @@ hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_obj
 	return true;
 }
 
-// Caller *must not* use the namenode object after this. If 'cb' is non-null,
-// they will receive a callback when the memory is no longer used, which they
-// can use to free memory or whatever.
+// Releases and cleans resources associated with the namenode 'n'. Callers
+// *must not* use the namenode object after this, aside from free() or
+// hdfs_namenode_init().
 EXPORT_SYM void
-hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
+hdfs_namenode_destroy(struct hdfs_namenode *n)
 {
 	int rc;
 	bool thread_started;
 
 	_lock(&n->nn_lock);
-	ASSERT(n->nn_refs >= 1);
 	ASSERT(!n->nn_dead);
 	n->nn_dead = true;
-	n->nn_destroy_cb = cb;
 
 	thread_started = n->nn_recver_started;
 	if (n->nn_recver_started) {
@@ -524,53 +515,20 @@ hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 		ASSERT(rc == 0);
 	}
 
-	_namenode_decref(n);
-}
-
-// Caller must have n->nn_lock.
-static struct hdfs_namenode *
-_namenode_copyref_unlocked(struct hdfs_namenode *n)
-{
-	ASSERT(n->nn_refs >= 1);
-	n->nn_refs++;
-	return n;
-}
-
-static void
-_namenode_decref(struct hdfs_namenode *n)
-{
-	bool lastref = false;
-
-	_lock(&n->nn_lock);
-	ASSERT(n->nn_refs >= 1);
-	n->nn_refs--;
-	if (n->nn_refs == 0)
-		lastref = true;
-	_unlock(&n->nn_lock);
-
-	if (lastref) {
-		hdfs_namenode_destroy_cb dcb = NULL;
-
-		ASSERT(n->nn_dead);
-		ASSERT(!n->nn_recver_started);
-		if (n->nn_sock != -1)
-			close(n->nn_sock);
-		if (n->nn_pending)
-			free(n->nn_pending);
-		if (n->nn_recvbuf)
-			free(n->nn_recvbuf);
-		if (n->nn_objbuf)
-			free(n->nn_objbuf);
-		if (n->nn_destroy_cb)
-			dcb = n->nn_destroy_cb;
-		if (n->nn_sasl_ctx)
-			sasl_dispose(&n->nn_sasl_ctx);
-		_mtx_destroy(&n->nn_lock);
-		_mtx_destroy(&n->nn_sendlock);
-		memset(n, 0, sizeof *n);
-		if (dcb)
-			dcb(n);
-	}
+	ASSERT(!n->nn_recver_started);
+	if (n->nn_sock != -1)
+		close(n->nn_sock);
+	if (n->nn_pending)
+		free(n->nn_pending);
+	if (n->nn_recvbuf)
+		free(n->nn_recvbuf);
+	if (n->nn_objbuf)
+		free(n->nn_objbuf);
+	if (n->nn_sasl_ctx)
+		sasl_dispose(&n->nn_sasl_ctx);
+	_mtx_destroy(&n->nn_lock);
+	_mtx_destroy(&n->nn_sendlock);
+	memset(n, 0, sizeof *n);
 }
 
 static void *
@@ -708,10 +666,6 @@ out:
 		_lock(&n->nn_lock);
 	if (error != 0)
 		n->nn_error = error;
-	if (n->nn_sock >= 0) {
-		close(n->nn_sock);
-		n->nn_sock = -1;
-	}
 	n->nn_dead = true;
 	n->nn_recver_started = false;
 

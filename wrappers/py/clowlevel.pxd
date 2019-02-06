@@ -5,7 +5,6 @@ from posix.unistd cimport off_t
 from cobjects cimport hdfs_object
 
 cdef extern from "hadoofus/lowlevel.h":
-    ctypedef void (*hdfs_namenode_destroy_cb)(hdfs_namenode*)
     cdef struct hdfs_namenode:
         pass
     cdef struct _hdfs_pending:
@@ -51,7 +50,7 @@ cdef extern from "hadoofus/lowlevel.h":
     int64_t hdfs_namenode_get_msgno(hdfs_namenode *n) nogil
     hdfs_error hdfs_namenode_invoke(hdfs_namenode *n, hdfs_object *o, hdfs_rpc_response_future *f) nogil
     void hdfs_future_get(hdfs_rpc_response_future *f, hdfs_object **o_out) nogil
-    void hdfs_namenode_destroy(hdfs_namenode *n, hdfs_namenode_destroy_cb cb) nogil
+    void hdfs_namenode_destroy(hdfs_namenode *n) nogil
     void hdfs_datanode_init(hdfs_datanode *d, int64_t blkid, int64_t size, int64_t gen, int64_t offset, const_char *client, hdfs_object *token, int proto) nogil
     hdfs_error hdfs_datanode_connect(hdfs_datanode *d, const_char *host, const_char *port) nogil
     hdfs_error hdfs_datanode_write(hdfs_datanode *d, void *buf, size_t len, bint sendcrcs) nogil

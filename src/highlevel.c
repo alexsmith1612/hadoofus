@@ -47,7 +47,8 @@ out:
 EXPORT_SYM void
 hdfs_namenode_delete(struct hdfs_namenode *h)
 {
-	hdfs_namenode_destroy(h, (hdfs_namenode_destroy_cb)free);
+	hdfs_namenode_destroy(h);
+	free(h);
 }
 
 // RPC implementations

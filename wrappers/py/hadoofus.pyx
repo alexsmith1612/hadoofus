@@ -18,7 +18,7 @@ from chighlevel cimport hdfs_getProtocolVersion, hdfs_getBlockLocations, hdfs_cr
         hdfs2_getServerDefaults, hdfs2_getFileLinkInfo, hdfs2_createSymlink, \
         hdfs2_getLinkTarget
 from clowlevel cimport hdfs_namenode, hdfs_namenode_init, hdfs_namenode_destroy, \
-        hdfs_namenode_destroy_cb, hdfs_namenode_connect, hdfs_namenode_authenticate, \
+        hdfs_namenode_connect, hdfs_namenode_authenticate, \
         hdfs_datanode, hdfs_datanode_read_file, hdfs_datanode_read, hdfs_datanode_write, \
         hdfs_datanode_write_file, hdfs_datanode_connect, hdfs_namenode_get_msgno, \
         hdfs_namenode_set_version, hdfs_namenode_authenticate_full, hdfs_error, \
@@ -1189,7 +1189,7 @@ cdef class rpc:
 
     def __dealloc__(self):
         with nogil:
-            hdfs_namenode_destroy(&self.nn, NULL)
+            hdfs_namenode_destroy(&self.nn)
 
     def __init__(self, addr, protocol=HADOOP_1_0, user=None, port=None, kerb=NO_KERB, **kwargs):
         """
