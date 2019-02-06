@@ -503,12 +503,26 @@ hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_obj
 EXPORT_SYM void
 hdfs_namenode_destroy(struct hdfs_namenode *n, hdfs_namenode_destroy_cb cb)
 {
+	int rc;
+	bool thread_started;
+
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_refs >= 1);
 	ASSERT(!n->nn_dead);
 	n->nn_dead = true;
 	n->nn_destroy_cb = cb;
+
+	thread_started = n->nn_recver_started;
+	if (n->nn_recver_started) {
+		rc = write(n->nn_recv_sigpipe[1], "a", 1);
+		ASSERT(rc == 1);
+	}
 	_unlock(&n->nn_lock);
+
+	if (thread_started) {
+		rc = pthread_join(n->nn_recv_thr, NULL);
+		ASSERT(rc == 0);
+	}
 
 	_namenode_decref(n);
 }
@@ -526,7 +540,6 @@ static void
 _namenode_decref(struct hdfs_namenode *n)
 {
 	bool lastref = false;
-	int rc;
 
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_refs >= 1);
@@ -539,16 +552,7 @@ _namenode_decref(struct hdfs_namenode *n)
 		hdfs_namenode_destroy_cb dcb = NULL;
 
 		ASSERT(n->nn_dead);
-		if (n->nn_recver_started) {
-			rc = write(n->nn_recv_sigpipe[1], "a", 1);
-			ASSERT(rc == 1);
-
-			rc = pthread_join(n->nn_recv_thr, NULL);
-			ASSERT(rc == 0);
-
-			close(n->nn_recv_sigpipe[1]);
-			close(n->nn_recv_sigpipe[0]);
-		}
+		ASSERT(!n->nn_recver_started);
 		if (n->nn_sock != -1)
 			close(n->nn_sock);
 		if (n->nn_pending)
@@ -710,6 +714,11 @@ out:
 	}
 	n->nn_dead = true;
 	n->nn_recver_started = false;
+
+	close(n->nn_recv_sigpipe[1]);
+	close(n->nn_recv_sigpipe[0]);
+	n->nn_recv_sigpipe[1] = -1;
+	n->nn_recv_sigpipe[0] = -1;
 
 	/* Clear pending RPCs with an error */
 	for (i = 0; i < n->nn_pending_len; i++) {
