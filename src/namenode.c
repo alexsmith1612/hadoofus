@@ -782,12 +782,13 @@ _future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
 static int
 _getssf(sasl_conn_t *ctx)
 {
-	int *ssfp, r;
+	const void *pval;
+	int r;
 
-	r = sasl_getprop(ctx, SASL_SSF, (const void **)(void *)&ssfp);
+	r = sasl_getprop(ctx, SASL_SSF, &pval);
 	ASSERT(r == SASL_OK);
 
-	return *ssfp;
+	return *(const int *)pval;
 }
 
 static void
