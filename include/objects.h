@@ -223,11 +223,6 @@ const char *	hdfs_etype_to_string(enum hdfs_object_type e);
 
 struct hdfs_object;
 
-/*
- * Users should not use these structs directly, or even access them directly
- * out of an hdfs_object! Instead, only helper functions and generic
- * hdfs_objects should be used.
- */
 struct hdfs_void {
 };
 
