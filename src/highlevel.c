@@ -62,7 +62,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	struct hdfs_object *rpc, *object; \
 	struct hdfs_error error; \
 \
-	_Static_assert(htype >= _H_START && htype < _H_V2_MAX, \
+	_Static_assert(htype >= _H_START && htype < _H_END, \
 	    "htype must be a valid type"); \
 \
 	future.fu_inited = false; \
@@ -116,7 +116,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	_Static_assert(void_ok == true || void_ok == false, \
 	    "void_ok must be bool"); \
-	_Static_assert(htype >= _H_START && htype < _H_V2_MAX, \
+	_Static_assert(htype >= _H_START && htype < _H_END, \
 	    "htype must be a valid type"); \
 \
 	future.fu_inited = false; \

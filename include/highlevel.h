@@ -56,7 +56,7 @@ hdfs_object_is_exception(struct hdfs_object *o)
 	return o->ob_type == H_PROTOCOL_EXCEPTION;
 }
 
-static inline enum hdfs_object_type
+static inline enum hdfs_exception_type
 hdfs_exception_get_type(struct hdfs_object *o)
 {
 	assert(o);

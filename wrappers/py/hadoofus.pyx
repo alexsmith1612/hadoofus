@@ -32,6 +32,7 @@ from cobjects cimport CLIENT_PROTOCOL, hdfs_object_type, hdfs_object, hdfs_excep
         H_STRING, H_SECURITY_EXCEPTION, H_QUOTA_EXCEPTION, H_ILLEGAL_ARGUMENT_EXCEPTION, \
         H_INVALID_TOKEN_EXCEPTION, H_INVALID_PATH_EXCEPTION, H_FILE_ALREADY_EXISTS_EXCEPTION, \
         H_IPC_EXCEPTION, H_SASL_EXCEPTION, H_RPC_EXCEPTION, H_RPC_NO_SUCH_METHOD_EXCEPTION, \
+        H_BASE_PROTOCOL_EXCEPTION, \
         hdfs_etype_to_string, hdfs_object_free, hdfs_array_datanode_info_new, \
         hdfs_array_datanode_info_append_datanode_info, hdfs_datanode_info_copy, \
         hdfs_array_long, hdfs_located_blocks, hdfs_located_block_copy, hdfs_located_block, \
@@ -188,7 +189,7 @@ class RpcNoSuchMethodException(ProtocolException):
 # Helper stuffs to raise a pydoofus exception from an hdfs_object exception:
 cdef dict exception_types = {
         H_ACCESS_CONTROL_EXCEPTION: AccessControlException,
-        H_PROTOCOL_EXCEPTION: ProtocolException,
+        H_BASE_PROTOCOL_EXCEPTION: ProtocolException,
         H_ALREADY_BEING_CREATED_EXCEPTION: AlreadyBeingCreatedException,
         H_FILE_NOT_FOUND_EXCEPTION: FileNotFoundException,
         H_IO_EXCEPTION: IOException,

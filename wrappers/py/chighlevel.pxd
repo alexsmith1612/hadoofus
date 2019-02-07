@@ -2,7 +2,7 @@ from libc.stdint cimport int64_t, uint16_t, int16_t
 from libc.string cimport const_char
 
 from clowlevel cimport hdfs_namenode, hdfs_namenode_proto, hdfs_datanode, hdfs_error, hdfs_kerb
-from cobjects cimport hdfs_object, hdfs_object_type
+from cobjects cimport hdfs_exception_type, hdfs_object, hdfs_object_type
 
 cdef extern from "hadoofus/highlevel.h":
     hdfs_namenode *hdfs_namenode_new_version(const_char *host, const_char *port, const_char *username, hdfs_kerb, hdfs_namenode_proto, hdfs_error *error_out)
@@ -10,7 +10,7 @@ cdef extern from "hadoofus/highlevel.h":
     bint hdfs_object_is_null(hdfs_object *o)
     hdfs_object_type hdfs_null_type(hdfs_object *o)
     bint hdfs_object_is_exception(hdfs_object *o)
-    hdfs_object_type hdfs_exception_get_type(hdfs_object *o)
+    hdfs_exception_type hdfs_exception_get_type(hdfs_object *o)
     const_char *hdfs_exception_get_message(hdfs_object *o)
 
     int64_t hdfs_getProtocolVersion(hdfs_namenode *n, const_char *protocol, int64_t client_version, hdfs_object **exception_out) nogil
