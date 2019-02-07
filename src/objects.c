@@ -26,7 +26,7 @@
 #include "RpcPayloadHeader.pb-c.h"
 #include "Rpc2_2Header.pb-c.h"
 
-_Static_assert(_H_V2_MAX <= H_PROTOCOL_EXCEPTION, "overlapping type ranges");
+_Static_assert(_H_INVALID < H_PROTOCOL_EXCEPTION, "overlapping type");
 
 static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
 struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
@@ -97,37 +97,37 @@ static struct {
 	const char *type;
 } exception_types[] = {
 	[0] = { .type = NULL, },
-	[H_ACCESS_CONTROL_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_ACCESS_CONTROL_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = ACCESS_EXCEPTION_STR, },
-	[H_ALREADY_BEING_CREATED_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_ALREADY_BEING_CREATED_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = ALREADY_BEING_EXCEPTION_STR, },
-	[H_FILE_NOT_FOUND_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_FILE_NOT_FOUND_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = NOT_FOUND_EXCEPTION_STR, },
-	[H_IO_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_IO_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = IO_EXCEPTION_STR, },
-	[H_LEASE_EXPIRED_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_LEASE_EXPIRED_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = LEASE_EXCEPTION_STR, },
-	[H_SECURITY_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_SECURITY_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = SECURITY_EXCEPTION_STR, },
-	[H_QUOTA_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_QUOTA_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = QUOTA_EXCEPTION_STR, },
-	[H_ILLEGAL_ARGUMENT_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_ILLEGAL_ARGUMENT_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = ILLARG_EXCEPTION_STR, },
-	[H_INVALID_TOKEN_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_INVALID_TOKEN_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = INVTOK_EXCEPTION_STR, },
-	[H_INVALID_PATH_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_INVALID_PATH_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = INVPATH_EXCEPTION_STR, },
-	[H_FILE_ALREADY_EXISTS_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_FILE_ALREADY_EXISTS_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = EEXIST_EXCEPTION_STR, },
-	[H_IPC_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_IPC_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = IPC_EXCEPTION_STR, },
-	[H_SASL_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_SASL_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = SASL_EXCEPTION_STR, },
-	[H_RPC_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_RPC_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = RPC_EXCEPTION_STR, },
-	[H_RPC_NO_SUCH_METHOD_EXCEPTION - H_PROTOCOL_EXCEPTION] = {
+	[H_RPC_NO_SUCH_METHOD_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = RPC_ENOENT_EXCEPTION_STR, },
-	[H_HADOOFUS_RPC_ABORTED - H_PROTOCOL_EXCEPTION] = {
+	[H_HADOOFUS_RPC_ABORTED - _H_EXCEPTION_START] = {
 		.type = "not.a.real.Exception", },
 };
 
@@ -141,24 +141,24 @@ _string_to_type(const char *otype)
 	return _H_INVALID;
 }
 
-static enum hdfs_object_type
+static enum hdfs_exception_type
 _string_to_etype(const char *etype)
 {
 	for (unsigned i = 1/*skip proto exception; never matches*/;
 	    i < nelem(exception_types); i++)
 		if (streq(etype, exception_types[i].type))
-			return H_PROTOCOL_EXCEPTION + i;
+			return _H_EXCEPTION_START + i;
 
-	return H_PROTOCOL_EXCEPTION;
+	return H_BASE_PROTOCOL_EXCEPTION;
 }
 
 EXPORT_SYM const char *
-hdfs_etype_to_string(enum hdfs_object_type e)
+hdfs_etype_to_string(enum hdfs_exception_type e)
 {
 	const char *res;
 
-	ASSERT(e >= H_PROTOCOL_EXCEPTION && e < _H_END);
-	res = exception_types[e - H_PROTOCOL_EXCEPTION].type;
+	ASSERT(e >= _H_EXCEPTION_START && e < _H_EXCEPTION_END);
+	res = exception_types[e - _H_EXCEPTION_START].type;
 	if (!res)
 		return "ProtocolException";
 	return res;
@@ -167,7 +167,7 @@ hdfs_etype_to_string(enum hdfs_object_type e)
 static struct hdfs_object *
 _object_exception(const char *etype, const char *emsg)
 {
-	enum hdfs_object_type realtype;
+	enum hdfs_exception_type realtype;
 
 	realtype = _string_to_etype(etype);
 	return hdfs_protocol_exception_new(realtype, emsg);
@@ -1060,7 +1060,7 @@ hdfs_fsperms_new(int16_t perms)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_protocol_exception_new(enum hdfs_object_type etype, const char *msg)
+hdfs_protocol_exception_new(enum hdfs_exception_type etype, const char *msg)
 {
 	char *msg_copy = strdup(msg);
 	struct hdfs_object *r = _objmalloc();
@@ -1386,6 +1386,10 @@ EXPORT_SYM void
 hdfs_object_free(struct hdfs_object *obj)
 {
 	switch (obj->ob_type) {
+	case _H_INVALID:
+		/* UNREACHABLE */
+		ASSERT(false);
+		break;
 	case H_VOID: break; // NOOP
 	case H_NULL: break;
 	case H_BOOLEAN: break;
@@ -1788,10 +1792,23 @@ authheader_out:
 
 // Serializes an hdfs_object into a buffer. dest must be non-NULL and
 // initialized to zero.
+//
+// (For legacy v1 protocol objects only.)
 EXPORT_SYM void
 hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 {
 	switch (obj->ob_type) {
+	case _H_INVALID:
+		/* UNREACHABLE */
+		ASSERT(false);
+		break;
+	// v2+ types are invalid input
+	case H_FS_SERVER_DEFAULTS:
+	// The client library doesn't ever need to serialize an exception
+	case H_PROTOCOL_EXCEPTION:
+		/* Invalid input */
+		ASSERT(false);
+		break;
 	case H_VOID:
 		_bappend_string(dest, "void");
 		break;
@@ -2010,6 +2027,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s16(dest, obj->ob_val._upgrade_status._status);
 		break;
 	default:
+		/* Invalid input */
 		ASSERT(false);
 	}
 }

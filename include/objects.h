@@ -178,25 +178,20 @@ enum hdfs_object_type {
 	H_ARRAY_LOCATEDBLOCK,
 	H_UPGRADE_ACTION,
 
-	/* Room in ABI in case HDFSv1 ever adds new types: */
-	_H_PLACEHOLDER_1,
-	_H_PLACEHOLDER_2,
-	_H_PLACEHOLDER_3,
-	_H_PLACEHOLDER_4,
-	_H_PLACEHOLDER_5,
-	_H_PLACEHOLDER_6,
-	_H_PLACEHOLDER_7,
-	_H_PLACEHOLDER_8,
-	_H_PLACEHOLDER_9,
-	_H_PLACEHOLDER_10,
-
 	/* v2+ types */
 	H_FS_SERVER_DEFAULTS,
-	_H_V2_MAX,
+	_H_V2_START = H_FS_SERVER_DEFAULTS,
 
-	/* Leaving room for new types */
+	/* end of valid non-exception type range */
+	_H_END,
+	_H_INVALID = _H_END,
 
-	H_PROTOCOL_EXCEPTION = 0x100,
+	H_PROTOCOL_EXCEPTION = 0x80,
+};
+
+enum hdfs_exception_type {
+	_H_EXCEPTION_START = 0x100,
+	H_BASE_PROTOCOL_EXCEPTION = 0x100,
 	H_ACCESS_CONTROL_EXCEPTION,
 	H_ALREADY_BEING_CREATED_EXCEPTION,
 	H_FILE_NOT_FOUND_EXCEPTION,
@@ -215,11 +210,10 @@ enum hdfs_object_type {
 	/* Namenode recv_worker encountered an error, or was destroyed. */
 	H_HADOOFUS_RPC_ABORTED,
 
-	_H_END,
-	_H_INVALID = _H_END,
+	_H_EXCEPTION_END,
 };
 
-const char *	hdfs_etype_to_string(enum hdfs_object_type e);
+const char *	hdfs_etype_to_string(enum hdfs_exception_type e);
 
 struct hdfs_object;
 
@@ -415,7 +409,7 @@ struct hdfs_exception {
 		char *_msg;
 		struct hdfs_error _error;
 	};
-	enum hdfs_object_type _etype;
+	enum hdfs_exception_type _etype;
 };
 
 struct hdfs_object {
@@ -489,7 +483,7 @@ struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
 			const char * /*user*/, const char * /*real user*/,
 			enum hdfs_kerb);
-struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_object_type, const char *);
+struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_exception_type, const char *);
 struct hdfs_object *	hdfs_pseudo_exception_new(struct hdfs_error);
 struct hdfs_error	hdfs_pseudo_exception_get_error(const struct hdfs_object *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);

@@ -9,7 +9,7 @@ cdef extern from "hadoofus/objects.h":
     ctypedef stat const_stat "const struct stat"
     cdef const_char *CLIENT_PROTOCOL "HADOOFUS_CLIENT_PROTOCOL_STR"
     cdef enum hdfs_object_type:
-        H_VOID = 0x20,
+        H_VOID,
         H_NULL,
         H_BOOLEAN,
         H_INT,
@@ -39,21 +39,13 @@ cdef extern from "hadoofus/objects.h":
         H_ARRAY_LOCATEDBLOCK,
         H_UPGRADE_ACTION,
 
-        _H_PLACEHOLDER_1,
-        _H_PLACEHOLDER_2,
-        _H_PLACEHOLDER_3,
-        _H_PLACEHOLDER_4,
-        _H_PLACEHOLDER_5,
-        _H_PLACEHOLDER_6,
-        _H_PLACEHOLDER_7,
-        _H_PLACEHOLDER_8,
-        _H_PLACEHOLDER_9,
-        _H_PLACEHOLDER_10,
-
         # v2+ types
         H_FS_SERVER_DEFAULTS,
 
-        H_PROTOCOL_EXCEPTION = 0x100,
+        H_PROTOCOL_EXCEPTION,
+
+    cdef enum hdfs_exception_type:
+        H_BASE_PROTOCOL_EXCEPTION,
         H_ACCESS_CONTROL_EXCEPTION,
         H_ALREADY_BEING_CREATED_EXCEPTION,
         H_FILE_NOT_FOUND_EXCEPTION,
@@ -159,7 +151,7 @@ cdef extern from "hadoofus/objects.h":
         int _len
 
     cdef struct hdfs_exception:
-        hdfs_object_type _etype
+        hdfs_exception_type _etype
         char* _msg
 
     cdef struct hdfs_upgrade_status_report:
@@ -209,7 +201,7 @@ cdef extern from "hadoofus/objects.h":
     cdef struct hdfs_heap_buf:
         pass
 
-    const_char *hdfs_etype_to_string(hdfs_object_type e)
+    const_char *hdfs_etype_to_string(hdfs_exception_type e)
 
     hdfs_object *hdfs_void_new()
     hdfs_object *hdfs_null_new(hdfs_object_type type)
@@ -239,7 +231,7 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_array_byte_copy(hdfs_object *)
     hdfs_object *hdfs_rpc_invocation_new(const_char *name, ...)
     hdfs_object *hdfs_authheader_new(const_char *user)
-    hdfs_object *hdfs_protocol_exception_new(hdfs_object_type, const_char *)
+    hdfs_object *hdfs_protocol_exception_new(hdfs_exception_type, const_char *)
     hdfs_object *hdfs_token_new(const_char *, const_char *, const_char *, const_char *)
     hdfs_object *hdfs_token_new_empty()
     hdfs_object *hdfs_token_copy(hdfs_object *)
