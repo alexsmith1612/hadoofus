@@ -22,4 +22,4 @@ before_install:
 # make test requires live HDFS cluster...
 # For now, just compile everything.
 script: >
-  make all all-test
+  make WARNS_NEW= all
