@@ -37,13 +37,17 @@ PB_H = $(patsubst %.o,%.pb-c.h,$(PB_OBJS))
 
 WARNS = -Wall -Wextra \
 	-Wcast-align -Wcast-qual -Wchar-subscripts -Wformat=2 -Winit-self \
-	-Winline -Wmissing-prototypes -Wnested-externs -Wnull-dereference \
-	-Wpointer-arith -Wredundant-decls -Wreturn-type -Wshadow \
-	-Wstrict-aliasing=1 -Wstrict-prototypes -Wswitch -Wswitch-enum -Wundef \
-	-Wunused-parameter -Wvla -Wwrite-strings \
+	-Winline -Wmissing-prototypes -Wnested-externs -Wpointer-arith \
+	-Wredundant-decls -Wreturn-type -Wshadow -Wstrict-aliasing=1 \
+	-Wstrict-prototypes -Wswitch -Wswitch-enum -Wundef -Wunused-parameter \
+	-Wvla -Wwrite-strings \
 	-Werror \
 	-Wno-unused-parameter -Wno-missing-field-initializers
-FLAGS = $(WARNS) $(CFLAGS) -fPIC -g -fvisibility=hidden \
+
+# Warnings too new for Travis-CI, which runs an ancient version of Ubuntu:
+WARNS_NEW = -Wnull-dereference
+
+FLAGS = $(WARNS) $(WARNS_NEW) $(CFLAGS) -fPIC -g -fvisibility=hidden \
 		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lrt
 LIB = libhadoofus.so
