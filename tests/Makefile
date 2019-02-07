@@ -23,7 +23,7 @@ LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -L../src -lhadoofus \
 ifeq ($(shell uname -s),FreeBSD)
 	LINK_FLAGS += -lexecinfo
 endif
-FLAGS = -Wall -Werror -fPIC -g $(CFLAGS) `pkg-config --cflags check`
+FLAGS = -Wall -Wextra -Werror -Wno-error=unused-parameter -fPIC -g $(CFLAGS) `pkg-config --cflags check`
 
 all: $(TEST_PRGM)
 

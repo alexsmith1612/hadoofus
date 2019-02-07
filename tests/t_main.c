@@ -81,7 +81,7 @@ main(int argc, char **argv)
 	hdfs_namenode_delete(nn);
 
 	// Find and run all tests
-	for (int i = 0; i < nelem(suites); i++) {
+	for (size_t i = 0; i < nelem(suites); i++) {
 		Suite *s = suites[i]();
 		SRunner *sr = srunner_create(s);
 
