@@ -1,5 +1,5 @@
 # Python reads only the CFLAGS from PY_CFLAGS
-PY_CFLAGS=-std=gnu99
+PY_CFLAGS=-std=gnu11
 PY_LDFLAGS=
 PY_CPPFLAGS=
 
@@ -20,27 +20,29 @@ OBJS = datanode.o \
 STATIC_OBJS = $(patsubst %.o,%_static.o,$(OBJS))
 
 PB_OBJS = \
-		ClientNamenodeProtocol.pb-c.o \
-		datatransfer.pb-c.o \
-		hadoop_rpc.pb-c.o \
-		hdfs.pb-c.o \
-		IpcConnectionContext.pb-c.o \
-		ProtobufRpcEngine.pb-c.o \
-		RpcPayloadHeader.pb-c.o \
-		Rpc2_2Header.pb-c.o \
-		Security.pb-c.o
+		ClientNamenodeProtocol.o \
+		datatransfer.o \
+		hadoop_rpc.o \
+		hdfs.o \
+		IpcConnectionContext.o \
+		ProtobufRpcEngine.o \
+		RpcPayloadHeader.o \
+		Rpc2_2Header.o \
+		Security.o
 
 OBJS += $(PB_OBJS)
 
-PB_C = $(patsubst %.o,%.c,$(PB_OBJS))
-PB_H = $(patsubst %.o,%.h,$(PB_OBJS))
+PB_C = $(patsubst %.o,%.pb-c.c,$(PB_OBJS))
+PB_H = $(patsubst %.o,%.pb-c.h,$(PB_OBJS))
 
-WARNS = -Wall -Wmissing-prototypes -Wpointer-arith -Wstrict-prototypes \
-		-Wformat -Werror -Wextra -Wno-missing-field-initializers \
-		-Wno-unused-parameter -Wstrict-prototypes -Wpointer-arith \
-		-Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch -Wshadow \
-		-Wcast-align -Wunused-parameter -Wchar-subscripts -Winline \
-		-Wnested-externs -Wredundant-decls -Wno-error=type-limits
+WARNS = -Wall -Wextra \
+	-Wcast-align -Wcast-qual -Wchar-subscripts -Wformat=2 -Winit-self \
+	-Winline -Wmissing-prototypes -Wnested-externs -Wnull-dereference \
+	-Wpointer-arith -Wredundant-decls -Wreturn-type -Wshadow \
+	-Wstrict-aliasing=1 -Wstrict-prototypes -Wswitch -Wswitch-enum -Wundef \
+	-Wunused-parameter -Wvla -Wwrite-strings \
+	-Werror \
+	-Wno-unused-parameter -Wno-missing-field-initializers
 FLAGS = $(WARNS) $(CFLAGS) -fPIC -g -fvisibility=hidden \
 		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lrt
@@ -62,11 +64,23 @@ all: $(LIB) $(SLIB)
 
 $(OBJS): $(PB_H)
 
+# This is a little ugly, but I have not found anything I like better.  We
+# intentionally use a different stem (%_static) from the prequisite (%) to
+# avoid the %.o: %.c rule/recipe.
 %_static.o: %.c
-	$(CC) -I../include -std=gnu99 $(FLAGS) -DNO_EXPORT_SYMS -o $@ -c $<
+	$(CC) -I../include $(FLAGS) -DNO_EXPORT_SYMS -o $@ -c $<
+
+# Similarly, we use a different stem (%) from prequisite (%.pb-c) to disable
+# strict aliasing optimizations (and warnings) from protobuf-c generated code,
+# which (ab)uses pointer aliasing.
+%_static.o: %.pb-c.c
+	$(CC) -I../include $(FLAGS) -fno-strict-aliasing -o $@ -c $<
 
 %.o: %.c
-	$(CC) -I../include -std=gnu99 $(FLAGS) -c $<
+	$(CC) -I../include $(FLAGS) -c $<
+
+%.o: %.pb-c.c
+	$(CC) -I../include $(FLAGS) -fno-strict-aliasing -o $@ -c $<
 
 clean:
 	rm -f *.o $(LIB) $(SLIB) $(STATIC_OBJS) $(PB_C) $(PB_H)

@@ -2,7 +2,7 @@ PREFIX=/usr/local
 DISTDIR=
 LIB = src/libhadoofus.so
 
-all: build all-wrappers all-examples
+all: build all-examples all-test all-wrappers
 
 all-wrappers: wrappers $(LIB)
 	$(MAKE) -C wrappers all

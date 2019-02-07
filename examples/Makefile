@@ -2,7 +2,7 @@ LIBS = -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lpthrea
 ifeq ($(shell uname -s),FreeBSD)
 	LIBS += -lexecinfo
 endif
-FLAGS = -Wall -Werror $(CFLAGS) -g -I../include -I/usr/local/include
+FLAGS = -Wall -Wextra -Werror $(CFLAGS) -g -I../include -I/usr/local/include
 BIN = \
 	  helloworld \
 	  hl-hello \
