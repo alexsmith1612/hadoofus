@@ -118,6 +118,7 @@ cdef extern from "hadoofus/objects.h":
 
     cdef struct hdfs_datanode_info:
         char* _location
+        char* _ipaddr
         char* _hostname
         char* _port
         uint16_t _namenodeport
@@ -220,7 +221,7 @@ cdef extern from "hadoofus/objects.h":
     hdfs_object *hdfs_located_blocks_new(bint beingcreated, int64_t size)
     hdfs_object *hdfs_directory_listing_new()
     hdfs_object *hdfs_located_directory_listing_new()
-    hdfs_object *hdfs_datanode_info_new(const_char *host, const_char *port, const_char *rack, uint16_t namenodeport)
+    hdfs_object *hdfs_datanode_info_new(const_char *ipaddr, const_char *host, const_char *port, const_char *rack, uint16_t namenodeport)
     hdfs_object *hdfs_datanode_info_copy(hdfs_object *) nogil
     hdfs_object *hdfs_array_datanode_info_new()
     hdfs_object *hdfs_array_datanode_info_copy(hdfs_object *) nogil
