@@ -330,7 +330,9 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 		goto out;
 	}
 	port++;
-	res = hdfs_datanode_info_new(hostname, port, location, rpcport);
+	// For simplicity, use hostname for ipaddr (in the v1 implementation hadoofus
+	// was originally tested with, the hostname was an ipaddr anyways)
+	res = hdfs_datanode_info_new(hostname/*ipaddr*/, hostname, port, location, rpcport);
 
 out:
 	if (name)

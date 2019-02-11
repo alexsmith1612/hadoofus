@@ -132,7 +132,7 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 		    located_block->ob_val._located_block._locs[i];
 
 		error = hdfs_datanode_connect(d,
-		    di->ob_val._datanode_info._hostname,
+		    di->ob_val._datanode_info._ipaddr,
 		    di->ob_val._datanode_info._port);
 		if (!hdfs_is_error(error))
 			return d;

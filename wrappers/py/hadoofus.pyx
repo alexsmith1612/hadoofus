@@ -525,12 +525,13 @@ cdef class block:
 cdef class datanode_info:
     cdef hdfs_object* c_di
 
-    def __init__(self, hostname, port, location, ipc_port):
+    def __init__(self, ipaddr, hostname, port, location, ipc_port):
+        ipaddr_s = str(ipaddr)
         host_s = str(hostname)
         port_s = str(port)
         loc_s = str(location)
-        self.c_di = hdfs_datanode_info_new(host_s, port_s, loc_s,
-                int(ipc_port))
+        self.c_di = hdfs_datanode_info_new(ipaddr_s, host_s, port_s,
+                loc_s, int(ipc_port))
 
     def __cinit__(self):
         self.c_di = NULL
@@ -557,6 +558,15 @@ cdef class datanode_info:
             cdef char* cp = pydup(location)
             free(self.c_di._datanode_info._location)
             self.c_di._datanode_info._location = cp
+
+    property ipaddr:
+        def __get__(self):
+            return self.c_di._datanode_info._ipaddr
+
+        def __set__(self, ipaddr):
+            cdef char* cp = pydup(ipaddr)
+            free(self.c_di._datanode_info._ipaddr)
+            self.c_di._datanode_info._ipaddr = cp
 
     property hostname:
         def __get__(self):
