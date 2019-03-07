@@ -53,8 +53,8 @@ struct hdfs_namenode {
 	int nn_error;
 };
 
+// Access to struct hdfs_datanode must be serialized by the user
 struct hdfs_datanode {
-	pthread_mutex_t dn_lock;
 	int64_t dn_blkid,
 		dn_gen,
 		dn_offset,
