@@ -165,7 +165,6 @@ hdfs_datanode_init(struct hdfs_datanode *d,
 	ASSERT(proto == HDFS_DATANODE_AP_1_0 || proto == HDFS_DATANODE_CDH3 ||
 	    proto == HDFS_DATANODE_AP_2_0);
 
-	_mtx_init(&d->dn_lock);
 	d->dn_sock = -1;
 	d->dn_used = false;
 
@@ -204,15 +203,12 @@ hdfs_datanode_destroy(struct hdfs_datanode *d)
 {
 	ASSERT(d);
 
-	_lock(&d->dn_lock);
 	if (d->dn_sock != -1)
 		close(d->dn_sock);
 	hdfs_object_free(d->dn_token);
 	free(d->dn_client);
 	free(d->dn_pool_id);
-	_unlock(&d->dn_lock);
 
-	_mtx_destroy(&d->dn_lock);
 	memset(d, 0, sizeof *d);
 }
 
@@ -223,12 +219,8 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 
 	ASSERT(d);
 
-	_lock(&d->dn_lock);
-
 	ASSERT(d->dn_sock == -1);
 	error = _connect(&d->dn_sock, host, port);
-
-	_unlock(&d->dn_lock);
 
 	return error;
 }
@@ -465,8 +457,6 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 	ASSERT(d);
 	ASSERT(len > 0);
 
-	_lock(&d->dn_lock);
-
 	ASSERT(!d->dn_used);
 	d->dn_used = true;
 
@@ -535,7 +525,6 @@ out:
 		free(header.buf);
 	if (recvbuf.buf)
 		free(recvbuf.buf);
-	_unlock(&d->dn_lock);
 	return error;
 }
 
@@ -552,8 +541,6 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 
 	ASSERT(d);
 	ASSERT(len > 0);
-
-	_lock(&d->dn_lock);
 
 	ASSERT(!d->dn_used);
 	d->dn_used = true;
@@ -607,7 +594,6 @@ out:
 		free(header.buf);
 	if (recvbuf.buf)
 		free(recvbuf.buf);
-	_unlock(&d->dn_lock);
 	return error;
 }
 
