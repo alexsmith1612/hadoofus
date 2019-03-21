@@ -1378,10 +1378,16 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 
 	ri->server_offset = opres->readopchecksuminfo->chunkoffset;
 
-	// XXX TODO check what kind of CRC
 	ri->has_crcs = (opres->readopchecksuminfo->checksum->type !=
 	    HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL);
 	ri->chunk_size = opres->readopchecksuminfo->checksum->bytesperchecksum;
+
+	// TODO support more checksum types (crc32c)
+	if (ri->has_crcs && opres->readopchecksuminfo->checksum->type !=
+	    HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32) {
+		error = error_from_hdfs(HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM);
+		goto out;
+	}
 
 out:
 	if (opres)
