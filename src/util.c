@@ -103,6 +103,7 @@ static const char *hdfs_strerror_table[] = {
 
 	[HDFS_ERR_DATANODE_NO_CRCS] = "Server doesn't send CRCs, can't verify",
 	[HDFS_ERR_ZERO_DATANODES] = "LocatedBlock has zero datanodes",
+	[HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM] = "Server sent an unsupported checksum type",
 
 	[HDFS_ERR_DN_ERROR] = "Datanode error, aborting write",
 	[HDFS_ERR_DN_ERROR_CHECKSUM] = "Datanode checksum error, aborting write",

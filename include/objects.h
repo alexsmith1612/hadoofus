@@ -40,6 +40,8 @@ enum hdfs_error_numeric {
 	HDFS_ERR_DATANODE_NO_CRCS,
 	// Need at least one datanode to connect, obviously.
 	HDFS_ERR_ZERO_DATANODES,
+	// Datanode is providing a checksum type we do no support
+	HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM,
 
 // Direct translations of Datanode STATUS codes.  More information may be
 // available in the hdfs_datanode_opresult_message (optionally provided by HDFS
