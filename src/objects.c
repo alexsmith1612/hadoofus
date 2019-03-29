@@ -386,6 +386,11 @@ _hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 	ASSERT(res->ob_val._located_block._pool_id);
 
 	res->ob_val._located_block._corrupt = lb->corrupt;
+	// XXX TODO The above hdfs_located_block_new() allocates _token with
+	// hdfs_token_new_empty(), so we need to free that here before the
+	// _hdfs_token_new_proto() call, or we'll leak memory. This allocation just to
+	// immediately free is wasteful, so TODO change this to something smarter
+	hdfs_object_free(res->ob_val._located_block._token);
 	res->ob_val._located_block._token =
 	    _hdfs_token_new_proto(lb->blocktoken);
 
