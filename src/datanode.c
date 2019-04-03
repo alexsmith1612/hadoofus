@@ -812,9 +812,10 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		// hdfs_datanode_set_recovery(off_t off) to be called between _init() and
 		// _connect() calls
 
-		// XXX SETUP_APPEND iff located_block size > 0? Double check what the
-		// correct behavior is with apache
-		op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+		if (d->dn_size > 0)
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND;
+		else
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
 
 		/* Not sure about any of this: */
 		op.pipelinesize = 1; // XXX TODO update when adding proper pipeline creation
