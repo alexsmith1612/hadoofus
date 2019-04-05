@@ -18,8 +18,8 @@ static void								\
 _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	struct hdfs_rpc_invocation *rpc)				\
 {									\
-	CamelCase ## RequestProto req =					\
-	    UPPER_CASE ## _REQUEST_PROTO__INIT;				\
+	Hadoop__Hdfs__ ## CamelCase ## RequestProto req =		\
+	    HADOOP__HDFS__ ## UPPER_CASE ## _REQUEST_PROTO__INIT;	\
 	size_t sz;
 
 	/*
@@ -27,12 +27,12 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	 * structure go here.
 	 */
 
-#define ENCODE_POSTSCRIPT(lower_case)					\
-	sz = lower_case ## _request_proto__get_packed_size(&req);	\
-	_hbuf_reserve(dest, sz);					\
-	lower_case ## _request_proto__pack(&req,			\
-	    (void *)&dest->buf[dest->used]);				\
-	dest->used += sz;						\
+#define ENCODE_POSTSCRIPT(lower_case)							\
+	sz = hadoop__hdfs__ ## lower_case ## _request_proto__get_packed_size(&req);	\
+	_hbuf_reserve(dest, sz);							\
+	hadoop__hdfs__ ## lower_case ## _request_proto__pack(&req,			\
+	    (void *)&dest->buf[dest->used]);						\
+	dest->used += sz;								\
 }
 
 /* New in v2 methods */
@@ -73,7 +73,7 @@ ENCODE_PREAMBLE(getBlockLocations, GetBlockLocations, GET_BLOCK_LOCATIONS)
 ENCODE_POSTSCRIPT(get_block_locations)
 
 ENCODE_PREAMBLE(create, Create, CREATE)
-	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+	Hadoop__Hdfs__FsPermissionProto perms = HADOOP__HDFS__FS_PERMISSION_PROTO__INIT;
 {
 	ASSERT(rpc->_nargs == 7);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
@@ -88,9 +88,9 @@ ENCODE_PREAMBLE(create, Create, CREATE)
 	req.masked = &perms;
 	perms.perm = rpc->_args[1]->ob_val._fsperms._perms;
 	req.clientname = rpc->_args[2]->ob_val._string._val;
-	req.createflag = CREATE_FLAG_PROTO__CREATE |
+	req.createflag = HADOOP__HDFS__CREATE_FLAG_PROTO__CREATE |
 	    (rpc->_args[3]->ob_val._boolean._val?
-	     CREATE_FLAG_PROTO__OVERWRITE : 0);
+	     HADOOP__HDFS__CREATE_FLAG_PROTO__OVERWRITE : 0);
 	req.createparent = rpc->_args[4]->ob_val._boolean._val;
 	req.replication = rpc->_args[5]->ob_val._short._val;
 	req.blocksize = rpc->_args[6]->ob_val._long._val;
@@ -131,7 +131,7 @@ ENCODE_PREAMBLE(setReplication, SetReplication, SET_REPLICATION)
 ENCODE_POSTSCRIPT(set_replication)
 
 ENCODE_PREAMBLE(setPermission, SetPermission, SET_PERMISSION)
-	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+	Hadoop__Hdfs__FsPermissionProto perms = HADOOP__HDFS__FS_PERMISSION_PROTO__INIT;
 {
 	ASSERT(rpc->_nargs == 2);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
@@ -168,7 +168,7 @@ ENCODE_PREAMBLE(complete, Complete, COMPLETE)
 ENCODE_POSTSCRIPT(complete)
 
 ENCODE_PREAMBLE(abandonBlock, AbandonBlock, ABANDON_BLOCK)
-	ExtendedBlockProto eb = EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__ExtendedBlockProto eb = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
 {
 	ASSERT(rpc->_nargs == 3);
 	ASSERT(rpc->_args[0]->ob_type == H_BLOCK);
@@ -224,7 +224,7 @@ ENCODE_PREAMBLE(rename, Rename, RENAME)
 ENCODE_POSTSCRIPT(rename)
 
 ENCODE_PREAMBLE(mkdirs, Mkdirs, MKDIRS)
-	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+	Hadoop__Hdfs__FsPermissionProto perms = HADOOP__HDFS__FS_PERMISSION_PROTO__INIT;
 {
 	ASSERT(rpc->_nargs == 2);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
@@ -277,7 +277,7 @@ ENCODE_PREAMBLE(setQuota, SetQuota, SET_QUOTA)
 
 	req.path = rpc->_args[0]->ob_val._string._val;
 	req.namespacequota = rpc->_args[1]->ob_val._long._val;
-	req.diskspacequota = rpc->_args[2]->ob_val._long._val;
+	req.storagespacequota = rpc->_args[2]->ob_val._long._val;
 }
 ENCODE_POSTSCRIPT(set_quota)
 
@@ -324,7 +324,7 @@ ENCODE_PREAMBLE(getFileLinkInfo, GetFileLinkInfo, GET_FILE_LINK_INFO)
 ENCODE_POSTSCRIPT(get_file_link_info)
 
 ENCODE_PREAMBLE(createSymlink, CreateSymlink, CREATE_SYMLINK)
-	FsPermissionProto perms = FS_PERMISSION_PROTO__INIT;
+	Hadoop__Hdfs__FsPermissionProto perms = HADOOP__HDFS__FS_PERMISSION_PROTO__INIT;
 {
 	ASSERT(rpc->_nargs == 4);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
@@ -407,27 +407,27 @@ _rpc2_request_serialize(struct hdfs_heap_buf *dest,
  * These slurpers expect exactly one protobuf in the heapbuf passed in, and
  * advance the cursor (->used) to the end (->size) after a successful parse.
  */
-#define DECODE_PB_EX(lowerCamel, CamelCase, lower_case, objbuilder_ex)	\
-static struct hdfs_object *						\
-_oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)			\
-{									\
-	CamelCase ## ResponseProto *resp;				\
-	struct hdfs_object *result;					\
-									\
-	result = NULL;							\
-									\
-	resp = lower_case ## _response_proto__unpack(NULL,		\
-	    buf->size - buf->used, (void *)&buf->buf[buf->used]);	\
-	buf->used = buf->size;						\
-	if (resp == NULL) {						\
-		buf->used = _H_PARSE_ERROR;				\
-		return NULL;						\
-	}								\
-									\
-	objbuilder_ex;							\
-									\
-	lower_case ## _response_proto__free_unpacked(resp, NULL);	\
-	return result;							\
+#define DECODE_PB_EX(lowerCamel, CamelCase, lower_case, objbuilder_ex)			\
+static struct hdfs_object *								\
+_oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)					\
+{											\
+	Hadoop__Hdfs__ ## CamelCase ## ResponseProto *resp;				\
+	struct hdfs_object *result;							\
+											\
+	result = NULL;									\
+											\
+	resp = hadoop__hdfs__ ## lower_case ## _response_proto__unpack(NULL,		\
+	    buf->size - buf->used, (void *)&buf->buf[buf->used]);			\
+	buf->used = buf->size;								\
+	if (resp == NULL) {								\
+		buf->used = _H_PARSE_ERROR;						\
+		return NULL;								\
+	}										\
+											\
+	objbuilder_ex;									\
+											\
+	hadoop__hdfs__ ## lower_case ## _response_proto__free_unpacked(resp, NULL);	\
+	return result;									\
 }
 
 #define DECODE_PB(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\

@@ -1765,7 +1765,7 @@ cdef class rpc:
 
         return content_summary_build(res)
 
-    cpdef setQuota(self, char *path, int64_t nsquota, int64_t dsquota):
+    cpdef setQuota(self, char *path, int64_t nsquota, int64_t ssquota):
         """
         Set a quota on a directory
 
@@ -1774,8 +1774,8 @@ cdef class rpc:
         ns_quota:
             Integer representing 'namenode space' limit; QUOTA_DONT_SET implies
             no change, and QUOTA_RESET destroys a quota.
-        ds_quota:
-            Integer representing a 'datanode space' limit; takes the same
+        ss_quota:
+            Integer representing a 'storage space' limit; takes the same
             special values as ns_quota.
 
         raises FileNotFoundException:
@@ -1786,7 +1786,7 @@ cdef class rpc:
         cdef hdfs_object* ex = NULL
 
         with nogil:
-            hdfs_setQuota(&self.nn, path, nsquota, dsquota, &ex)
+            hdfs_setQuota(&self.nn, path, nsquota, ssquota, &ex)
         if ex is not NULL:
             raise_protocol_error(ex)
 
