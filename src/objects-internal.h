@@ -95,17 +95,17 @@ streq(const char *a, const char *b)
 extern struct _hdfs_result *_HDFS_INVALID_PROTO;
 
 // HDFSv2+ protobuf-to-hdfs_object converters
-enum hdfs_checksum_type	_hdfs_csum_from_proto(ChecksumTypeProto);
-enum hdfs_file_type	_hdfs_file_type_from_proto(HdfsFileStatusProto__FileType);
+enum hdfs_checksum_type	_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto);
+enum hdfs_file_type	_hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType);
 
-struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(FsServerDefaultsProto *);
-struct hdfs_object *	_hdfs_directory_listing_new_proto(DirectoryListingProto *);
-struct hdfs_object *	_hdfs_file_status_new_proto(HdfsFileStatusProto *);
-struct hdfs_object *	_hdfs_located_blocks_new_proto(LocatedBlocksProto *);
-struct hdfs_object *	_hdfs_located_block_new_proto(LocatedBlockProto *);
+struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(Hadoop__Hdfs__FsServerDefaultsProto *);
+struct hdfs_object *	_hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *);
+struct hdfs_object *	_hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *);
+struct hdfs_object *	_hdfs_located_blocks_new_proto(Hadoop__Hdfs__LocatedBlocksProto *);
+struct hdfs_object *	_hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *);
 struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
-struct hdfs_object *	_hdfs_token_new_proto(BlockTokenIdentifierProto *);
-struct hdfs_object *	_hdfs_datanode_info_new_proto(DatanodeInfoProto *);
-struct hdfs_object *	_hdfs_content_summary_new_proto(ContentSummaryProto *);
+struct hdfs_object *	_hdfs_token_new_proto(Hadoop__Common__TokenProto *);
+struct hdfs_object *	_hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *);
+struct hdfs_object *	_hdfs_content_summary_new_proto(Hadoop__Hdfs__ContentSummaryProto *);
 
 #endif

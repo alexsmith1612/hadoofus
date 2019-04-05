@@ -20,15 +20,21 @@ OBJS = datanode.o \
 STATIC_OBJS = $(patsubst %.o,%_static.o,$(OBJS))
 
 PB_OBJS = \
+		acl.o \
 		ClientNamenodeProtocol.o \
 		datatransfer.o \
+		encryption.o \
+		erasurecoding.o \
 		hadoop_rpc.o \
+		HAServiceProtocol.o \
 		hdfs.o \
+		inotify.o \
 		IpcConnectionContext.o \
 		ProtobufRpcEngine.o \
 		RpcPayloadHeader.o \
 		Rpc2_2Header.o \
-		Security.o
+		Security.o \
+		xattr.o
 
 OBJS += $(PB_OBJS)
 

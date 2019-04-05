@@ -336,7 +336,7 @@ _HDFS_OBJ_RPC_BODY(getContentSummary,
 )
 
 _HDFS_PRIM_RPC_DECL(void, setQuota,
-	const char *path, int64_t ns_quota, int64_t ds_quota)
+	const char *path, int64_t ns_quota, int64_t ss_quota)
 _HDFS_PRIM_RPC_BODY(setQuota,
 	H_VOID,
 	,
@@ -344,7 +344,7 @@ _HDFS_PRIM_RPC_BODY(setQuota,
 	,
 	hdfs_string_new(path),
 	hdfs_long_new(ns_quota),
-	hdfs_long_new(ds_quota)
+	hdfs_long_new(ss_quota)
 )
 
 _HDFS_PRIM_RPC_DECL(void, fsync,

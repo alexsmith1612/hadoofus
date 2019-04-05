@@ -153,7 +153,7 @@ struct hdfs_object *	hdfs_getContentSummary(struct hdfs_namenode *,
 			const char *path, struct hdfs_object **exception_out);
 
 void			hdfs_setQuota(struct hdfs_namenode *, const char *path,
-			int64_t ns_quota, int64_t ds_quota, struct hdfs_object **exception_out);
+			int64_t ns_quota, int64_t ss_quota, struct hdfs_object **exception_out);
 
 void			hdfs_fsync(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);

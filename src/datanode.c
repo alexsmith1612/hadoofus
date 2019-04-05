@@ -30,12 +30,12 @@ _Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
 _Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
 
 static char DN_CHECKSUM_OK[2] = {
-	(char)(STATUS__CHECKSUM_OK >> 8),
-	(char)(STATUS__CHECKSUM_OK & 0xff),
+	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK >> 8),
+	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK & 0xff),
 };
 static char DN_ERROR_CHECKSUM[2] = {
-	(char)(STATUS__ERROR_CHECKSUM >> 8),
-	(char)(STATUS__ERROR_CHECKSUM & 0xff),
+	(char)(HADOOP__HDFS__STATUS__ERROR_CHECKSUM >> 8),
+	(char)(HADOOP__HDFS__STATUS__ERROR_CHECKSUM & 0xff),
 };
 
 static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
@@ -281,25 +281,25 @@ error_from_datanode(int dnstatus)
 {
 	enum hdfs_error_numeric ecode;
 
-	ASSERT(dnstatus != STATUS__SUCCESS);
+	ASSERT(dnstatus != HADOOP__HDFS__STATUS__SUCCESS);
 
 	switch (dnstatus) {
-	case STATUS__ERROR:
+	case HADOOP__HDFS__STATUS__ERROR:
 		ecode = HDFS_ERR_DN_ERROR;
 		break;
-	case STATUS__ERROR_CHECKSUM:
+	case HADOOP__HDFS__STATUS__ERROR_CHECKSUM:
 		ecode = HDFS_ERR_DN_ERROR_CHECKSUM;
 		break;
-	case STATUS__ERROR_INVALID:
+	case HADOOP__HDFS__STATUS__ERROR_INVALID:
 		ecode = HDFS_ERR_DN_ERROR_INVALID;
 		break;
-	case STATUS__ERROR_EXISTS:
+	case HADOOP__HDFS__STATUS__ERROR_EXISTS:
 		ecode = HDFS_ERR_DN_ERROR_EXISTS;
 		break;
-	case STATUS__ERROR_ACCESS_TOKEN:
+	case HADOOP__HDFS__STATUS__ERROR_ACCESS_TOKEN:
 		ecode = HDFS_ERR_DN_ERROR_ACCESS_TOKEN;
 		break;
-	case STATUS__CHECKSUM_OK:
+	case HADOOP__HDFS__STATUS__CHECKSUM_OK:
 		ecode = HDFS_ERR_INVALID_DN_ERROR;
 		hdfs_datanode_unknown_status = dnstatus;
 		break;
@@ -320,13 +320,13 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 	_bappend_s8(h, OP_READ);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
-		BlockTokenIdentifierProto token =
-		    BLOCK_TOKEN_IDENTIFIER_PROTO__INIT;
-		ExtendedBlockProto ebp = EXTENDED_BLOCK_PROTO__INIT;
-		BaseHeaderProto bhdr = BASE_HEADER_PROTO__INIT;
-		ClientOperationHeaderProto hdr =
-		    CLIENT_OPERATION_HEADER_PROTO__INIT;
-		OpReadBlockProto opread = OP_READ_BLOCK_PROTO__INIT;
+		Hadoop__Common__TokenProto token =
+		    HADOOP__COMMON__TOKEN_PROTO__INIT;
+		Hadoop__Hdfs__ExtendedBlockProto ebp = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+		Hadoop__Hdfs__BaseHeaderProto bhdr = HADOOP__HDFS__BASE_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__ClientOperationHeaderProto hdr =
+		    HADOOP__HDFS__CLIENT_OPERATION_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__OpReadBlockProto opread = HADOOP__HDFS__OP_READ_BLOCK_PROTO__INIT;
 
 		struct hdfs_token *h_token;
 		size_t sz;
@@ -361,10 +361,10 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 			opread.sendchecksums = false;
 		}
 
-		sz = op_read_block_proto__get_packed_size(&opread);
+		sz = hadoop__hdfs__op_read_block_proto__get_packed_size(&opread);
 		_bappend_vlint(h, sz);
 		_hbuf_reserve(h, sz);
-		op_read_block_proto__pack(&opread, (void *)&h->buf[h->used]);
+		hadoop__hdfs__op_read_block_proto__pack(&opread, (void *)&h->buf[h->used]);
 		h->used += sz;
 	} else {
 		_bappend_s64(h, d->dn_blkid);
@@ -384,14 +384,14 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 	_bappend_s8(h, OP_WRITE);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
-		BlockTokenIdentifierProto token =
-		    BLOCK_TOKEN_IDENTIFIER_PROTO__INIT;
-		ExtendedBlockProto ebp = EXTENDED_BLOCK_PROTO__INIT;
-		BaseHeaderProto bhdr = BASE_HEADER_PROTO__INIT;
-		ClientOperationHeaderProto hdr =
-		    CLIENT_OPERATION_HEADER_PROTO__INIT;
-		ChecksumProto csum = CHECKSUM_PROTO__INIT;
-		OpWriteBlockProto op = OP_WRITE_BLOCK_PROTO__INIT;
+		Hadoop__Common__TokenProto token =
+		    HADOOP__COMMON__TOKEN_PROTO__INIT;
+		Hadoop__Hdfs__ExtendedBlockProto ebp = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+		Hadoop__Hdfs__BaseHeaderProto bhdr = HADOOP__HDFS__BASE_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__ClientOperationHeaderProto hdr =
+		    HADOOP__HDFS__CLIENT_OPERATION_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__ChecksumProto csum = HADOOP__HDFS__CHECKSUM_PROTO__INIT;
+		Hadoop__Hdfs__OpWriteBlockProto op = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__INIT;
 
 		struct hdfs_token *h_token;
 		size_t sz;
@@ -417,14 +417,14 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		hdr.clientname = d->dn_client;
 
 		csum.bytesperchecksum = 512;
-		csum.type = CHECKSUM_TYPE_PROTO__NULL;
+		csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL;
 		if (crcs)
-			csum.type = CHECKSUM_TYPE_PROTO__CRC32;
+			csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32;
 
 		op.header = &hdr;
 
 		/* XXX maybe SETUP_APPEND iff located_block size > 0? */
-		op.stage = OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+		op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
 
 		/* Not sure about any of this: */
 		op.pipelinesize = 1;
@@ -433,10 +433,10 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		op.latestgenerationstamp = d->dn_gen;
 		op.requestedchecksum = &csum;
 
-		sz = op_write_block_proto__get_packed_size(&op);
+		sz = hadoop__hdfs__op_write_block_proto__get_packed_size(&op);
 		_bappend_vlint(h, sz);
 		_hbuf_reserve(h, sz);
-		op_write_block_proto__pack(&op, (void *)&h->buf[h->used]);
+		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)&h->buf[h->used]);
 		h->used += sz;
 	} else {
 		_bappend_s64(h, d->dn_blkid);
@@ -506,21 +506,21 @@ _datanode_read(struct hdfs_datanode *d, off_t bloff, off_t len,
 
 	// tell server the read was fine
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
-		ClientReadStatusProto status = CLIENT_READ_STATUS_PROTO__INIT;
+		Hadoop__Hdfs__ClientReadStatusProto status = HADOOP__HDFS__CLIENT_READ_STATUS_PROTO__INIT;
 		size_t sz;
 
 		if (rinfo.has_crcs)
-			status.status = STATUS__CHECKSUM_OK;
+			status.status = HADOOP__HDFS__STATUS__CHECKSUM_OK;
 		else
-			status.status = STATUS__SUCCESS;
+			status.status = HADOOP__HDFS__STATUS__SUCCESS;
 
-		sz = client_read_status_proto__get_packed_size(&status);
+		sz = hadoop__hdfs__client_read_status_proto__get_packed_size(&status);
 
 		/* Re-use headerbuf for DN ACK. */
 		header.used = 0;
 		_bappend_vlint(&header, sz);
 		_hbuf_reserve(&header, sz);
-		client_read_status_proto__pack(&status,
+		hadoop__hdfs__client_read_status_proto__pack(&status,
 		    (void *)&header.buf[header.used]);
 		header.used += sz;
 
@@ -634,7 +634,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	status = _bslurp_s16(&obuf);
 	ASSERT(obuf.used > 0);
 
-	if (status != STATUS__SUCCESS) {
+	if (status != HADOOP__HDFS__STATUS__SUCCESS) {
 		error = error_from_datanode(status);
 		goto out;
 	}
@@ -668,10 +668,10 @@ out:
 
 static struct hdfs_error
 _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
-	BlockOpResponseProto **opres_out)
+	Hadoop__Hdfs__BlockOpResponseProto **opres_out)
 {
 	struct hdfs_heap_buf obuf = { 0 };
-	BlockOpResponseProto *opres;
+	Hadoop__Hdfs__BlockOpResponseProto *opres;
 	struct hdfs_error error;
 	int64_t sz;
 
@@ -701,7 +701,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	obuf.buf = h->buf;
 	obuf.size = h->used;
 
-	opres = block_op_response_proto__unpack(NULL, sz,
+	opres = hadoop__hdfs__block_op_response_proto__unpack(NULL, sz,
 	    (void *)&h->buf[obuf.used]);
 	obuf.used += sz;
 	if (opres == NULL) {
@@ -710,7 +710,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	}
 
 	_set_opres_msg(opres->message);
-	if (opres->status != STATUS__SUCCESS)
+	if (opres->status != HADOOP__HDFS__STATUS__SUCCESS)
 		error = error_from_datanode(opres->status);
 
 	// Shouldn't happen, I believe; call it a protocol error.
@@ -718,7 +718,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 
 	if (hdfs_is_error(error))
-		block_op_response_proto__free_unpacked(opres, NULL);
+		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
 	else
 		*opres_out = opres;
 
@@ -735,7 +735,7 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	struct _read_state *rs)
 {
 	struct hdfs_error error;
-	BlockOpResponseProto *opres;
+	Hadoop__Hdfs__BlockOpResponseProto *opres;
 
 	opres = NULL;
 
@@ -750,12 +750,12 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 
 	/* XXX check what kind of CRC? */
 	rs->has_crcs = (opres->readopchecksuminfo->checksum->type !=
-	    CHECKSUM_TYPE_PROTO__NULL);
+	    HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL);
 	rs->chunk_size = opres->readopchecksuminfo->checksum->bytesperchecksum;
 
 out:
 	if (opres)
-		block_op_response_proto__free_unpacked(opres, NULL);
+		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
 	return error;
 }
 
@@ -810,11 +810,11 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 
 	statussz += obuf.used;
 
-	if (status == STATUS__SUCCESS && strlen(statusmsg) == 0)
+	if (status == HADOOP__HDFS__STATUS__SUCCESS && strlen(statusmsg) == 0)
 		_set_opres_msg(NULL);
 	else {
 		// Shouldn't happen, I believe; call it a protocol error.
-		if (status == STATUS__SUCCESS)
+		if (status == HADOOP__HDFS__STATUS__SUCCESS)
 			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 		else
 			error = error_from_datanode(status);
@@ -836,14 +836,14 @@ static struct hdfs_error
 _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	BlockOpResponseProto *opres;
+	Hadoop__Hdfs__BlockOpResponseProto *opres;
 
 	opres = NULL;
 
 	error = _read_blockop_resp_status(d, h, &opres);
 
 	if (opres)
-		block_op_response_proto__free_unpacked(opres, NULL);
+		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
 	return error;
 }
 
@@ -854,7 +854,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 	struct hdfs_heap_buf *recvbuf = ps->recvbuf,
 			     obuf = { 0 };
 	int32_t plen, dlen;
-	PacketHeaderProto *phdr;
+	Hadoop__Hdfs__PacketHeaderProto *phdr;
 	int64_t offset;
 	bool lastpacket;
 	uint16_t hlen;
@@ -908,7 +908,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 			goto out;
 	}
 
-	phdr = packet_header_proto__unpack(NULL, hlen,
+	phdr = hadoop__hdfs__packet_header_proto__unpack(NULL, hlen,
 	    (void *)&recvbuf->buf[6]);
 	if (phdr == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_PACKETHEADERPROTO);
@@ -924,7 +924,7 @@ _recv_packet(struct _packet_state *ps, struct _read_state *rs)
 
 out:
 	if (phdr)
-		packet_header_proto__free_unpacked(phdr, NULL);
+		hadoop__hdfs__packet_header_proto__free_unpacked(phdr, NULL);
 	return error;
 }
 
@@ -1112,7 +1112,7 @@ _send_packet(struct _packet_state *ps)
 	// construct header:
 	_bappend_s32(&phdr, tosend + 4*crclen + 4);
 	if (ps->proto >= HDFS_DATANODE_AP_2_0) {
-		PacketHeaderProto pkt = PACKET_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
 		size_t sz;
 
 		pkt.offsetinblock = ps->offset;
@@ -1120,10 +1120,10 @@ _send_packet(struct _packet_state *ps)
 		pkt.lastpacketinblock = last;
 		pkt.datalen = tosend;
 
-		sz = packet_header_proto__get_packed_size(&pkt);
+		sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
 		_bappend_s16(&phdr, sz);
 		_hbuf_reserve(&phdr, sz);
-		packet_header_proto__pack(&pkt, (void *)&phdr.buf[phdr.used]);
+		hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)&phdr.buf[phdr.used]);
 		phdr.used += sz;
 	} else {
 		_bappend_s64(&phdr, ps->offset/*from beginning of block*/);
@@ -1232,7 +1232,7 @@ _wait_ack(struct _packet_state *ps)
 	struct hdfs_heap_buf obuf = { 0 };
 
 	int64_t seqno;
-	int16_t nacks, ack = STATUS__ERROR;
+	int16_t nacks, ack = HADOOP__HDFS__STATUS__ERROR;
 
 	int acksz = 0;
 
@@ -1287,7 +1287,7 @@ _wait_ack(struct _packet_state *ps)
 		ASSERT(obuf.used >= 0);
 	}
 
-	if (ack == STATUS__SUCCESS)
+	if (ack == HADOOP__HDFS__STATUS__SUCCESS)
 		ps->unacked_packets--;
 	else
 		error = error_from_datanode(ack);
@@ -1306,7 +1306,7 @@ _wait_ack2(struct _packet_state *ps)
 {
 	struct hdfs_heap_buf obuf = { 0 },
 			     *h;
-	PipelineAckProto *ack;
+	Hadoop__Hdfs__PipelineAckProto *ack;
 	struct hdfs_error error;
 	int64_t sz;
 
@@ -1339,7 +1339,7 @@ _wait_ack2(struct _packet_state *ps)
 	obuf.buf = h->buf;
 	obuf.size = h->used;
 
-	ack = pipeline_ack_proto__unpack(NULL, sz, (void *)&h->buf[obuf.used]);
+	ack = hadoop__hdfs__pipeline_ack_proto__unpack(NULL, sz, (void *)&h->buf[obuf.used]);
 	obuf.used += sz;
 	if (ack == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_PIPELINEACKPROTO);
@@ -1356,15 +1356,15 @@ _wait_ack2(struct _packet_state *ps)
 	ps->first_unacked++;
 
 	// We only connect to one datanode, we should only get one ack:
-	if (ack->n_status != 1) {
+	if (ack->n_reply != 1) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 		goto out;
 	}
 
-	if (ack->status[0] == STATUS__SUCCESS)
+	if (ack->reply[0] == HADOOP__HDFS__STATUS__SUCCESS)
 		ps->unacked_packets--;
 	else
-		error = error_from_datanode(ack->status[0]);
+		error = error_from_datanode(ack->reply[0]);
 
 	// Skip the recv buffer past the ack
 	h->used -= obuf.used;
@@ -1373,6 +1373,6 @@ _wait_ack2(struct _packet_state *ps)
 
 out:
 	if (ack)
-		pipeline_ack_proto__free_unpacked(ack, NULL);
+		hadoop__hdfs__pipeline_ack_proto__free_unpacked(ack, NULL);
 	return error;
 }

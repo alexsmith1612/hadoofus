@@ -301,7 +301,7 @@ hdfs_token_new_empty()
 }
 
 struct hdfs_object *
-_hdfs_token_new_proto(BlockTokenIdentifierProto *pr)
+_hdfs_token_new_proto(Hadoop__Common__TokenProto *pr)
 {
 
 	return hdfs_token_new_nulsafe((void *)pr->identifier.data,
@@ -368,7 +368,7 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 }
 
 struct hdfs_object *
-_hdfs_located_block_new_proto(LocatedBlockProto *lb)
+_hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 {
 	struct hdfs_object *res;
 	size_t i;
@@ -455,7 +455,7 @@ hdfs_located_blocks_new(bool beingcreated, int64_t size)
 }
 
 struct hdfs_object *
-_hdfs_located_blocks_new_proto(LocatedBlocksProto *lb)
+_hdfs_located_blocks_new_proto(Hadoop__Hdfs__LocatedBlocksProto *lb)
 {
 	struct hdfs_object *res;
 	size_t i;
@@ -501,7 +501,7 @@ hdfs_directory_listing_new()
 }
 
 struct hdfs_object *
-_hdfs_directory_listing_new_proto(DirectoryListingProto *list)
+_hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *list)
 {
 	struct hdfs_object *res;
 	bool has_locations;
@@ -519,7 +519,7 @@ _hdfs_directory_listing_new_proto(DirectoryListingProto *list)
 
 	res = _hdfs_directory_listing_new(has_locations);
 	for (i = 0; i < list->n_partiallisting; i++) {
-		HdfsFileStatusProto *fs;
+		Hadoop__Hdfs__HdfsFileStatusProto *fs;
 		struct hdfs_object *fso, *lbo;
 
 		fs = list->partiallisting[i];
@@ -566,7 +566,7 @@ hdfs_datanode_info_new(const char *ipaddr, const char *host, const char *port, c
 }
 
 struct hdfs_object *
-_hdfs_datanode_info_new_proto(DatanodeInfoProto *pr)
+_hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *pr)
 {
 	char dn_port_str[14];
 
@@ -716,19 +716,19 @@ hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 }
 
 enum hdfs_file_type
-_hdfs_file_type_from_proto(HdfsFileStatusProto__FileType pr)
+_hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType pr)
 {
 
-	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR);
-	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE);
-	ASSERT((unsigned)HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK);
+	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR);
+	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE);
+	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK);
 
 	ASSERT(HDFS_FT_DIR <= (unsigned)pr && (unsigned)pr <= HDFS_FT_SYMLINK);
 	return (unsigned)pr;
 }
 
 struct hdfs_object *
-_hdfs_file_status_new_proto(HdfsFileStatusProto *fs)
+_hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 {
 	struct hdfs_object *r = _objmalloc();
 	enum hdfs_file_type ft;
@@ -794,7 +794,7 @@ hdfs_content_summary_new(int64_t length, int64_t files, int64_t dirs, int64_t qu
 }
 
 struct hdfs_object *
-_hdfs_content_summary_new_proto(ContentSummaryProto *pr)
+_hdfs_content_summary_new_proto(Hadoop__Hdfs__ContentSummaryProto *pr)
 {
 
 	return hdfs_content_summary_new(pr->length, pr->filecount,
@@ -1169,19 +1169,19 @@ hdfs_upgrade_status_report_new(int32_t version, int16_t status)
 }
 
 enum hdfs_checksum_type
-_hdfs_csum_from_proto(ChecksumTypeProto pr)
+_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto pr)
 {
 
-	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__NULL == HDFS_CSUM_NULL);
-	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__CRC32 == HDFS_CSUM_CRC32);
-	ASSERT((unsigned)CHECKSUM_TYPE_PROTO__CRC32C == HDFS_CSUM_CRC32C);
+	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL == HDFS_CSUM_NULL);
+	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32 == HDFS_CSUM_CRC32);
+	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32C == HDFS_CSUM_CRC32C);
 
 	ASSERT(HDFS_CSUM_NULL <= (unsigned)pr && (unsigned)pr <= HDFS_CSUM_CRC32C);
 	return (unsigned)pr;
 }
 
 struct hdfs_object *
-_hdfs_fsserverdefaults_new_proto(FsServerDefaultsProto *pr)
+_hdfs_fsserverdefaults_new_proto(Hadoop__Hdfs__FsServerDefaultsProto *pr)
 {
 	struct hdfs_object *r;
 
@@ -1728,18 +1728,18 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 	if (pr == HDFS_NN_v2_2 && auth->_kerberized != HDFS_NO_KERB)
 		goto authheader_out;
 
-	UserInformationProto ui = USER_INFORMATION_PROTO__INIT;
-	IpcConnectionContextProto context =
-	    IPC_CONNECTION_CONTEXT_PROTO__INIT;
+	Hadoop__Common__UserInformationProto ui = HADOOP__COMMON__USER_INFORMATION_PROTO__INIT;
+	Hadoop__Common__IpcConnectionContextProto context =
+	    HADOOP__COMMON__IPC_CONNECTION_CONTEXT_PROTO__INIT;
 
 	ui.effectiveuser = auth->_username;
 	ui.realuser = auth->_real_username;
 	context.userinfo = &ui;
 	context.protocol = __DECONST(char *, CLIENT_PROTOCOL);
 
-	cc_sz = ipc_connection_context_proto__get_packed_size(&context);
+	cc_sz = hadoop__common__ipc_connection_context_proto__get_packed_size(&context);
 	_hbuf_reserve(&abuf, cc_sz);
-	ipc_connection_context_proto__pack(&context,
+	hadoop__common__ipc_connection_context_proto__pack(&context,
 	    (void *)&abuf.buf[abuf.used]);
 	abuf.used += cc_sz;
 
