@@ -25,14 +25,14 @@ PB_OBJS = \
 		datatransfer.o \
 		encryption.o \
 		erasurecoding.o \
-		hadoop_rpc.o \
+		hadoop_rpc2_0.o \
 		HAServiceProtocol.o \
 		hdfs.o \
 		inotify.o \
 		IpcConnectionContext.o \
 		ProtobufRpcEngine.o \
-		RpcPayloadHeader.o \
-		Rpc2_2Header.o \
+		RpcHeader.o \
+		RpcPayloadHeader2_0.o \
 		Security.o \
 		xattr.o
 

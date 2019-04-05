@@ -20,11 +20,11 @@
 #include "rpc2-internal.h"
 #include "util.h"
 
-#include "hadoop_rpc.pb-c.h"
+#include "hadoop_rpc2_0.pb-c.h"
 #include "IpcConnectionContext.pb-c.h"
 #include "ProtobufRpcEngine.pb-c.h"
-#include "RpcPayloadHeader.pb-c.h"
-#include "Rpc2_2Header.pb-c.h"
+#include "RpcHeader.pb-c.h"
+#include "RpcPayloadHeader2_0.pb-c.h"
 
 _Static_assert(_H_INVALID < H_PROTOCOL_EXCEPTION, "overlapping type");
 
