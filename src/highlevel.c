@@ -115,6 +115,8 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	return retval; \
 }
 
+// XXX TODO change the v1-only functions to hdfs1_*() (or something like that)
+
 // XXX v1 only
 _HDFS_PRIM_RPC_DECL(int64_t, getProtocolVersion,
 	const char *protocol, int64_t client_version)
@@ -303,35 +305,44 @@ _HDFS_PRIM_RPC_BODY(H_VOID,
 	)
 )
 
-// XXX ExtendedBlockProto previous
-// XXX fileid
 // XXX favoredNodes
-// XXX AddBlockFlagProto (probably not necessary)
+// XXX AddBlockFlagProto
 _HDFS_OBJ_RPC_DECL(addBlock,
-	const char *path, const char *client, struct hdfs_object *excluded)
+	const char *path, const char *client, struct hdfs_object *excluded,
+	struct hdfs_object *previous_block, int64_t fileid)
 _HDFS_OBJ_RPC_BODY(H_LOCATED_BLOCK,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
 	_HDFS_RPC_CASE(addBlock,
 		hdfs_string_new(path),
 		hdfs_string_new(client),
 		hdfs_array_datanode_info_copy(excluded)
+	),
+	/*fall through to v2.2*/, // XXX consider having _HDFS_RPC_CASE() without fileid for v2.0
+	_HDFS_RPC_CASE(addBlock,
+		hdfs_string_new(path),
+		hdfs_string_new(client),
+		hdfs_array_datanode_info_copy(excluded),
+		hdfs_block_copy(previous_block),
+		hdfs_long_new(fileid)
 	)
 )
 
-// XXX ExtendedBlockProto last
-// XXX fileid
 _HDFS_PRIM_RPC_DECL(bool, complete,
-	const char *path, const char *client)
+	const char *path, const char *client, struct hdfs_object *last_block,
+	int64_t fileid /* new in v2.2; zero prior */)
 _HDFS_PRIM_RPC_BODY(H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
 	_HDFS_RPC_CASE(complete,
 		hdfs_string_new(path),
 		hdfs_string_new(client)
+	),
+	/*fall through to v2.2*/, // XXX consider having _HDFS_RPC_CASE() without fileid for v2.0
+	_HDFS_RPC_CASE(complete,
+		hdfs_string_new(path),
+		hdfs_string_new(client),
+		hdfs_block_copy(last_block),
+		hdfs_long_new(fileid)
 	)
 )
 
