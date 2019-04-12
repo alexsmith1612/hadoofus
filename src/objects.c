@@ -1271,8 +1271,7 @@ hdfs_array_string_copy(struct hdfs_object *src)
 	for (i = 0; i < len; i++) {
 		r->ob_val._array_string._val[i] =
 		    strdup(src->ob_val._array_string._val[i]);
-		ASSERT(r->ob_val._array_string._val[i] != NULL ||
-		    src->ob_val._array_string._val[i] == NULL);
+		ASSERT(r->ob_val._array_string._val[i] != NULL);
 	}
 	return r;
 }
