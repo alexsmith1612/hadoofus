@@ -337,7 +337,8 @@ hdfsCloseFile(hdfsFS fs, hdfsFile file)
 		}
 
 		while (!succ) {
-			succ = hdfs_complete(client->fs_namenode, f->fi_path, f->fi_client, &ex);
+			// XXX this must be changed if we support v2.0+ here
+			succ = hdfs_complete(client->fs_namenode, f->fi_path, f->fi_client, NULL, 0, &ex);
 			if (ex) {
 				ERR(EIO, "Could not complete '%s', abandoning "
 				    "write: %s", f->fi_path,
@@ -1453,7 +1454,8 @@ _flush(struct hdfs_namenode *fs, struct hdfsFile_internal *f, const void *buf, s
 
 	for (; tries > 0; tries--) {
 		if (!lb) {
-			lb = hdfs_addBlock(fs, f->fi_path, f->fi_client, excl, &ex);
+			// XXX this must be changed if we support v2.0+ here
+			lb = hdfs_addBlock(fs, f->fi_path, f->fi_client, excl, NULL, 0, &ex);
 			if (ex) {
 				ERR(EIO, "addBlock failed: %s", hdfs_exception_get_message(ex));
 				res = -1;
