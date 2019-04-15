@@ -21,8 +21,8 @@ cdef extern from "hadoofus/highlevel.h":
     void hdfs_setPermission(hdfs_namenode *n, const_char *path, int16_t perms, hdfs_object **exception_out) nogil
     void hdfs_setOwner(hdfs_namenode *, const_char *path, const_char *owner, const_char *group, hdfs_object **exception_out) nogil
     void hdfs_abandonBlock(hdfs_namenode *, hdfs_object *block, const_char *path, const_char *client, hdfs_object **exception_out) nogil
-    hdfs_object *hdfs_addBlock(hdfs_namenode *n, const_char *path, const_char *client, hdfs_object *excluded, hdfs_object **exception_out) nogil
-    bint hdfs_complete(hdfs_namenode *n, const_char *path, const_char *client, hdfs_object **exception_out) nogil
+    hdfs_object *hdfs_addBlock(hdfs_namenode *n, const_char *path, const_char *client, hdfs_object *excluded, hdfs_object *previous_block, int64_t fileid, hdfs_object **exception_out) nogil
+    bint hdfs_complete(hdfs_namenode *n, const_char *path, const_char *client, hdfs_object *last_block, int64_t fileid, hdfs_object **exception_out) nogil
     bint hdfs_rename(hdfs_namenode *n, const_char *src, const_char *dst, hdfs_object **exception_out) nogil
     bint hdfs_delete(hdfs_namenode *n, const_char *path, bint can_recurse, hdfs_object **exception_out) nogil
     bint hdfs_mkdirs(hdfs_namenode *n, const_char *path, int16_t perms, hdfs_object **exception_out) nogil
