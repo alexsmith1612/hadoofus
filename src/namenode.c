@@ -27,9 +27,9 @@ static void	_future_complete(struct hdfs_rpc_response_future *future,
 		struct hdfs_object *obj);
 
 // SASL helpers
-static void	_conn_try_desasl(struct hdfs_namenode *n);
-static int	_getssf(sasl_conn_t *);
-static void	_sasl_interacts(sasl_interact_t *);
+static struct hdfs_error	_conn_try_desasl(struct hdfs_namenode *n);
+static int			_getssf(sasl_conn_t *);
+static void			_sasl_interacts(sasl_interact_t *);
 
 EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_allocate(void)
@@ -609,8 +609,12 @@ _namenode_recv_worker(void *v_nn)
 			}
 			if (r > 0) {
 				n->nn_recvbuf_used += r;
-				if (n->nn_sasl_ssf > 0)
-					_conn_try_desasl(n);
+				if (n->nn_sasl_ssf > 0) {
+					herror = _conn_try_desasl(n);
+					// bail on sasl decode errors
+					if (hdfs_is_error(herror))
+						goto out;
+				}
 			} else {
 				if (errno != EAGAIN && errno != EWOULDBLOCK) {
 					// bail on socket errors
@@ -766,9 +770,8 @@ _sasl_interacts(sasl_interact_t *in)
 	}
 }
 
-// Attempt to de-sasl data from recvbuf to objbuf. Assume ssf > 0. On bad data,
-// aborts.
-static void
+// Attempt to de-sasl data from recvbuf to objbuf. Assume ssf > 0.
+static struct hdfs_error
 _conn_try_desasl(struct hdfs_namenode *n)
 {
 	size_t o = 0;
@@ -779,7 +782,8 @@ _conn_try_desasl(struct hdfs_namenode *n)
 		unsigned outlen;
 
 		clen = _be32dec(n->nn_recvbuf);
-		ASSERT(clen <= INT32_MAX);
+		if (clen > INT32_MAX) // XXX consider different error code
+			return error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 
 		// did we get an incomplete sasl chunk?
 		if (clen > n->nn_recvbuf_used - o - 4)
@@ -788,7 +792,7 @@ _conn_try_desasl(struct hdfs_namenode *n)
 		r = sasl_decode(n->nn_sasl_ctx, n->nn_recvbuf + o + 4, clen,
 		    &out, &outlen);
 		if (r != SASL_OK)
-			abort();
+			return error_from_sasl(r);
 
 		if (outlen > n->nn_objbuf_size - n->nn_objbuf_used) {
 			n->nn_objbuf_size = n->nn_objbuf_used + outlen + 4*1024;
@@ -805,4 +809,6 @@ _conn_try_desasl(struct hdfs_namenode *n)
 		if (n->nn_recvbuf_used > 0)
 			memmove(n->nn_recvbuf, n->nn_recvbuf + o, n->nn_recvbuf_used);
 	}
+
+	return HDFS_SUCCESS;
 }

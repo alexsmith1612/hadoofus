@@ -234,6 +234,9 @@ void		hdfs_rpc_response_future_free(struct hdfs_rpc_response_future **);
 //   * We were unable to parse the response from the Namenode:
 //     he_hdfserr: HDFS_ERR_NAMENODE_PROTOCOL
 //
+//   * SASL decode error:
+//     he_saslerr: anything sasl_decode() may return
+//
 // (hdfs_future_get invokes hdfs_rpc_response_future_clean, and the caller does
 // not need to in order to reuse the future.)
 void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
