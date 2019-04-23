@@ -207,6 +207,9 @@ void		hdfs_namenode_set_version(struct hdfs_namenode *, enum hdfs_namenode_proto
 // destroyed / re-initialized).
 struct hdfs_error	hdfs_namenode_connect(struct hdfs_namenode *, const char *host, const char *port);
 
+// XXX TODO description
+struct hdfs_error	hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events);
+
 // Sends the authentication header. You must do this before issuing any RPCs.
 struct hdfs_error	hdfs_namenode_authenticate(struct hdfs_namenode *, const char *username);
 struct hdfs_error	hdfs_namenode_authenticate_full(struct hdfs_namenode *,
