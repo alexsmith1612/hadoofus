@@ -16,6 +16,7 @@
 
 static void *			_namenode_recv_worker(void *);
 
+static short			_namenode_auth_sasl_get_events(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_simple(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_kerb(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_sasl_loop(struct hdfs_namenode *n);
@@ -200,6 +201,80 @@ hdfs_namenode_connect_finalize(struct hdfs_namenode *n)
 out:
 	_unlock(&n->nn_lock);
 	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events)
+{
+	ASSERT(n);
+	ASSERT(fd);
+	ASSERT(events);
+
+	_lock(&n->nn_lock);
+	ASSERT(n->nn_sock >= 0);
+	ASSERT(n->nn_state >= HDFS_NN_ST_CONNPENDING);
+
+	*fd = n->nn_sock;
+	*events = 0;
+
+	switch (n->nn_state) {
+	case HDFS_NN_ST_CONNPENDING:
+		*events |= POLLOUT;
+		break;
+
+	case HDFS_NN_ST_AUTHPENDING:
+		switch (n->nn_kerb) {
+		case HDFS_NO_KERB:
+			*events |= POLLOUT;
+			break;
+
+		case HDFS_TRY_KERB:
+		case HDFS_REQUIRE_KERB:
+			*events |= _namenode_auth_sasl_get_events(n);
+			break;
+
+		default:
+			ASSERT(false);
+		}
+		break;
+
+	case HDFS_NN_ST_RPC:
+		// XXX revisit this locking pattern
+		_lock(&n->nn_sendlock);
+		if (_hbuf_readlen(&n->nn_sendbuf) > 0)
+			*events |= POLLOUT;
+		_unlock(&n->nn_sendlock);
+		// XXX if we remove worker thread set POLLIN if there are pending RPCs
+		break;
+
+	case HDFS_NN_ST_ZERO:
+	case HDFS_NN_ST_INITED:
+	case HDFS_NN_ST_CONNECTED:
+	case HDFS_NN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+	_unlock(&n->nn_lock);
+	return HDFS_SUCCESS;
+}
+
+// XXX Assumes that nn_lock is held
+static short
+_namenode_auth_sasl_get_events(struct hdfs_namenode *n)
+{
+	switch (n->nn_sasl_state) {
+	case HDFS_NN_SASL_ST_SEND:
+	case HDFS_NN_SASL_ST_FINISHED:
+		return POLLOUT;
+
+	case HDFS_NN_SASL_ST_RECV:
+		return POLLIN;
+
+	case HDFS_NN_SASL_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
 }
 
 EXPORT_SYM void
