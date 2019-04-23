@@ -319,6 +319,7 @@ _bslurp_text(struct hdfs_heap_buf *b)
 	return res;
 }
 
+// XXX remove this if _sasl_encode_at_offset is used
 void
 _sasl_encode_inplace(sasl_conn_t *ctx, struct hdfs_heap_buf *b)
 {
@@ -343,6 +344,34 @@ _sasl_encode_inplace(sasl_conn_t *ctx, struct hdfs_heap_buf *b)
 	b->used = b->size = 4 + outlen;
 }
 
+struct hdfs_error
+_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
+{
+	const char *out;
+	unsigned outlen;
+	int r, toencode;
+
+	ASSERT(offset >= 0);
+	ASSERT(offset < h->used);
+	ASSERT(offset >= h->pos);
+
+	toencode = h->used - offset;
+	r = sasl_encode(ctx, h->buf + offset, toencode, &out, &outlen);
+	if (r != SASL_OK)
+		return error_from_sasl(r);
+
+	h->used = offset; // "remove" the plaintext data from the buffer
+	_hbuf_reserve(h, outlen + 4); // allocate enough space for the length prefix and encoded data
+
+	// copy in length-prefixed encoded bits
+	_be32enc(_hbuf_writeptr(h), outlen);
+	memcpy(_hbuf_writeptr(h) + 4, out, outlen);
+	_hbuf_append(h, 4 + outlen);
+
+	return HDFS_SUCCESS;
+}
+
+// XXX this function is unused---remove?
 // Returns decoded size; sets remain; resizes bufp/remain if needed.
 // On error, returns SASL error code (negative)
 int
