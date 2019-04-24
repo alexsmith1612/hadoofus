@@ -134,23 +134,6 @@ do { \
 		v2_2_case \
 	)
 
-// XXX TODO change the v1-only functions to hdfs1_*() (or something like that)
-
-// XXX v1 only
-_HDFS_PRIM_RPC_DECL(int64_t, getProtocolVersion,
-	const char *protocol, int64_t client_version)
-_HDFS_PRIM_RPC_BODY(H_LONG,
-	int64_t res = object->ob_val._long._val,
-	res,
-	0,
-	 _HDFS_RPC_CASE(getProtocolVersion,
-		hdfs_string_new(protocol),
-		hdfs_long_new(client_version)
-	),
-	/*fall through to v2_2*/,
-	/*fall through to default*/
-)
-
 #define _HDFS_OBJ_RPC_RET(void_ok, htype) \
 do { \
 	ASSERT(object->ob_type == htype || \
@@ -189,6 +172,23 @@ do { \
 
 #define _HDFS_OBJ_RPC_BODY(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(false, htype, v1_case, v2_case, v2_2_case)
 #define _HDFS_OBJ_RPC_BODY_VOID_OK(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(true, htype, v1_case, v2_case, v2_2_case)
+
+// XXX TODO change the v1-only functions to hdfs1_*() (or something like that)
+
+// XXX v1 only
+_HDFS_PRIM_RPC_DECL(int64_t, getProtocolVersion,
+	const char *protocol, int64_t client_version)
+_HDFS_PRIM_RPC_BODY(H_LONG,
+	int64_t res = object->ob_val._long._val,
+	res,
+	0,
+	 _HDFS_RPC_CASE(getProtocolVersion,
+		hdfs_string_new(protocol),
+		hdfs_long_new(client_version)
+	),
+	/*fall through to v2_2*/,
+	/*fall through to default*/
+)
 
 // XXX returned LocatedBlocksProto is optional (probably for the empty file case), make sure the deserializer handles this
 _HDFS_OBJ_RPC_DECL(getBlockLocations,
