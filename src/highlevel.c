@@ -66,11 +66,11 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 	    NULL);				\
 	break
 
-#define _HDFS_PRIM_RPC_DECL(type, name, args...) \
+#define _HDFS_RPC_DECL(type, name, args...) \
 EXPORT_SYM type \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
-#define _HDFS_PRIM_RPC_BODY(htype, result, retval, dflt, v1_case, v2_case, v2_2_case) \
+#define _HDFS_RPC_BODY_EX(htype, static_asserts, ret_ex, v1_case, v2_case, v2_2_case) \
 { \
 	struct hdfs_rpc_response_future future; \
 	struct hdfs_object *rpc = NULL, *object; \
@@ -78,6 +78,7 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	_Static_assert(htype >= _H_START && htype < _H_END, \
 	    "htype must be a valid type"); \
+	static_asserts; \
 \
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
@@ -101,6 +102,11 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 \
 	hdfs_future_get(&future, &object); \
 \
+	ret_ex; \
+}
+
+#define _HDFS_PRIM_RPC_RET(htype, result, retval, dflt) \
+do { \
 	ASSERT(object->ob_type == htype || \
 	    object->ob_type == H_PROTOCOL_EXCEPTION); \
 \
@@ -114,7 +120,19 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	result; \
 	hdfs_object_free(object); \
 	return retval; \
-}
+} while (false)
+
+#define _HDFS_PRIM_RPC_DECL(type, name, args...) \
+	_HDFS_RPC_DECL(type, name, ##args)
+
+#define _HDFS_PRIM_RPC_BODY(htype, result, retval, dflt, v1_case, v2_case, v2_2_case) \
+	_HDFS_RPC_BODY_EX(htype, \
+		/*static_asserts*/, \
+		_HDFS_PRIM_RPC_RET(htype, result, retval, dflt), \
+		v1_case, \
+		v2_case, \
+		v2_2_case \
+	)
 
 // XXX TODO change the v1-only functions to hdfs1_*() (or something like that)
 
@@ -133,43 +151,8 @@ _HDFS_PRIM_RPC_BODY(H_LONG,
 	/*fall through to default*/
 )
 
-#define _HDFS_OBJ_RPC_DECL(name, args...) \
-EXPORT_SYM struct hdfs_object * \
-hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
-
-#define _HDFS_OBJ_RPC_BODY_IMPL(void_ok, htype, v1_case, v2_case, v2_2_case) \
-{ \
-	struct hdfs_rpc_response_future future; \
-	struct hdfs_object *rpc = NULL, *object; \
-	struct hdfs_error error; \
-\
-	_Static_assert(void_ok == true || void_ok == false, \
-	    "void_ok must be bool"); \
-	_Static_assert(htype >= _H_START && htype < _H_END, \
-	    "htype must be a valid type"); \
-\
-	future.fu_inited = false; \
-	hdfs_rpc_response_future_init(&future); \
-\
-	switch (h->nn_proto) { \
-	case HDFS_NN_v1: \
-		v1_case; \
-	case HDFS_NN_v2: \
-		v2_case; \
-	case HDFS_NN_v2_2: \
-		v2_2_case; \
-	default: \
-		ASSERT(false); \
-	}; \
-	ASSERT(rpc); \
-\
-	error = hdfs_namenode_invoke(h, rpc, &future); \
-	BAIL_ON_ERR(error); \
-\
-	hdfs_object_free(rpc); \
-\
-	hdfs_future_get(&future, &object); \
-\
+#define _HDFS_OBJ_RPC_RET(void_ok, htype) \
+do { \
 	ASSERT(object->ob_type == htype || \
 	    (object->ob_type == H_NULL && object->ob_val._null._type == htype) || \
 	    (void_ok && object->ob_type == H_VOID) || \
@@ -189,7 +172,20 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 	} \
 \
 	return object; \
-}
+} while (false)
+
+#define _HDFS_OBJ_RPC_DECL(name, args...) \
+	_HDFS_RPC_DECL(struct hdfs_object *, name, ##args)
+
+#define _HDFS_OBJ_RPC_BODY_IMPL(void_ok, htype, v1_case, v2_case, v2_2_case) \
+	_HDFS_RPC_BODY_EX(htype, \
+		_Static_assert(void_ok == true || void_ok == false, \
+		    "void_ok must be bool"), \
+		_HDFS_OBJ_RPC_RET(void_ok, htype), \
+		v1_case, \
+		v2_case, \
+		v2_2_case \
+	)
 
 #define _HDFS_OBJ_RPC_BODY(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(false, htype, v1_case, v2_case, v2_2_case)
 #define _HDFS_OBJ_RPC_BODY_VOID_OK(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(true, htype, v1_case, v2_case, v2_2_case)
