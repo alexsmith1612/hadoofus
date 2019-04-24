@@ -1,3 +1,4 @@
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -52,7 +53,9 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 	free(h);
 }
 
+//
 // RPC implementations
+//
 
 // Construct a FOR_EACH() macro that applies a given macro to each var
 // arg (currently up to 9 arguments, but it is trivial to expand).
@@ -124,35 +127,27 @@ hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, struct hdfs_rpc_response_f
 EXPORT_SYM type \
 hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
-#define _HDFS_RPC_BODY_EX(htype, static_asserts, ret_ex, v1_case, v2_case, v2_2_case) \
+#define _HDFS_RPC_BODY_EX(name, ver, htype, static_asserts, ret_ex, args...) \
 { \
 	struct hdfs_rpc_response_future future; \
-	struct hdfs_object *rpc = NULL, *object; \
+	struct hdfs_object *object; \
 	struct hdfs_error error; \
 \
 	_Static_assert(htype >= _H_START && htype < _H_END, \
-	    "htype must be a valid type"); \
+	    "htype must be a valid type (given '" #htype "')"); \
 	static_asserts; \
 \
 	future.fu_inited = false; \
 	hdfs_rpc_response_future_init(&future); \
-\
-	switch (h->nn_proto) { \
-	case HDFS_NN_v1: \
-		v1_case; \
-	case HDFS_NN_v2: \
-		v2_case; \
-	case HDFS_NN_v2_2: \
-		v2_2_case; \
-	default: \
-		ASSERT(false); \
+	error = hdfs ## ver ## _ ## name ## _nb(h, ##args, &future); \
+	while (hdfs_is_again(error)) { \
+		struct pollfd pfd = { 0 }; \
+		error = hdfs_namenode_get_eventfd(h, &pfd.fd, &pfd.events); \
+		BAIL_ON_ERR(error); \
+		poll(&pfd, 1, -1); /* XXX check return (EINTR?) and/or revents?*/ \
+		error = hdfs_namenode_continue(h); \
 	}; \
-	ASSERT(rpc); \
-\
-	error = hdfs_namenode_invoke(h, rpc, &future); \
 	BAIL_ON_ERR(error); \
-\
-	hdfs_object_free(rpc); \
 \
 	hdfs_future_get(&future, &object); \
 \
@@ -179,14 +174,17 @@ do { \
 #define _HDFS_PRIM_RPC_DECL(type, name, args...) \
 	_HDFS_RPC_DECL(type, name, ##args)
 
-#define _HDFS_PRIM_RPC_BODY(htype, result, retval, dflt, v1_case, v2_case, v2_2_case) \
-	_HDFS_RPC_BODY_EX(htype, \
+#define _HDFS_PRIM_RPC_BODY_IMPL(name, ver, htype, result, retval, dflt, args...) \
+	_HDFS_RPC_BODY_EX(name, \
+		ver, \
+		htype, \
 		/*static_asserts*/, \
 		_HDFS_PRIM_RPC_RET(htype, result, retval, dflt), \
-		v1_case, \
-		v2_case, \
-		v2_2_case \
+		##args \
 	)
+
+#define _HDFS_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
+	_HDFS_PRIM_RPC_BODY_IMPL(name, , htype, result, retval, dflt, ##args)
 
 #define _HDFS_OBJ_RPC_RET(void_ok, htype) \
 do { \
@@ -214,18 +212,18 @@ do { \
 #define _HDFS_OBJ_RPC_DECL(name, args...) \
 	_HDFS_RPC_DECL(struct hdfs_object *, name, ##args)
 
-#define _HDFS_OBJ_RPC_BODY_IMPL(void_ok, htype, v1_case, v2_case, v2_2_case) \
-	_HDFS_RPC_BODY_EX(htype, \
+#define _HDFS_OBJ_RPC_BODY_IMPL(name, ver, void_ok, htype, args...) \
+	_HDFS_RPC_BODY_EX(name, \
+		ver, \
+		htype, \
 		_Static_assert(void_ok == true || void_ok == false, \
-		    "void_ok must be bool"), \
+		    "void_ok must be bool (given '" #void_ok "')"), \
 		_HDFS_OBJ_RPC_RET(void_ok, htype), \
-		v1_case, \
-		v2_case, \
-		v2_2_case \
+		##args \
 	)
 
-#define _HDFS_OBJ_RPC_BODY(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(false, htype, v1_case, v2_case, v2_2_case)
-#define _HDFS_OBJ_RPC_BODY_VOID_OK(htype, v1_case, v2_case, v2_2_case) _HDFS_OBJ_RPC_BODY_IMPL(true, htype, v1_case, v2_case, v2_2_case)
+#define _HDFS_OBJ_RPC_BODY(name, htype, args...) _HDFS_OBJ_RPC_BODY_IMPL(name, , false, htype, ## args)
+#define _HDFS_OBJ_RPC_BODY_VOID_OK(name, htype, args...) _HDFS_OBJ_RPC_BODY_IMPL(name, , true, htype, ## args)
 
 // XXX TODO change the v1-only functions to hdfs1_*() (or something like that)
 
@@ -243,16 +241,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(int64_t, getProtocolVersion,
 	const char *protocol, int64_t client_version)
-_HDFS_PRIM_RPC_BODY(H_LONG,
+_HDFS_PRIM_RPC_BODY(getProtocolVersion,
+	H_LONG,
 	int64_t res = object->ob_val._long._val,
 	res,
 	0,
-	 _HDFS_RPC_CASE(getProtocolVersion,
-		hdfs_string_new(protocol),
-		hdfs_long_new(client_version)
-	),
-	/*fall through to v2_2*/,
-	/*fall through to default*/
+	protocol,
+	client_version
 )
 
 // XXX returned LocatedBlocksProto is optional (probably for the empty file case), make sure the deserializer handles this
@@ -270,14 +265,11 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getBlockLocations,
 	const char *path, int64_t offset, int64_t length)
-_HDFS_OBJ_RPC_BODY(H_LOCATED_BLOCKS,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getBlockLocations,
-		hdfs_string_new(path),
-		hdfs_long_new(offset),
-		hdfs_long_new(length)
-	)
+_HDFS_OBJ_RPC_BODY(getBlockLocations,
+	H_LOCATED_BLOCKS,
+	path,
+	offset,
+	length
 )
 
 // XXX more createFlags
@@ -307,18 +299,15 @@ _HDFS_OBJ_RPC_DECL(create,
 	const char *path, uint16_t perms, const char *clientname,
 	bool overwrite, bool create_parent, int16_t replication,
 	int64_t blocksize)
-_HDFS_OBJ_RPC_BODY_VOID_OK(H_FILE_STATUS,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(create,
-		hdfs_string_new(path),
-		hdfs_fsperms_new(perms),
-		hdfs_string_new(clientname),
-		hdfs_boolean_new(overwrite),
-		hdfs_boolean_new(create_parent),
-		hdfs_short_new(replication),
-		hdfs_long_new(blocksize)
-	)
+_HDFS_OBJ_RPC_BODY_VOID_OK(create,
+	H_FILE_STATUS,
+	path,
+	perms,
+	clientname,
+	overwrite,
+	create_parent,
+	replication,
+	blocksize
 )
 
 // XXX As of v2.7.0 AppendResponseProto includes an HdfsFileStatusProto in
@@ -340,13 +329,10 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(append,
 	const char *path, const char *client)
-_HDFS_OBJ_RPC_BODY(H_LOCATED_BLOCK,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(append,
-		hdfs_string_new(path),
-		hdfs_string_new(client)
-	)
+_HDFS_OBJ_RPC_BODY(append,
+	H_LOCATED_BLOCK,
+	path,
+	client
 )
 
 _HDFS_RPC_NB_DECL(setReplication,
@@ -362,16 +348,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, setReplication,
 	const char *path, int16_t replication)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(setReplication,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setReplication,
-		hdfs_string_new(path),
-		hdfs_short_new(replication)
-	)
+	path,
+	replication
 )
 
 _HDFS_RPC_NB_DECL(setPermission,
@@ -387,16 +370,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, setPermission,
 	const char *path, int16_t perms)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(setPermission,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setPermission,
-		hdfs_string_new(path),
-		hdfs_fsperms_new(perms)
-	)
+	path,
+	perms
 )
 
 _HDFS_RPC_NB_DECL(setOwner,
@@ -413,17 +393,14 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, setOwner,
 	const char *path, const char *owner, const char *group)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(setOwner,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setOwner,
-		hdfs_string_new(path),
-		hdfs_string_new(owner),
-		hdfs_string_new(group)
-	)
+	path,
+	owner,
+	group
 )
 
 // XXX fileid arg
@@ -441,17 +418,14 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, abandonBlock,
 	struct hdfs_object *block, const char *path, const char *client)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(abandonBlock,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(abandonBlock,
-		hdfs_block_copy(block),
-		hdfs_string_new(path),
-		hdfs_string_new(client)
-	)
+	block,
+	path,
+	client
 )
 
 // XXX favoredNodes
@@ -478,20 +452,13 @@ _HDFS_RPC_NB_BODY(
 _HDFS_OBJ_RPC_DECL(addBlock,
 	const char *path, const char *client, struct hdfs_object *excluded,
 	struct hdfs_object *previous_block, int64_t fileid)
-_HDFS_OBJ_RPC_BODY(H_LOCATED_BLOCK,
-	_HDFS_RPC_CASE(addBlock,
-		hdfs_string_new(path),
-		hdfs_string_new(client),
-		hdfs_array_datanode_info_copy(excluded)
-	),
-	/*fall through to v2.2*/, // XXX consider having _HDFS_RPC_CASE() without fileid for v2.0
-	_HDFS_RPC_CASE(addBlock,
-		hdfs_string_new(path),
-		hdfs_string_new(client),
-		hdfs_array_datanode_info_copy(excluded),
-		hdfs_block_copy(previous_block),
-		hdfs_long_new(fileid)
-	)
+_HDFS_OBJ_RPC_BODY(addBlock,
+	H_LOCATED_BLOCK,
+	path,
+	client,
+	excluded,
+	previous_block,
+	fileid
 )
 
 _HDFS_RPC_NB_DECL(complete,
@@ -514,21 +481,15 @@ _HDFS_RPC_NB_BODY(
 _HDFS_PRIM_RPC_DECL(bool, complete,
 	const char *path, const char *client, struct hdfs_object *last_block,
 	int64_t fileid /* new in v2.2; zero prior */)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(complete,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	_HDFS_RPC_CASE(complete,
-		hdfs_string_new(path),
-		hdfs_string_new(client)
-	),
-	/*fall through to v2.2*/, // XXX consider having _HDFS_RPC_CASE() without fileid for v2.0
-	_HDFS_RPC_CASE(complete,
-		hdfs_string_new(path),
-		hdfs_string_new(client),
-		hdfs_block_copy(last_block),
-		hdfs_long_new(fileid)
-	)
+	path,
+	client,
+	last_block,
+	fileid
 )
 
 _HDFS_RPC_NB_DECL(rename,
@@ -544,16 +505,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, rename,
 	const char *src, const char *dst)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(rename,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(rename,
-		hdfs_string_new(src),
-		hdfs_string_new(dst)
-	)
+	src,
+	dst
 )
 
 _HDFS_RPC_NB_DECL(delete,
@@ -569,16 +527,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, delete,
 	const char *path, bool can_recurse)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(delete,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(delete,
-		hdfs_string_new(path),
-		hdfs_boolean_new(can_recurse)
-	)
+	path,
+	can_recurse
 )
 
 // XXX createParent
@@ -596,16 +551,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, mkdirs,
 	const char *path, int16_t perms)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(mkdirs,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(mkdirs,
-		hdfs_string_new(path),
-		hdfs_fsperms_new(perms)
-	)
+	path,
+	perms
 )
 
 // XXX needLocation
@@ -623,13 +575,10 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getListing,
 	const char *path, struct hdfs_object *begin)
-_HDFS_OBJ_RPC_BODY(H_DIRECTORY_LISTING,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getListing,
-		hdfs_string_new(path),
-		(begin ? hdfs_array_byte_copy(begin) : hdfs_array_byte_new(0, NULL))
-	)
+_HDFS_OBJ_RPC_BODY(getListing,
+	H_DIRECTORY_LISTING,
+	path,
+	begin
 )
 
 _HDFS_RPC_NB_DECL(renewLease,
@@ -644,15 +593,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, renewLease,
 	const char *client)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(renewLease,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(renewLease,
-		hdfs_string_new(client)
-	)
+	client
 )
 
 // XXX v1 only
@@ -664,10 +610,8 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS_OBJ_RPC_DECL(getStats)
-_HDFS_OBJ_RPC_BODY(H_ARRAY_LONG,
-	_HDFS_RPC_CASE(getStats),
-	/*fall through to v2.2*/,
-	/*fall through to default*/
+_HDFS_OBJ_RPC_BODY(getStats,
+	H_ARRAY_LONG
 )
 
 // XXX uint64_t vs int64_t?
@@ -684,15 +628,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(int64_t, getPreferredBlockSize,
 	const char *path)
-_HDFS_PRIM_RPC_BODY(H_LONG,
+_HDFS_PRIM_RPC_BODY(getPreferredBlockSize,
+	H_LONG,
 	int64_t res = object->ob_val._long._val,
 	res,
 	0,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getPreferredBlockSize,
-		hdfs_string_new(path)
-	)
+	path
 )
 
 // XXX make return nullable
@@ -708,12 +649,9 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getFileInfo,
 	const char *path)
-_HDFS_OBJ_RPC_BODY(H_FILE_STATUS,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getFileInfo,
-		hdfs_string_new(path)
-	)
+_HDFS_OBJ_RPC_BODY(getFileInfo,
+	H_FILE_STATUS,
+	path
 )
 
 _HDFS_RPC_NB_DECL(getContentSummary,
@@ -728,12 +666,9 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getContentSummary,
 	const char *path)
-_HDFS_OBJ_RPC_BODY(H_CONTENT_SUMMARY,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getContentSummary,
-		hdfs_string_new(path)
-	)
+_HDFS_OBJ_RPC_BODY(getContentSummary,
+	H_CONTENT_SUMMARY,
+	path
 )
 
 // XXX StorageTypeProto
@@ -751,17 +686,14 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, setQuota,
 	const char *path, int64_t ns_quota, int64_t ss_quota)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(setQuota,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setQuota,
-		hdfs_string_new(path),
-		hdfs_long_new(ns_quota),
-		hdfs_long_new(ss_quota)
-	)
+	path,
+	ns_quota,
+	ss_quota
 )
 
 // XXX lastBlockLength
@@ -779,16 +711,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, fsync,
 	const char *path, const char *client)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(fsync,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(fsync,
-		hdfs_string_new(path),
-		hdfs_string_new(client)
-	)
+	path,
+	client
 )
 
 _HDFS_RPC_NB_DECL(setTimes,
@@ -805,17 +734,14 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, setTimes,
 	const char *path, int64_t mtime, int64_t atime)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(setTimes,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setTimes,
-		hdfs_string_new(path),
-		hdfs_long_new(mtime),
-		hdfs_long_new(atime)
-	)
+	path,
+	mtime,
+	atime
 )
 
 _HDFS_RPC_NB_DECL(recoverLease,
@@ -831,16 +757,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, recoverLease,
 	const char *path, const char *client)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(recoverLease,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(recoverLease,
-		hdfs_string_new(path),
-		hdfs_string_new(client)
-	)
+	path,
+	client
 )
 
 // XXX TODO v2 implementation
@@ -857,16 +780,13 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, concat,
 	const char *target, struct hdfs_object *srcs)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(concat,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(concat,
-		hdfs_string_new(target),
-		(srcs ? hdfs_array_string_copy(srcs) : hdfs_array_string_new(0, NULL))
-	)
+	target,
+	srcs
 )
 
 // XXX TODO v2 implementation
@@ -882,12 +802,9 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getDelegationToken,
 	const char *renewer)
-_HDFS_OBJ_RPC_BODY(H_TOKEN,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getDelegationToken,
-		hdfs_text_new(renewer)
-	)
+_HDFS_OBJ_RPC_BODY(getDelegationToken,
+	H_TOKEN,
+	renewer
 )
 
 // XXX TODO v2 implementation
@@ -903,15 +820,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, cancelDelegationToken,
 	struct hdfs_object *token)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(cancelDelegationToken,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(cancelDelegationToken,
-		(token ? hdfs_token_copy(token) : hdfs_token_new_empty())
-	)
+	token
 )
 
 // XXX TODO v2 implementation
@@ -927,15 +841,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(int64_t, renewDelegationToken,
 	struct hdfs_object *token)
-_HDFS_PRIM_RPC_BODY(H_LONG,
+_HDFS_PRIM_RPC_BODY(renewDelegationToken,
+	H_LONG,
 	int64_t res = object->ob_val._long._val,
 	res,
 	0,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(renewDelegationToken,
-		(token ? hdfs_token_copy(token) : hdfs_token_new_empty())
-	)
+	token
 )
 
 // XXX TODO implement for v2
@@ -951,15 +862,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, setSafeMode,
 	const char *mode)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(setSafeMode,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setSafeMode,
-		hdfs_safemodeaction_new(mode)
-	)
+	mode
 )
 
 // XXX TODO implement for v2
@@ -975,12 +883,9 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(getDatanodeReport,
 	const char *mode)
-_HDFS_OBJ_RPC_BODY(H_ARRAY_DATANODE_INFO,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getDatanodeReport,
-		hdfs_dnreporttype_new(mode)
-	)
+_HDFS_OBJ_RPC_BODY(getDatanodeReport,
+	H_ARRAY_DATANODE_INFO,
+	mode
 )
 
 // XXX TODO implement for v2
@@ -996,15 +901,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, reportBadBlocks,
 	struct hdfs_object *blocks)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(reportBadBlocks,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(reportBadBlocks,
-		(blocks ? hdfs_array_locatedblock_copy(blocks) : hdfs_array_locatedblock_new())
-	)
+	blocks
 )
 
 // XXX v1 only
@@ -1020,12 +922,9 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_OBJ_RPC_DECL(distributedUpgradeProgress,
 	const char *act)
-_HDFS_OBJ_RPC_BODY(H_UPGRADE_STATUS_REPORT,
-	_HDFS_RPC_CASE(distributedUpgradeProgress,
-		hdfs_upgradeaction_new(act)
-	),
-	/*fall through to v2.2*/,
-	/*fall through to default*/
+_HDFS_OBJ_RPC_BODY(distributedUpgradeProgress,
+	H_UPGRADE_STATUS_REPORT,
+	act
 )
 
 // XXX TODO implement for v2
@@ -1037,13 +936,11 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS_PRIM_RPC_DECL(void, finalizeUpgrade)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(finalizeUpgrade,
+	H_VOID,
 	,
 	,
-	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(finalizeUpgrade)
+	/* No args */
 )
 
 // XXX TODO implement for v2
@@ -1055,13 +952,11 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS_PRIM_RPC_DECL(void, refreshNodes)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(refreshNodes,
+	H_VOID,
 	,
 	,
-	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(refreshNodes)
+	/* No args */
 )
 
 // XXX timeWindow
@@ -1076,13 +971,11 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS_PRIM_RPC_DECL(void, saveNamespace)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(saveNamespace,
+	H_VOID,
 	,
 	,
-	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(saveNamespace)
+	/* No args */
 )
 
 // XXX TODO implement for v2
@@ -1098,15 +991,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, metaSave,
 	const char *filename)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(metaSave,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(metaSave,
-		hdfs_string_new(filename)
-	)
+	filename
 )
 
 // XXX TODO implement for v2
@@ -1122,15 +1012,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(void, setBalancerBandwidth,
 	int64_t bw)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS_PRIM_RPC_BODY(setBalancerBandwidth,
+	H_VOID,
 	,
 	,
 	,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(setBalancerBandwidth,
-		hdfs_long_new(bw)
-	)
+	bw
 )
 
 // XXX TODO implement for v2
@@ -1146,15 +1033,12 @@ _HDFS_RPC_NB_BODY(
 
 _HDFS_PRIM_RPC_DECL(bool, isFileClosed,
 	const char *src)
-_HDFS_PRIM_RPC_BODY(H_BOOLEAN,
+_HDFS_PRIM_RPC_BODY(isFileClosed,
+	H_BOOLEAN,
 	bool res = object->ob_val._boolean._val,
 	res,
 	false,
-	/*fall through to v2*/,
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(isFileClosed,
-		hdfs_string_new(src)
-	)
+	src
 )
 
 // XXX TODO merge all hdfs2_*() functions into hdfs_*() functions
@@ -1166,12 +1050,18 @@ hdfs2_ ## name ## _nb(struct hdfs_namenode *h, ##args, struct hdfs_rpc_response_
 EXPORT_SYM type \
 hdfs2_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
+#define _HDFS2_PRIM_RPC_BODY(name, htype, result, retval, dflt, args...) \
+	_HDFS_PRIM_RPC_BODY_IMPL(name, 2, htype, result, retval, dflt, ##args)
+
 #define _HDFS2_OBJ_RPC_DECL(name, args...) \
 EXPORT_SYM struct hdfs_object * \
 hdfs2_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_out)
 
- // XXX perhaps change the below ASSERT(false)'s to ASSERT(h->nn_proto != HDFS_NN_v1)
- // to make the assertion print a more obvious?
+#define _HDFS2_OBJ_RPC_BODY(name, htype, args...) _HDFS_OBJ_RPC_BODY_IMPL(name, 2, false, htype, ## args)
+
+// XXX perhaps change the below ASSERT(false)'s to ASSERT(h->nn_proto != HDFS_NN_v1)
+// to make the assertion print a more obvious?
+
 _HDFS2_RPC_NB_DECL(getServerDefaults)
 _HDFS_RPC_NB_BODY(
 	ASSERT(false),
@@ -1180,10 +1070,8 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS2_OBJ_RPC_DECL(getServerDefaults)
-_HDFS_OBJ_RPC_BODY(H_FS_SERVER_DEFAULTS,
-	ASSERT(false),
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getServerDefaults)
+_HDFS2_OBJ_RPC_BODY(getServerDefaults,
+	H_FS_SERVER_DEFAULTS
 )
 
 _HDFS2_RPC_NB_DECL(getFileLinkInfo, const char *src)
@@ -1196,12 +1084,9 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS2_OBJ_RPC_DECL(getFileLinkInfo, const char *src)
-_HDFS_OBJ_RPC_BODY(H_FILE_STATUS,
-	ASSERT(false),
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getFileLinkInfo,
-		hdfs_string_new(src)
-	);
+_HDFS2_OBJ_RPC_BODY(getFileLinkInfo,
+	H_FILE_STATUS,
+	src
 )
 
 _HDFS2_RPC_NB_DECL(createSymlink,
@@ -1221,18 +1106,15 @@ _HDFS_RPC_NB_BODY(
 _HDFS2_PRIM_RPC_DECL(void, createSymlink,
 	const char *target, const char *link, int16_t dirperm,
 	bool createparent)
-_HDFS_PRIM_RPC_BODY(H_VOID,
+_HDFS2_PRIM_RPC_BODY(createSymlink,
+	H_VOID,
 	,
 	,
 	,
-	ASSERT(false),
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(createSymlink,
-		hdfs_string_new(target),
-		hdfs_string_new(link),
-		hdfs_fsperms_new(dirperm),
-		hdfs_boolean_new(createparent)
-	)
+	target,
+	link,
+	dirperm,
+	createparent
 )
 
 _HDFS2_RPC_NB_DECL(getLinkTarget, const char *path)
@@ -1245,10 +1127,7 @@ _HDFS_RPC_NB_BODY(
 )
 
 _HDFS2_OBJ_RPC_DECL(getLinkTarget, const char *path)
-_HDFS_OBJ_RPC_BODY(H_STRING,
-	ASSERT(false),
-	/*fall through to v2.2*/,
-	_HDFS_RPC_CASE(getLinkTarget,
-		hdfs_string_new(path)
-	)
+_HDFS2_OBJ_RPC_BODY(getLinkTarget,
+	H_STRING,
+	path
 )
