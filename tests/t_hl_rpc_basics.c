@@ -134,7 +134,8 @@ START_TEST(test_append)
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 
-	s = hdfs_complete(h, tf, client, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	s = hdfs_complete(h, tf, client, NULL, 0, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert_msg(s, "complete returned false");
@@ -245,7 +246,8 @@ START_TEST(test_abandonBlock)
 
 	mark_point();
 
-	lb = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert(!hdfs_object_is_null(lb));
@@ -287,7 +289,8 @@ START_TEST(test_addBlock)
 
 	mark_point();
 
-	lb = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert(!hdfs_object_is_null(lb));
@@ -316,7 +319,8 @@ START_TEST(test_complete)
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 
-	s = hdfs_complete(h, tf, client, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	s = hdfs_complete(h, tf, client, NULL, 0, &e);
 	if (e)
 		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
 	ck_assert_msg(s, "complete returned false");

@@ -1506,7 +1506,7 @@ cdef class rpc:
         if ex is not NULL:
             raise_protocol_error(ex)
 
-    cpdef located_block addBlock(self, char *path, char *client, list excluded=None):
+    cpdef located_block addBlock(self, char *path, char *client, list excluded=None, object previous_block=None, int64_t fileid=0):
         """
         Add a block to a file (which must already be opened for writing by the
         client). Returns a LocatedBlock object, which is a block id and
@@ -1521,16 +1521,37 @@ cdef class rpc:
             client has been given before by addBlock() but failed to connect
             to. This is a mechanism for reporting Datanode outages to the
             Namenode.
+        previous_block:
+            An hdfs Block or LocatedBlock object with the correct length. For
+            v2.0+ this should be None if and only if there is no previous block
+            (i.e adding the first block after a call to rpc.create(). In v1 this
+            should always be None
+        fileid:
+            The integer id for the file as given by the namenode. This should be
+            0 in v2.0 and earlier version.
         """
         cdef hdfs_object* ex = NULL
         cdef hdfs_object* res
         cdef hdfs_object* c_excl = NULL
+        cdef block r_prev
+        cdef hdfs_object* c_prev = NULL
 
         if excluded is not None:
             c_excl = convert_list_to_array_datanode_info(excluded)
 
+        if type(previous_block) is block:
+            r_prev = previous_block
+        elif type(previous_block) is located_block:
+            r_prev = block(previous_block)
+        elif previous_block is not None:
+            raise TypeError("Argument 'previous_block' has incorrect type (expected hadoofus.block, " +
+                    "hadoofus.located_block, or None, got %s)" % str(type(previous_block)))
+
+        if previous_block is not None:
+            c_prev = r_prev.c_block
+
         with nogil:
-            res = hdfs_addBlock(&self.nn, path, client, c_excl, &ex)
+            res = hdfs_addBlock(&self.nn, path, client, c_excl, c_prev, fileid, &ex)
 
         if c_excl is not NULL:
             hdfs_object_free(c_excl)
@@ -1540,7 +1561,7 @@ cdef class rpc:
 
         return located_block_build(res)
 
-    cpdef bint complete(self, char *path, char *client) except *:
+    cpdef bint complete(self, char *path, char *client, object last_block=None, int64_t fileid=0) except *:
         """
         A client has finished writing to a file. Releases exclusive ownership
         of the file.
@@ -1556,13 +1577,33 @@ cdef class rpc:
             the client
         clientname:
             Just a string. See rpc.create() for usage.
+        last_block:
+            An hdfs Block or LocatedBlock object with the correct length. For
+            v2.0+ this should be None if and only if there is no last block. In
+            v1 this should always be None
+        fileid:
+            The integer id for the file as given by the namenode. This should be
+            0 in v2.0 and earlier version.
         """
         cdef hdfs_object* ex = NULL
         cdef bint res = False
+        cdef block r_last
+        cdef hdfs_object* c_last = NULL
+
+        if type(last_block) is block:
+            r_last = last_block
+        elif type(last_block) is located_block:
+            r_last = block(last_block)
+        elif last_block is not None:
+            raise TypeError("Argument 'last_block' has incorrect type (expected hadoofus.block, " +
+                    "hadoofus.located_block, or None, got %s)" % str(type(last_block)))
+
+        if last_block is not None:
+            c_last = r_last.c_block
 
         while res is False:
             with nogil:
-                res = hdfs_complete(&self.nn, path, client, &ex)
+                res = hdfs_complete(&self.nn, path, client, c_last, fileid, &ex)
             if ex is not NULL:
                 raise_protocol_error(ex)
 

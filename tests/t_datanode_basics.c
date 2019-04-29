@@ -173,7 +173,8 @@ START_TEST(test_dn_write_buf)
 	begin = _now();
 
 	// write first block (full)
-	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
@@ -191,7 +192,8 @@ START_TEST(test_dn_write_buf)
 	hdfs_datanode_delete(dn);
 
 	// write second block (partial)
-	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
@@ -216,7 +218,8 @@ START_TEST(test_dn_write_buf)
 	ck_assert(fs->ob_val._file_status._size == towrite);
 	hdfs_object_free(fs);
 
-	s = hdfs_complete(h, tf, client, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	s = hdfs_complete(h, tf, client, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 	ck_assert_msg(s, "did not complete");
@@ -297,7 +300,7 @@ START_TEST(test_dn_write_file)
 	begin = _now();
 
 	// write first block (full)
-	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
@@ -312,7 +315,8 @@ START_TEST(test_dn_write_file)
 	hdfs_datanode_delete(dn);
 
 	// write second block (partial)
-	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
@@ -337,7 +341,8 @@ START_TEST(test_dn_write_file)
 	ck_assert(fs->ob_val._file_status._size == towrite);
 	hdfs_object_free(fs);
 
-	s = hdfs_complete(h, tf, client, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	s = hdfs_complete(h, tf, client, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 	ck_assert_msg(s, "did not complete");
@@ -460,7 +465,8 @@ START_TEST(test_short_write)
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
-	bl = hdfs_addBlock(h, tf, client, NULL, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 
@@ -479,7 +485,8 @@ START_TEST(test_short_write)
 	ck_assert(fs->ob_val._file_status._size == 33128);
 	hdfs_object_free(fs);
 
-	hdfs_complete(h, tf, client, &e);
+	// XXX this must be updated to cover v2.0+ (last_block/fileid)
+	hdfs_complete(h, tf, client, NULL, 0, &e);
 	if (e)
 		fail("exception: %s", hdfs_exception_get_message(e));
 

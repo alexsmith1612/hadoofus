@@ -118,12 +118,40 @@ void			hdfs_setOwner(struct hdfs_namenode *, const char *path,
 void			hdfs_abandonBlock(struct hdfs_namenode *, struct hdfs_object *block,
 			const char *path, const char *client, struct hdfs_object **exception_out);
 
+/*
+ * 'previous_block' is an H_BLOCK hdfs_block object. One can be obtained from a
+ * H_LOCATED_BLOCK with hdfs_block_from_located_block(). It should be NULL if and
+ * only if there is no previous block (i.e. this is adding the first block to the
+ * file). If previous_block is not NULL, then its _length member must must be set
+ * to the block's correct current size (after any datanode writes that may have
+ * been performed).
+ *
+ * In v1 the arguments 'previous_block' and 'fileid' are ignored (i.e. just pass
+ * NULL and 0 for them, respectively)
+ *
+ * FileId is new in 2.2; pass zero for 2.0 and earlier versions.
+ */
 struct hdfs_object *	hdfs_addBlock(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object *excluded,
+			struct hdfs_object *previous_block, int64_t fileid,
 			struct hdfs_object **exception_out);
 
+/*
+ * 'last_block' is an H_BLOCK hdfs_block object. One can be obtained from a
+ * H_LOCATED_BLOCK with hdfs_block_from_located_block(). It should be NULL if and
+ * only if there is no last block (i.e. this is completing an empty file that has
+ * had no blocks added to it). If is not NULL, then its _length member must must
+ * be set to the block's correct current size (after any datanode writes that may
+ * have been performed).
+ *
+ * In v1 the arguments 'last_block' and 'fileid' are ignored (i.e. just pass NULL
+ * and 0 for them, respectively)
+ *
+ * FileId is new in 2.2; pass zero for 2.0 and earlier versions.
+ */
 bool			hdfs_complete(struct hdfs_namenode *, const char *path,
-			const char *client, struct hdfs_object **exception_out);
+			const char *client, struct hdfs_object *last_block,
+			int64_t fileid, struct hdfs_object **exception_out);
 
 bool			hdfs_rename(struct hdfs_namenode *, const char *src,
 			const char *dst, struct hdfs_object **exception_out);

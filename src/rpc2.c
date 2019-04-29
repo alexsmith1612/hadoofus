@@ -157,13 +157,42 @@ ENCODE_PREAMBLE(setOwner, SetOwner, SET_OWNER)
 ENCODE_POSTSCRIPT(set_owner)
 
 ENCODE_PREAMBLE(complete, Complete, COMPLETE)
+	Hadoop__Hdfs__ExtendedBlockProto last = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
 {
-	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_nargs >= 2 && rpc->_nargs <= 4);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
 	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+	ASSERT(rpc->_nargs <= 2 ||
+	    rpc->_args[2]->ob_type == H_BLOCK ||
+	    (rpc->_args[2]->ob_type == H_NULL
+	     && rpc->_args[2]->ob_val._null._type == H_BLOCK));
+	ASSERT(rpc->_nargs <= 3 || rpc->_args[3]->ob_type == H_LONG);
 
 	req.src = rpc->_args[0]->ob_val._string._val;
 	req.clientname = rpc->_args[1]->ob_val._string._val;
+
+	if (rpc->_nargs >= 3 && rpc->_args[2]->ob_type != H_NULL) {
+		struct hdfs_object *bobj = rpc->_args[2];
+
+		last.blockid = bobj->ob_val._block._blkid;
+		last.has_numbytes = true;
+		last.numbytes  = bobj->ob_val._block._length;
+		last.generationstamp = bobj->ob_val._block._generation;
+		last.poolid = bobj->ob_val._block._pool_id;
+
+		req.last = &last;
+	} else {
+		req.last = NULL;
+	}
+
+	if (rpc->_nargs >= 4) {
+		struct hdfs_object *fobj = rpc->_args[3];
+
+		if (fobj->ob_val._long._val != 0) {
+			req.has_fileid = true;
+			req.fileid = fobj->ob_val._long._val;
+		}
+	}
 }
 ENCODE_POSTSCRIPT(complete)
 
@@ -191,23 +220,53 @@ ENCODE_PREAMBLE(abandonBlock, AbandonBlock, ABANDON_BLOCK)
 ENCODE_POSTSCRIPT(abandon_block)
 
 ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
+	Hadoop__Hdfs__ExtendedBlockProto previous = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
 {
-	ASSERT(rpc->_nargs == 3);
+	// XXX keeping the arg order as is to keep some compatibility with the v1 RPC
+	ASSERT(rpc->_nargs >= 3 || rpc->_nargs <= 5);
 	ASSERT(rpc->_args[0]->ob_type == H_STRING);
 	ASSERT(rpc->_args[1]->ob_type == H_STRING);
 	ASSERT(rpc->_args[2]->ob_type == H_ARRAY_DATANODE_INFO ||
 	    (rpc->_args[2]->ob_type == H_NULL &&
 	     rpc->_args[2]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+	ASSERT(rpc->_nargs <= 3 ||
+	    rpc->_args[3]->ob_type == H_BLOCK ||
+	    (rpc->_args[3]->ob_type == H_NULL &&
+	     rpc->_args[3]->ob_val._null._type == H_BLOCK));
+	ASSERT(rpc->_nargs <= 4 || rpc->_args[4]->ob_type == H_LONG);
 
 	req.src = rpc->_args[0]->ob_val._string._val;
 	req.clientname = rpc->_args[1]->ob_val._string._val;
-	req.previous = NULL;
+
+	if (rpc->_nargs >= 4 && rpc->_args[3]->ob_type != H_NULL) {
+		struct hdfs_object *bobj = rpc->_args[3];
+
+		previous.blockid = bobj->ob_val._block._blkid;
+		previous.has_numbytes = true;
+		previous.numbytes  = bobj->ob_val._block._length;
+		previous.generationstamp = bobj->ob_val._block._generation;
+		previous.poolid = bobj->ob_val._block._pool_id;
+
+		req.previous = &previous;
+	} else {
+		req.previous = NULL;
+	}
 
 	if (rpc->_args[2]->ob_type != H_NULL) {
 		/* XXX not yet implemented, but it could be */
 		ASSERT(rpc->_args[2]->ob_val._array_datanode_info._len == 0);
 	}
 	req.n_excludenodes = 0;
+
+	if (rpc->_nargs >= 5) {
+		struct hdfs_object *fobj = rpc->_args[4];
+
+		if (fobj->ob_val._long._val != 0) {
+			req.has_fileid = true;
+			req.fileid = fobj->ob_val._long._val;
+		}
+	}
+
 	req.n_favorednodes = 0;
 }
 ENCODE_POSTSCRIPT(add_block)
