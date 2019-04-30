@@ -54,12 +54,40 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 
 // RPC implementations
 
+// Construct a FOR_EACH() macro that applies a given macro to each var
+// arg (currently up to 9 arguments, but it is trivial to expand).
+// Adapted from https://stackoverflow.com/a/11994395
+#define FE_0(WHAT)
+#define FE_1(WHAT, X) WHAT(X)
+#define FE_2(WHAT, X, args...) WHAT(X); FE_1(WHAT, args)
+#define FE_3(WHAT, X, args...) WHAT(X); FE_2(WHAT, args)
+#define FE_4(WHAT, X, args...) WHAT(X); FE_3(WHAT, args)
+#define FE_5(WHAT, X, args...) WHAT(X); FE_4(WHAT, args)
+#define FE_6(WHAT, X, args...) WHAT(X); FE_5(WHAT, args)
+#define FE_7(WHAT, X, args...) WHAT(X); FE_6(WHAT, args)
+#define FE_8(WHAT, X, args...) WHAT(X); FE_7(WHAT, args)
+#define FE_9(WHAT, X, args...) WHAT(X); FE_8(WHAT, args)
+
+#define GET_MACRO(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, NAME, ...) NAME
+#define FOR_EACH(action, args...) do { \
+	GET_MACRO(_0, ##args, FE_9, FE_8, FE_7, FE_6, FE_5, FE_4, FE_3, FE_2, FE_1, FE_0)(action, ##args); \
+} while (false)
+
+// Macro wrapper around _Static_assert() to use with the above
+// FOR_EACH() macro. This isn't perfect (e.g. a obj could potentially
+// be a pointer to a type that happens to have the same size as struct
+// hdfs_object), but it's better than nothing
+#define STATIC_ASSERT_HDFS_OBJECT(obj) \
+	_Static_assert(sizeof(*(obj)) == sizeof(struct hdfs_object), \
+	    #obj " is not of type struct hdfs_object *")
+
 // XXX this _HDFS_RPC_CASE() macro is not ideal in that it expands to a compound
 // statement instead of a single regular statement, and we cannot use the traditional
 // `do { } while (0)` construct due to the break. Be careful about where and how this
 // macro is used, and if possible change the implementation to avoid such a compound
 // statement macro
 #define _HDFS_RPC_CASE(name, args...)			\
+	FOR_EACH(STATIC_ASSERT_HDFS_OBJECT, ##args);	\
 	rpc = hdfs_rpc_invocation_new(			\
 	    #name,					\
 	    ##args,					\
