@@ -243,17 +243,11 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 	const int RESIZE_BY = 8*1024,
 	      RESIZE_AT = 2*1024;
 
-	int remain = h->size - h->used,
-	    rc;
+	int rc;
 
-	if (remain < RESIZE_AT) {
-		h->size += RESIZE_BY;
-		h->buf = realloc(h->buf, h->size);
-		ASSERT(h->buf);
-		remain = h->size - h->used;
-	}
+	_hbuf_resize(h, RESIZE_AT, RESIZE_BY);
 
-	rc = read(s, h->buf + h->used, remain);
+	rc = read(s, _hbuf_writeptr(h), _hbuf_remsize(h));
 	if (rc == 0)
 		return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 	if (rc < 0) {
@@ -263,7 +257,7 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 		return error_from_errno(errno);
 	}
 
-	h->used += rc;
+	_hbuf_append(h, rc);
 	return HDFS_SUCCESS;
 }
 
