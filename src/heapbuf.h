@@ -7,8 +7,20 @@
 
 #include <hadoofus/objects.h>
 
-/* Allocate enough space to store size bytes at ->buf[->used]. */
-void	_hbuf_reserve(struct hdfs_heap_buf *, size_t);
+// If fewer than resize_at bytes can be stored at _hbuf_writeptr(h),
+// increase the buffer size by resize_by (0 upsizes enough to store
+// resize_at bytes)
+void	_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by);
+// Allocate enough space to store size bytes at _hbuf_writeptr(h).
+#define	_hbuf_reserve(h, size) _hbuf_resize((h), (size), 0)
+
+static inline char *	_hbuf_writeptr(struct hdfs_heap_buf *h) { return h->buf + h->used; }
+static inline int	_hbuf_remsize(struct hdfs_heap_buf *h) { return h->size - h->used; }
+static inline void	_hbuf_append(struct hdfs_heap_buf *h, size_t num) { h->used += num; }
+static inline char *	_hbuf_readptr(struct hdfs_heap_buf *h) { return h->buf + h->pos; }
+static inline int	_hbuf_readlen(struct hdfs_heap_buf *h) { return h->used - h->pos; }
+static inline void	_hbuf_consume(struct hdfs_heap_buf *h, size_t num) { h->pos += num; }
+static inline void	_hbuf_reset(struct hdfs_heap_buf *h) { h->pos = h->used = 0; }
 
 // Append serialized data to the passed buf. Resizes the underlying (malloc'd)
 // buf as needed; 'size' is kept current (and is the size of the underlying

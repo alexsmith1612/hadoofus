@@ -10,19 +10,41 @@
 #define _MAX(a, b) (((a) > (b))? (a) : (b))
 
 void
-_hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
+_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
 {
-	int remain, toalloc;
+	size_t toalloc;
 
-	remain = h->size - h->used;
-	if ((size_t)remain >= space)
+	// No significant data left in the buffer, so reset
+	if (_hbuf_readlen(h) == 0)
+		_hbuf_reset(h);
+
+	// Enough space at the end
+	if ((size_t)_hbuf_remsize(h) >= resize_at)
 		return;
 
-	toalloc = _MAX(32, space - remain + 16);
+	// Enough space after compacting
+	if ((size_t)(_hbuf_remsize(h) + h->pos) >= resize_at) {
+		memmove(h->buf, _hbuf_readptr(h), _hbuf_readlen(h));
+		h->used -= h->pos;
+		h->pos = 0;
+		return;
+	}
 
-	h->buf = realloc(h->buf, h->size + toalloc);
+	// Otherwise we need to allocate more space
+	if (resize_by == 0) // use default
+		toalloc = h->size + _MAX(32, resize_at - _hbuf_remsize(h) + 16);
+	else
+		toalloc = h->size + resize_by;
+
+	// If we don't care about any data currently in the buffer,
+	// free()/malloc(), otherwise realloc
+	if (h->used == 0) {
+		free(h->buf);
+		h->buf = malloc(toalloc);
+	} else
+		h->buf = realloc(h->buf, toalloc);
 	ASSERT(h->buf);
-	h->size += toalloc;
+	h->size = toalloc;
 }
 
 void

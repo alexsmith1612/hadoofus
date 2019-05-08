@@ -537,7 +537,8 @@ void	hdfs_array_datanode_info_append_datanode_info(
 // pointed to by hbuf to all zeros.
 struct hdfs_heap_buf {
 	char *buf;
-	int used,
+	int pos,
+	    used,
 	    size;
 };
 void	hdfs_object_serialize(struct hdfs_heap_buf *hbuf, struct hdfs_object *obj);
