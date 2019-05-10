@@ -65,7 +65,7 @@ _connect(int *s, const char *host, const char *port)
 }
 
 struct hdfs_error
-_write_all(int s, void *vbuf, int buflen)
+_write_all(int s, void *vbuf, size_t buflen)
 {
 	char *buf = vbuf;
 	struct hdfs_error error = HDFS_SUCCESS;
