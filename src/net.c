@@ -6,6 +6,7 @@
 #include <sys/uio.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,50 +17,144 @@
 #include "net.h"
 #include "util.h"
 
-struct hdfs_error
-_connect(int *s, const char *host, const char *port)
+
+void
+hdfs_conn_ctx_free(struct hdfs_conn_ctx *cctx)
 {
-	struct addrinfo *ai, *rp,
-			hints = { 0 };
-	int rc, sfd = -1, serrno;
+	if (cctx->ai)
+		freeaddrinfo(cctx->ai);
+	memset(cctx, 0, sizeof(*cctx));
+}
+
+static void
+_connect_success(int *s, struct hdfs_conn_ctx *cctx)
+{
+	_setsockopt(*s, IPPROTO_TCP, TCP_NODELAY, 1);
+	_setsockopt(*s, SOL_SOCKET, SO_RCVBUF, 1024*1024);
+	_setsockopt(*s, SOL_SOCKET, SO_SNDBUF, 1024*1024);
+	hdfs_conn_ctx_free(cctx);
+}
+
+static struct hdfs_error
+_connect_attempt(int *s, struct hdfs_conn_ctx *cctx)
+{
 	struct hdfs_error error = HDFS_SUCCESS;
+	int rc, sfd = -1;
+
+	for (/* already initialized */; cctx->rp; cctx->rp = cctx->rp->ai_next) {
+		sfd = socket(cctx->rp->ai_family, cctx->rp->ai_socktype, cctx->rp->ai_protocol);
+		if (sfd == -1)
+			continue;
+		_set_nbio(sfd);
+		rc = connect(sfd, cctx->rp->ai_addr, cctx->rp->ai_addrlen);
+		if (rc != -1) // unusual to get immediate connect on non-blocking TCP socket
+			break;
+
+		if (errno == EINPROGRESS) {
+			*s = sfd;
+			error = HDFS_AGAIN;
+			goto out;
+		}
+
+		cctx->serrno = errno;
+		close(sfd);
+		sfd = -1;
+	}
+
+	if (cctx->rp == NULL || sfd == -1) {
+		error = error_from_errno(cctx->serrno);
+		hdfs_conn_ctx_free(cctx);
+		goto out;
+	}
+
+	ASSERT(sfd != -1);
+	*s = sfd;
+	_connect_success(s, cctx);
+
+out:
+	return error;
+}
+
+// Note that this function may still block on getaddrinfo() if host is
+// a hostname and not a numeric IP address.
+struct hdfs_error
+_connect_init(int *s, const char *host, const char *port,
+	struct hdfs_conn_ctx *cctx, bool numerichost)
+{
+	int rc;
+	struct addrinfo hints = { 0 };
+	struct hdfs_error error;
 
 	hints.ai_family = AF_INET/* hadoop is ipv4-only for now */;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_NUMERICSERV | AI_ADDRCONFIG;
+	if (numerichost)
+		hints.ai_flags |= AI_NUMERICHOST;
 
-	rc = getaddrinfo(host, port, &hints, &ai);
+	rc = getaddrinfo(host, port, &hints, &cctx->ai);
 	if (rc) {
 		if (rc == EAI_SYSTEM)
 			return error_from_errno(errno);
 		return error_from_gai(rc);
 	}
 
-	for (rp = ai; rp; rp = rp->ai_next) {
-		sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-		if (sfd == -1)
-			continue;
-		rc = connect(sfd, rp->ai_addr, rp->ai_addrlen);
-		if (rc != -1)
-			break;
+	cctx->rp = cctx->ai;
+	cctx->serrno = 0;
+	error = _connect_attempt(s, cctx);
 
-		serrno = errno;
-		close(sfd);
-		sfd = -1;
-		errno = serrno;
+	return error;
+}
+
+struct hdfs_error
+_connect_finalize(int *s, struct hdfs_conn_ctx *cctx)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct pollfd pfd = { 0 };
+	int rc;
+
+	ASSERT(s);
+	ASSERT(*s != -1);
+
+	pfd.fd = *s;
+	pfd.events = POLLOUT;
+
+	rc = poll(&pfd, 1, 0);
+	if (rc == 0 || (rc == -1 && errno == EINTR)) {
+		error = HDFS_AGAIN;
+		goto out;
+	}
+	ASSERT(rc != -1);
+
+	_getsockopt(*s, SOL_SOCKET, SO_ERROR, &cctx->serrno);
+	if (cctx->serrno != 0) { // connection failed, close and try a new addrinfo
+		close(*s);
+		*s = -1;
+		cctx->rp = cctx->rp->ai_next;
+		error = _connect_attempt(s, cctx);
+		goto out;
 	}
 
-	if (rp == NULL || sfd == -1)
-		error = error_from_errno(errno);
+	// connection succeeded
+	_connect_success(s, cctx);
 
-	freeaddrinfo(ai);
+out:
+	return error;
+}
 
-	if (!hdfs_is_error(error)) {
-		ASSERT(sfd != -1);
-		_setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, 1);
-		_setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, 1024*1024);
-		_setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, 1024*1024);
-		*s = sfd;
+// XXX blocking. This should be removed once non-blocking namenodes have been implemented
+struct hdfs_error
+_connect(int *s, const char *host, const char *port)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct hdfs_conn_ctx cctx = { 0 };
+
+	error = _connect_init(s, host, port, &cctx, false);
+
+	while (hdfs_is_again(error)) {
+		struct pollfd pfd = { .fd = *s, .events = POLLOUT };
+		ASSERT(*s != -1);
+		poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+		error = _connect_finalize(s, &cctx);
 	}
 
 	return error;
@@ -276,5 +371,27 @@ _setsockopt(int s, int level, int optname, int optval)
 {
 	int rc;
 	rc = setsockopt(s, level, optname, &optval, sizeof(optval));
+	ASSERT(rc == 0);
+}
+
+void
+_getsockopt(int s, int level, int optname, int *optval)
+{
+	int rc;
+	socklen_t optlen = sizeof(*optval);
+	rc = getsockopt(s, level, optname, optval, &optlen);
+	ASSERT(rc == 0);
+	ASSERT(optlen == sizeof(*optval));
+}
+
+void
+_set_nbio(int fd)
+{
+	int rc, flags;
+	flags = fcntl(fd, F_GETFL);
+	ASSERT(flags != -1);
+
+	flags |= O_NONBLOCK;
+	rc = fcntl(fd, F_SETFL, flags);
 	ASSERT(rc == 0);
 }
