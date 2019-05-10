@@ -6,6 +6,7 @@
 #include <sys/uio.h>
 
 #include <errno.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -74,6 +75,11 @@ _write_all(int s, void *vbuf, size_t buflen)
 		ssize_t w;
 		w = write(s, buf, buflen);
 		if (w == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = s, .events = POLLOUT };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			error = error_from_errno(errno);
 			goto out;
 		}
@@ -117,8 +123,14 @@ _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 	int rc;
 	while (len > 0) {
 		rc = pread(fd, buf, len, offset);
-		if (rc == -1)
+		if (rc == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = fd, .events = POLLIN };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			return error_from_errno(errno);
+		}
 		if (rc == 0)
 			return error_from_hdfs(HDFS_ERR_END_OF_FILE);
 		len -= rc;
@@ -135,8 +147,14 @@ _read_all(int fd, void *vbuf, size_t len)
 	int rc;
 	while (len > 0) {
 		rc = read(fd, buf, len);
-		if (rc == -1)
+		if (rc == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = fd, .events = POLLIN };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			return error_from_errno(errno);
+		}
 		if (rc == 0)
 			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 		len -= rc;
@@ -161,8 +179,14 @@ _writev_all(int s, struct iovec *iov, int iovcnt)
 		}
 
 		rc = writev(s, iov, iovcnt);
-		if (rc == -1)
+		if (rc == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = s, .events = POLLOUT };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			return error_from_errno(errno);
+		}
 		if (rc == 0)
 			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 	}
@@ -178,8 +202,14 @@ _sendfile_all(int s, int fd, off_t offset, size_t tosend)
 
 	while (tosend > 0) {
 		rc = sendfile(s, fd, &offset, tosend);
-		if (rc == -1)
+		if (rc == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = s, .events = POLLOUT };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			return error_from_errno(errno);
+		}
 		if (rc == 0)
 			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 
@@ -205,8 +235,14 @@ _sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 
 	while (hdtr.hdr_cnt > 0 || tosend > 0) {
 		rc = sendfile(fd, s, offset, tosend, &hdtr, &sent, 0);
-		if (rc == -1)
+		if (rc == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = s, .events = POLLOUT };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
 			return error_from_errno(errno);
+		}
 		if (sent == 0)
 			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 
