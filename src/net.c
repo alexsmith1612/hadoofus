@@ -185,6 +185,58 @@ out:
 	return error;
 }
 
+// If complete write, returns HDFS_SUCCESS and sets *wlen to buflen.
+// If short write (including EAGAIN/EWOULDBLOCK), returns HDFS_AGAIN and
+// sets *wlen to number of bytes written (which is 0 for EAGAIN/EWOULDBLOCK).
+// If error, returns error_from_errno() and sets *wlen to -1.
+struct hdfs_error
+_write(int s, void *vbuf, size_t buflen, ssize_t *wlen)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	char *buf = vbuf;
+
+	*wlen = write(s, buf, buflen);
+	if (*wlen == -1) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			*wlen = 0; // hide the -1
+			error = HDFS_AGAIN;
+		} else {
+			error = error_from_errno(errno);
+		}
+	} else if ((size_t)*wlen < buflen) {
+		error = HDFS_AGAIN;
+	}
+
+	return error;
+}
+
+struct hdfs_error
+_writev(int s, struct iovec *iov, int iovcnt, ssize_t *wlen)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t totlen = 0;
+
+	*wlen = writev(s, iov, iovcnt);
+	if (*wlen == -1) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			*wlen = 0; // hide the -1
+			error = HDFS_AGAIN;
+		} else {
+			error = error_from_errno(errno);
+		}
+	} else {
+		for (int i = 0; i < iovcnt; i++) {
+			totlen += iov[i].iov_len;
+			if (*wlen < totlen) {
+				error = HDFS_AGAIN;
+				break;
+			}
+		}
+	}
+
+	return error;
+}
+
 struct hdfs_error
 _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 {
@@ -204,8 +256,12 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 	rc = read(s, h->buf + h->used, remain);
 	if (rc == 0)
 		return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-	if (rc < 0)
+	if (rc < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return HDFS_AGAIN;
+		}
 		return error_from_errno(errno);
+	}
 
 	h->used += rc;
 	return HDFS_SUCCESS;
@@ -314,6 +370,27 @@ _sendfile_all(int s, int fd, off_t offset, size_t tosend)
 	return HDFS_SUCCESS;
 }
 
+// XXX note that this can still block on reading from the fd
+struct hdfs_error
+_sendfile(int s, int fd, off_t offset, size_t tosend, ssize_t *wlen)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	*wlen = sendfile(s, fd, &offset, tosend);
+	if (*wlen == -1) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			*wlen = 0; // hide the -1
+			error = HDFS_AGAIN;
+		} else {
+			error = error_from_errno(errno);
+		}
+	} else if ((size_t)*wlen < tosend) {
+		error = HDFS_AGAIN;
+	}
+
+	return error;
+}
+
 #elif defined(__FreeBSD__)
 
 struct hdfs_error
@@ -362,6 +439,45 @@ _sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
 	}
 
 	return HDFS_SUCCESS;
+}
+
+// XXX note that this can still block on reading from the fd
+struct hdfs_error
+_sendfile_bsd(int s, int fd, off_t offset, size_t tosend,
+	struct iovec *hdrs, int hdrcnt, ssize_t *wlen)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	int rc;
+	off_t sent = 0;
+	ssize_t totlen = tosend;
+
+	struct sf_hdtr hdtr = {
+		.headers = hdrs,
+		.hdr_cnt = hdrcnt,
+	};
+
+	rc = sendfile(fd, s, offset, tosend, &hdtr, &sent, 0); // not worrying about SF_NODISKIO/EBUSY
+	*wlen = sent;
+	if (rc == -1) {
+		// it shouldn't return EWOULDBLOCK instead of EAGAIN, but check both anyways
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			error = HDFS_AGAIN;
+		} else {
+			// XXX there are some cases where sent may be significant here, e.g. EINTR/EBUSY
+			*wlen = -1;
+			error = error_from_errno(errno);
+		}
+	} else {
+		for (int i = 0; i < hdrcnt; i++) {
+			totlen += hdrs[i].iov_len;
+			if (sent < totlen) {
+				error = HDFS_AGAIN;
+				break;
+			}
+		}
+	}
+
+	return error;
 }
 
 #endif
