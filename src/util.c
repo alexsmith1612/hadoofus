@@ -92,7 +92,9 @@ hdfs_error_str_kind(struct hdfs_error error)
 	ASSERT(false);	// unreachable
 }
 
+// TODO standardize the capitalization in these error messages
 static const char *hdfs_strerror_table[] = {
+	[HDFS_ERR_AGAIN] = "Operation in progress: continue with API when resources are available", // TODO reconsider this message
 	[HDFS_ERR_END_OF_STREAM] = "EOS; socket was closed",
 	[HDFS_ERR_END_OF_FILE] = "unexpected EOF from file",
 

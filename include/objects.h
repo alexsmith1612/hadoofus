@@ -2,6 +2,7 @@
 #define HADOOFUS_OBJECTS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,11 +18,15 @@ enum hdfs_error_kind {
 };
 #define _he_num_kinds (he_hdfserr + 1)
 
-#define _HDFS_ERR_MINIMUM HDFS_ERR_END_OF_STREAM
+#define _HDFS_ERR_MINIMUM HDFS_ERR_AGAIN
 enum hdfs_error_numeric {
+	// Non-blocking API indicates that we are waiting on some events
+	// or resources to proceed
+	// XXX Perhaps rename? HDFS_ERR_INPROGRESS?
+	HDFS_ERR_AGAIN = 1,
 	// I.e., remote end closed the TCP connection or middleman injected
 	// RST.
-	HDFS_ERR_END_OF_STREAM = 1,
+	HDFS_ERR_END_OF_STREAM,
 	// Input file shorter than expected, or unexpected zero write(2)ing
 	// output.
 	HDFS_ERR_END_OF_FILE,
@@ -104,9 +109,21 @@ _Static_assert(sizeof(struct hdfs_error) == sizeof(uint32_t),
     "for now, attempt to return a 32-bit value for 32-bit platforms where a "
     "64-bit return is slightly more expenisve");
 
-#define HDFS_SUCCESS	(struct hdfs_error) {}
+#define HDFS_SUCCESS	(struct hdfs_error) { 0 }
+// XXX Perhaps rename? AGAIN to INPROGRESS?
+#define HDFS_AGAIN      (struct hdfs_error) { .her_kind = he_hdfserr, .her_num = HDFS_ERR_AGAIN }
+
+static inline bool
+hdfs_is_again(struct hdfs_error herr)
+{
+	return (herr.her_kind == he_hdfserr && herr.her_num == HDFS_ERR_AGAIN);
+}
 
 // Return true if the struct represents an unsucessful result.
+// XXX Do we want this to indicate HDFS_AGAIN as failure or success?
+// The current implementation assumes that hdfs_is_error() returns
+// true for HDFS_AGAIN. Perhaps add hdfs_is_fatal() or something
+// like that that returns false for HDFS_SUCCESS and HDFS_AGAIN
 static inline bool
 hdfs_is_error(struct hdfs_error herr)
 {
