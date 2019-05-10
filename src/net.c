@@ -286,6 +286,32 @@ _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 }
 
 struct hdfs_error
+_pwrite_all(int fd, const void *vbuf, size_t len, off_t offset)
+{
+	const char *buf = vbuf;
+	ssize_t wlen = 0;
+
+	while (len > 0) {
+		wlen = pwrite(fd, buf, len, offset);
+		if (wlen == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
+				continue;
+			}
+			return error_from_errno(errno);
+		}
+		if (wlen == 0)
+			return error_from_hdfs(HDFS_ERR_END_OF_FILE);
+		len -= wlen;
+		buf += wlen;
+		offset += wlen;
+	}
+
+	return HDFS_SUCCESS;
+}
+
+struct hdfs_error
 _read_all(int fd, void *vbuf, size_t len)
 {
 	char *buf = vbuf;

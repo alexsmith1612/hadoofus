@@ -19,6 +19,7 @@ struct hdfs_error	_write(int s, void *vbuf, size_t buflen, ssize_t *wlen);
 struct hdfs_error	_writev(int s, struct iovec *iov, int iovcnt, ssize_t *wlen);
 struct hdfs_error	_read_to_hbuf(int s, struct hdfs_heap_buf *);
 struct hdfs_error	_pread_all(int fd, void *buf, size_t len, off_t offset);
+struct hdfs_error	_pwrite_all(int fd, const void *vbuf, size_t len, off_t offset);
 struct hdfs_error	_read_all(int fd, void *buf, size_t len);
 struct hdfs_error	_writev_all(int s, struct iovec *iov, int iovcnt);
 #if defined(__linux__)
