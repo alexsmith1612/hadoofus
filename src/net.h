@@ -9,7 +9,7 @@
 #include "heapbuf.h"
 
 struct hdfs_error	_connect(int *s, const char *host, const char *port);
-struct hdfs_error	_write_all(int s, void *buf, int buflen);
+struct hdfs_error	_write_all(int s, void *buf, size_t buflen);
 struct hdfs_error	_read_to_hbuf(int s, struct hdfs_heap_buf *);
 struct hdfs_error	_pread_all(int fd, void *buf, size_t len, off_t offset);
 struct hdfs_error	_read_all(int fd, void *buf, size_t len);
