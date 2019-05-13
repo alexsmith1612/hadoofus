@@ -8,11 +8,7 @@
 
 #include "heapbuf.h"
 
-struct hdfs_conn_ctx {
-	struct addrinfo  *ai;
-	struct addrinfo  *rp;
-	int serrno;
-};
+struct hdfs_conn_ctx;
 
 struct hdfs_error	_connect(int *s, const char *host, const char *port);
 struct hdfs_error	_connect_init(int *s, const char *host, const char *port,

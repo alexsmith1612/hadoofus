@@ -213,6 +213,53 @@ hdfs_datanode_destroy(struct hdfs_datanode *d)
 }
 
 EXPORT_SYM struct hdfs_error
+hdfs_datanode_connect_init(struct hdfs_datanode *d, const char *host, const char *port,
+	bool numerichost)
+{
+	struct hdfs_error error;
+
+	ASSERT(d);
+	ASSERT(host);
+	ASSERT(port);
+	ASSERT(d->dn_sock == -1);
+	ASSERT(d->dn_state == HDFS_DN_ST_INITED);
+
+	error = _connect_init(&d->dn_sock, host, port, &d->dn_cctx, numerichost);
+	if (!hdfs_is_error(error)) {
+		d->dn_state = HDFS_DN_ST_CONNECTED;
+	} else if (hdfs_is_again(error)) {
+		d->dn_state = HDFS_DN_ST_CONNPENDING;
+	} else {
+		d->dn_state = HDFS_DN_ST_ERROR;
+	}
+
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_connect_finalize(struct hdfs_datanode *d)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+
+	if (d->dn_state == HDFS_DN_ST_CONNECTED)
+		goto out;
+	ASSERT(d->dn_state == HDFS_DN_ST_CONNPENDING);
+	error = _connect_finalize(&d->dn_sock, &d->dn_cctx);
+	if (!hdfs_is_error(error)) {
+		d->dn_state = HDFS_DN_ST_CONNECTED;
+	} else if (!hdfs_is_again(error)) {
+		d->dn_state = HDFS_DN_ST_ERROR;
+	}
+
+out:
+	return error;
+}
+
+// TODO remove completely or write a blocking wrapper around the nonblocking
+// datanode connect interface
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *port)
 {
 	struct hdfs_error error;
