@@ -53,8 +53,24 @@ struct hdfs_namenode {
 	int nn_error;
 };
 
+// XXX perhaps move to net.c and only use opaque pointers here?
+struct hdfs_conn_ctx {
+	struct addrinfo  *ai;
+	struct addrinfo  *rp;
+	int serrno;
+};
+
+enum hdfs_datanode_state {
+	HDFS_DN_ST_ERROR = -1,
+	HDFS_DN_ST_ZERO = 0,
+	HDFS_DN_ST_INITED,
+	HDFS_DN_ST_CONNPENDING,
+	HDFS_DN_ST_CONNECTED,
+};
+
 // Access to struct hdfs_datanode must be serialized by the user
 struct hdfs_datanode {
+	enum hdfs_datanode_state dn_state;
 	int64_t dn_blkid,
 		dn_gen,
 		dn_offset,
@@ -67,6 +83,8 @@ struct hdfs_datanode {
 
 	/* v2+ */
 	char *dn_pool_id;
+
+	struct hdfs_conn_ctx dn_cctx;
 };
 
 extern _Thread_local int hdfs_datanode_unknown_status;
