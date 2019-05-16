@@ -117,7 +117,8 @@ struct hdfs_datanode {
 	char *dn_client;
 	int dn_sock,
 	    dn_proto;
-	bool dn_last;
+	bool dn_last,
+	     dn_crcs;
 
 	/* v2+ */
 	char *dn_pool_id;

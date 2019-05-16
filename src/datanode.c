@@ -258,37 +258,36 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 
 // Datanode write operations
 
-// XXX TODO move sendcrcs to init?
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
+	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(buf);
 
-	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, sendcrcs, nwritten, nacked, error_idx);
+	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
+hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len)
 {
 	ASSERT(buf);
 	ASSERT(len > 0);
 
 	// TODO write blocking wrapper around non-blocking interface
-	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, sendcrcs);
+	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/);
 }
 
 // TODO hdfs_datanode_write_file_nb()
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
-	bool sendcrcs)
+hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset)
 {
 	ASSERT(offset >= 0);
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
 	// TODO write blocking wrapper around non-blocking interface
-	return _datanode_write(d, NULL, fd, len, offset, sendcrcs);
+	return _datanode_write(d, NULL, fd, len, offset);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -349,24 +348,24 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 // Datanode read operations
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
-	bool verifycrc)
+hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf)
 {
 	ASSERT(buf);
 
-	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf,
-	    verifycrc);
+	// XXX TODO
+	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf);
 }
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
-	int fd, off_t fdoff, bool verifycrc)
+	int fd, off_t fdoff)
 {
 	ASSERT(bloff >= 0);
 	ASSERT(fdoff >= 0);
 	ASSERT(fd >= 0);
 
-	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/, verifycrc);
+	// XXX TODO
+	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/);
 }
 
 static struct hdfs_error
@@ -406,7 +405,7 @@ error_from_datanode(int dnstatus)
 
 static void
 _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
-	off_t offset, off_t len, bool crcs)
+	off_t offset, off_t len)
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 
@@ -450,7 +449,7 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 		opread.len = len;
 
 		/* Defaults to true ("send crcs") */
-		if (!crcs) {
+		if (!d->dn_crcs) {
 			opread.has_sendchecksums = true;
 			opread.sendchecksums = false;
 		}
@@ -471,7 +470,7 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 }
 
 static void
-_compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crcs)
+_compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
 
@@ -518,7 +517,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		// created with a different chunk size and/or type)
 		csum.bytesperchecksum = CHUNK_SIZE;
 		csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL;
-		if (crcs)
+		if (d->dn_crcs)
 			csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32;
 
 		op.header = &hdr;
@@ -559,7 +558,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		_bappend_s8(h, 0);
 		_bappend_s32(h, 0);
 		hdfs_object_serialize(h, d->dn_token);
-		_bappend_s8(h, !!crcs);
+		_bappend_s8(h, !!d->dn_crcs);
 		_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
 	}
 }
@@ -666,7 +665,7 @@ out:
 // call to writev() is made.
 static struct hdfs_error
 _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-	off_t offset, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+	off_t offset, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	ssize_t wlen, t_nacked = 0;
 	struct hdfs_error error = HDFS_SUCCESS, ret;
@@ -699,7 +698,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	switch (d->dn_state) {
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		_compose_write_header(&d->dn_hdrbuf, d, sendcrcs);
+		_compose_write_header(&d->dn_hdrbuf, d);
 		d->dn_state = HDFS_DN_ST_SENDOP;
 		// fall through
 	case HDFS_DN_ST_SENDOP:
@@ -729,7 +728,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		}
 		// Success!
 		d->dn_pstate.sock = d->dn_sock;
-		d->dn_pstate.sendcrcs = sendcrcs;
+		d->dn_pstate.sendcrcs = d->dn_crcs;
 		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
 		d->dn_pstate.recvbuf = &d->dn_recvbuf;
 		d->dn_pstate.proto = d->dn_proto;
