@@ -20,12 +20,6 @@
 
 #include "datatransfer.pb-c.h"
 
-/*
- * These are HDFS wire values.
- */
-#define OP_WRITE 0x50
-#define OP_READ 0x51
-
 _Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
 _Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
 
@@ -354,9 +348,10 @@ static void
 _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 	off_t offset, off_t len, bool crcs)
 {
-	_bappend_s16(h, d->dn_proto);
+	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 
-	_bappend_s8(h, OP_READ);
+	_bappend_s16(h, d->dn_proto);
+	_bappend_s8(h, HDFS_DN_OP_READ_BLOCK);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
 		Hadoop__Common__TokenProto token =
@@ -418,9 +413,10 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 static void
 _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crcs)
 {
-	_bappend_s16(h, d->dn_proto);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
 
-	_bappend_s8(h, OP_WRITE);
+	_bappend_s16(h, d->dn_proto);
+	_bappend_s8(h, HDFS_DN_OP_WRITE_BLOCK);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
 		Hadoop__Common__TokenProto token =
