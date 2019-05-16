@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -232,6 +233,61 @@ hdfs_datanode_connect_finalize(struct hdfs_datanode *d)
 
 out:
 	return error;
+}
+
+// XXX TODO make comment noting that the returned fd is not invariant until
+// _connect_init() or _connect_finalize() return HDFS_SUCCESS (or just say that
+// is not invariant ever)
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
+{
+	ASSERT(d);
+	ASSERT(fd);
+	ASSERT(events);
+	ASSERT(d->dn_state >= HDFS_DN_ST_CONNPENDING); // XXX consider returning an error instead?
+
+	*fd = d->dn_sock;
+	*events = 0;
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_CONNPENDING:
+	case HDFS_DN_ST_SENDOP:
+		*events |= POLLOUT;
+		break;
+	case HDFS_DN_ST_RECVOP:
+		*events |= POLLIN;
+		break;
+	case HDFS_DN_ST_PKT:
+		if (d->dn_op == HDFS_DN_OP_READ_BLOCK)
+			*events |= POLLIN;
+		else if (d->dn_op == HDFS_DN_OP_WRITE_BLOCK)
+			// Set POLLOUT if we are in the middle of sending a packet or if we have data
+			// to send in a new packet and we are not blocked waiting for pending ACKs
+			if (_hbuf_readlen(&d->dn_hdrbuf) > 0 ||
+			    d->dn_pstate.remains_pkt > 0 ||
+			    (d->dn_pstate.remains_tot > 0 && d->dn_pstate.unacked.ua_num < MAX_UNACKED_PACKETS))
+				*events |= POLLOUT;
+		break;
+	case HDFS_DN_ST_FINISHED:
+		// May be waiting to send the client read status
+		if (d->dn_op == HDFS_DN_OP_READ_BLOCK && _hbuf_readlen(&d->dn_hdrbuf) > 0)
+			*events |= POLLOUT;
+		// Only potentially waiting on ACKs in for writes
+		break;
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNECTED: // we should never have to wait in HDFS_DN_ST_CONNECTED
+	case HDFS_DN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+	// Set POLLIN if there are any outstanding ACKs regardless of state
+	// (should only happen for writes in ST_PKT or ST_FINISHED)
+	if (d->dn_pstate.unacked.ua_num > 0)
+		*events |= POLLIN;
+
+	return HDFS_SUCCESS;
 }
 
 // TODO remove completely or write a blocking wrapper around the nonblocking
