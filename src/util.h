@@ -56,6 +56,8 @@ void	assert_fail(const char *fmt, ...)
 # define EXPORT_SYM __attribute__((visibility("default")))
 #endif
 
+#define PTR_FREE(p) do { if ((p) != NULL) free(p); (p) = NULL; } while (false)
+
 static inline off_t
 _min(off_t a, off_t b)
 {

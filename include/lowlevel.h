@@ -89,7 +89,7 @@ struct hdfs_read_info {
 	     lastpacket;
 };
 
-// XXX perhaps move to net.c and only use opaque pointers here?
+// Do not directly access this struct
 struct hdfs_conn_ctx {
 	struct addrinfo  *ai;
 	struct addrinfo  *rp;
@@ -116,6 +116,8 @@ enum hdfs_datanode_op {
 	// TODO HDFS_DN_OP_TRANSFER_BLOCK = 0x56
 };
 
+// hdfs_datanode structs must either be created with hdfs_datanode_alloc() or
+// be initialized to all 0's before calling hdfs_datanode_init()
 // Access to struct hdfs_datanode must be serialized by the user
 struct hdfs_datanode {
 	enum hdfs_datanode_state dn_state;
@@ -125,9 +127,12 @@ struct hdfs_datanode {
 		dn_offset,
 		dn_size;
 	struct hdfs_object *dn_token;
+	struct hdfs_object **dn_locs;
+	int dn_nlocs;
 	char *dn_client;
 	int dn_sock,
-	    dn_proto;
+	    dn_proto,
+	    dn_conn_idx;
 	bool dn_last,
 	     dn_crcs;
 
