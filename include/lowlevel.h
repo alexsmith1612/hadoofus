@@ -68,9 +68,18 @@ enum hdfs_datanode_state {
 	HDFS_DN_ST_CONNECTED,
 };
 
+// These are HDFS wire values (except NONE)
+enum hdfs_datanode_op {
+	HDFS_DN_OP_NONE = 0,
+	HDFS_DN_OP_WRITE_BLOCK = 0x50,
+	HDFS_DN_OP_READ_BLOCK = 0x51
+	// TODO HDFS_DN_OP_TRANSFER_BLOCK = 0x56
+};
+
 // Access to struct hdfs_datanode must be serialized by the user
 struct hdfs_datanode {
 	enum hdfs_datanode_state dn_state;
+	enum hdfs_datanode_op dn_op;
 	int64_t dn_blkid,
 		dn_gen,
 		dn_offset,
@@ -196,7 +205,7 @@ void		hdfs_namenode_destroy(struct hdfs_namenode *);
 // Datanode operations
 //
 
-// "DATA_TRANSFER_VERSION"
+// "DATA_TRANSFER_VERSION" XXX consider moving these values to an enum?
 // The datanode protocol used by Apache Hadoop 1.0.x (also 0.20.20x):
 #define HDFS_DATANODE_AP_1_0 0x11
 // The datanode protocol used by Cloudera CDH3 (derived from apache 0.20.1):
