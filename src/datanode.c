@@ -38,6 +38,7 @@ static char DN_ERROR_CHECKSUM[2] = {
 static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
 	     CHUNK_SIZE = 512,
 	     PACKET_SIZE = 64 * 1024;
+static const long HEART_BEAT_SEQNO = -1L;
 
 struct _read_state {
 	int64_t client_offset,
@@ -1529,6 +1530,13 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	seqno = _bslurp_s64(&obuf);
 	ASSERT(obuf.used >= 0); // XXX reconsider
 
+	// Unsure if these are ever actually sent, or existed in v1, but
+	// Apache and libhdfs3 check for/skip heartbeat acks in v2.2+
+	if (seqno == HEART_BEAT_SEQNO) {
+		_hbuf_consume(ps->recvbuf, acksz);
+		goto out;
+	}
+
 	if (seqno != ps->first_unacked) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
 #if 0 // TODO stash the bad seqno in struct hdfs_datanode for users to access if they desire
@@ -1630,6 +1638,13 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	obuf.used += sz;
 	if (ack == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_PIPELINEACKPROTO);
+		goto out;
+	}
+
+	// Unsure if these are ever actually sent, but Apache and libhdfs3
+	// check for/skip heartbeat acks
+	if (ack->seqno == HEART_BEAT_SEQNO) {
+		_hbuf_consume(ps->recvbuf, obuf.used);
 		goto out;
 	}
 
