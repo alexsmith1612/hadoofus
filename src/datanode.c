@@ -78,7 +78,6 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 {
 	struct hdfs_datanode *d;
 	struct hdfs_error error;
-	int32_t n;
 
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
@@ -89,35 +88,11 @@ hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 		return NULL;
 	}
 
-	d = malloc(sizeof(*d));
-	ASSERT(d);
-
-	hdfs_datanode_init(d,
-	    located_block->ob_val._located_block._blockid,
-	    located_block->ob_val._located_block._len,
-	    located_block->ob_val._located_block._generation,
-	    located_block->ob_val._located_block._offset,
-	    client,
-	    located_block->ob_val._located_block._token,
-	    proto);
-
-	if (proto >= HDFS_DATANODE_AP_2_0)
-		hdfs_datanode_set_pool_id(d,
-		    located_block->ob_val._located_block._pool_id);
-
-	// Try each datanode in the LocatedBlock until one successfully
-	// connects
-	n = located_block->ob_val._located_block._num_locs;
-	for (int32_t i = 0; i < n; i++) {
-		struct hdfs_object *di =
-		    located_block->ob_val._located_block._locs[i];
-
-		error = hdfs_datanode_connect(d,
-		    di->ob_val._datanode_info._ipaddr,
-		    di->ob_val._datanode_info._port);
-		if (!hdfs_is_error(error))
-			return d;
-	}
+	d = hdfs_datanode_alloc();
+	hdfs_datanode_init(d, located_block, client, proto);
+	error = hdfs_datanode_connect(d);
+	if (!hdfs_is_error(error))
+		return d;
 
 	hdfs_datanode_destroy(d);
 	free(d);
@@ -136,35 +111,71 @@ hdfs_datanode_delete(struct hdfs_datanode *d)
 // low-level api
 //
 
+EXPORT_SYM struct hdfs_datanode *
+hdfs_datanode_alloc(void)
+{
+	struct hdfs_datanode *d;
+
+	d = malloc(sizeof(*d));
+	ASSERT(d);
+	memset(d, 0, sizeof(*d));
+	return d;
+}
+
+// It is assumed that the struct hdfs_datanode is initialized to all 0s prior to
+// the first invocation of hdfs_datanode_init() (which is performed by
+// hdfs_datanode_alloc()), and passed to hdfs_datanode_clean() or
+// hdfs_datanode_destroy() immediately prior to any subsequent calls to
+// hdfs_datanode_init()
+// XXX TODO add this comment to the public header files
+//
+// XXX Do we want a seprate init function that takes separate arguments instead
+// of a located block object? We'd have to enforce that they would then use
+// hdfs_datanode_connect_init() and hdfs_datanode_connect_finalize directly
+// instead of using hdfs_datanode_connect()/hdfs_datanode_connect_nb(). If
+// not, then we should probably make hdfs_datanode_set_pool_id() static (or
+// just remove it entirely and move its functionality to hdfs_datanode_init())
 EXPORT_SYM void
-hdfs_datanode_init(struct hdfs_datanode *d,
-	int64_t blkid, int64_t size, int64_t gen, /* block */
-	int64_t offset, const char *client, struct hdfs_object *token,
-	int proto)
+hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
+	const char *client, int proto)
 {
 	ASSERT(d);
+	ASSERT(located_block);
+	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
+	ASSERT(client);
 	ASSERT(proto == HDFS_DATANODE_AP_1_0 || proto == HDFS_DATANODE_CDH3 ||
 	    proto == HDFS_DATANODE_AP_2_0);
+	ASSERT(d->dn_state == HDFS_DN_ST_ZERO);
 
 	d->dn_sock = -1;
-	d->dn_used = false;
-
-	d->dn_blkid = blkid;
-	d->dn_size = size;
-	d->dn_gen = gen;
-
-	d->dn_offset = offset;
-	if (token)
-		d->dn_token = hdfs_token_copy(token);
-	else
-		d->dn_token = hdfs_token_new_empty();
-
-	ASSERT(client);
+	d->dn_proto = proto;
 	d->dn_client = strdup(client);
 	ASSERT(d->dn_client);
 
-	d->dn_proto = proto;
-	d->dn_pool_id = NULL;
+	d->dn_blkid = located_block->ob_val._located_block._blockid;
+	d->dn_size = located_block->ob_val._located_block._len;
+	d->dn_gen = located_block->ob_val._located_block._generation;
+	d->dn_offset = located_block->ob_val._located_block._offset;
+	d->dn_nlocs = located_block->ob_val._located_block._num_locs;
+	if (d->dn_nlocs > 0) {
+		d->dn_locs = malloc(d->dn_nlocs * sizeof(*d->dn_locs));
+		ASSERT(d->dn_locs);
+		for (int i = 0; i < d->dn_nlocs; i++) {
+			struct hdfs_object *di = located_block->ob_val._located_block._locs[i];
+			d->dn_locs[i] = hdfs_datanode_info_copy(di);
+		}
+	}
+
+	if (located_block->ob_val._located_block._token)
+		d->dn_token = hdfs_token_copy(located_block->ob_val._located_block._token);
+	else
+		d->dn_token = hdfs_token_new_empty();
+
+	if (proto >= HDFS_DATANODE_AP_2_0)
+		hdfs_datanode_set_pool_id(d,
+		    located_block->ob_val._located_block._pool_id);
+
+	d->dn_state = HDFS_DN_ST_INITED;
 }
 
 EXPORT_SYM void
@@ -179,20 +190,180 @@ hdfs_datanode_set_pool_id(struct hdfs_datanode *d, const char *pool_id)
 	d->dn_pool_id = pool_copy;
 }
 
-EXPORT_SYM void
-hdfs_datanode_destroy(struct hdfs_datanode *d)
+// XXX Might want to just unconditionally do the 0 setting instead of
+// only in the reuse case for all of the _*_clean() functions
+static void
+_unacked_packets_clean(struct hdfs_unacked_packets *ua, bool reuse)
+{
+	ASSERT(ua);
+
+	if (reuse) {
+		ua->ua_num = 0;
+		ua->ua_list_pos = 0;
+	} else {
+		PTR_FREE(ua->ua_list);
+		ua->ua_list_size = 0;
+	}
+}
+
+static void
+_packet_state_clean(struct hdfs_packet_state *ps, bool reuse)
+{
+	ASSERT(ps);
+
+	if (reuse) {
+		ps->seqno = 0;
+		ps->first_unacked = 0;
+		ps->remains_tot = 0;
+		ps->remains_pkt = 0;
+	}
+	_unacked_packets_clean(&ps->unacked, reuse);
+}
+
+static void
+_read_info_clean(struct hdfs_read_info *ri, bool reuse)
+{
+	ASSERT(ri);
+
+	if (reuse) {
+		ri->bad_crcs = false;
+		ri->lastpacket = false;
+	}
+}
+
+static void
+_datanode_clean(struct hdfs_datanode *d, bool reuse)
 {
 	ASSERT(d);
 
-	if (d->dn_sock != -1)
+	if (d->dn_sock != -1) {
+		// XXX if we get a bad checksum during a datanode read, then we
+		// stop reading from the socket and send an ERROR_CHECKSUM status
+		// to the server. Closing the socket with unread data in the recv
+		// buffer can cause the OS (at least on linux) to send a TCP RST,
+		// which could possibly happen before the ERROR_CHECKSUM status is
+		// sent. This should be a rare corner case (and I'm not sure how
+		// the datanodes even react to an ERROR_CHECKSUM status), but we
+		// may want to consider trying to handle it
 		close(d->dn_sock);
-	hdfs_object_free(d->dn_token);
-	free(d->dn_client);
-	free(d->dn_pool_id);
+		d->dn_sock = -1;
+	}
 
-	memset(d, 0, sizeof *d);
+	// XXX could potentially try to reuse much of this memory
+	if (d->dn_token) {
+		hdfs_object_free(d->dn_token);
+		d->dn_token = NULL;
+	}
+	PTR_FREE(d->dn_client);
+	PTR_FREE(d->dn_pool_id);
+	for (int i = 0; i <  d->dn_nlocs; i++) {
+		hdfs_object_free(d->dn_locs[i]);
+	}
+	PTR_FREE(d->dn_locs);
+	d->dn_nlocs = 0;
+	hdfs_conn_ctx_free(&d->dn_cctx);
+
+	_packet_state_clean(&d->dn_pstate, reuse);
+	_read_info_clean(&d->dn_rinfo, reuse);
+
+	if (reuse) {
+		_hbuf_reset(&d->dn_hdrbuf);
+		_hbuf_reset(&d->dn_recvbuf);
+		d->dn_state = HDFS_DN_ST_ZERO;
+		d->dn_op = HDFS_DN_OP_NONE;
+		d->dn_conn_idx = 0;
+		d->dn_last = false;
+	} else {
+		PTR_FREE(d->dn_hdrbuf.buf);
+		PTR_FREE(d->dn_recvbuf.buf);
+		memset(d, 0, sizeof(*d));
+	}
 }
 
+EXPORT_SYM void
+hdfs_datanode_clean(struct hdfs_datanode *d)
+{
+	_datanode_clean(d, true);
+}
+
+EXPORT_SYM void
+hdfs_datanode_destroy(struct hdfs_datanode *d)
+{
+	_datanode_clean(d, false);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_connect(struct hdfs_datanode *d)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct pollfd pfd;
+
+	do {
+		error = hdfs_datanode_connect_nb(d);
+		if (!hdfs_is_again(error))
+			break;
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			break;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	} while (true);
+
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_connect_nb(struct hdfs_datanode *d)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+	ASSERT(d->dn_state == HDFS_DN_ST_INITED || d->dn_state == HDFS_DN_ST_CONNPENDING);
+
+	if (d->dn_nlocs <= 0) {
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		d->dn_state = HDFS_DN_ST_ERROR;
+		goto out;
+	}
+
+	// TODO adjust loop behavior based on operation (i.e. don't loop for writes for proper pipelining)
+
+	// TODO only try to connect to the first datanode for proper pipeline creation
+	// Need to hold on to the located block (or at least the datanode_info array)
+	// to be used for excluding nodes in event of pipeline error (perhaps just punt
+	// that to the user)
+
+	// TODO look into how connections should be created for block read (and transfer) operations
+	// It looks like read and transfer operations can connect to any of the nodes for a given
+	// block, while writes should only connect to the first and pass the rest of the nodes
+	// to the connected node as part of the pipeline setup. Perhaps there should be an
+	// enum hdfs_datanode_op argument to hdfs_datanode_new() to determine which behavior we
+	// should do. For now assume that older versions had the same pipelining process as v2+
+
+	// XXX should we report to the user which datanodes we failed to connect to?
+	do {
+		if (d->dn_state == HDFS_DN_ST_INITED) {
+			struct hdfs_object *di = d->dn_locs[d->dn_conn_idx];
+			const char *host, *port;
+			ASSERT(d->dn_sock == -1);
+			host = di->ob_val._datanode_info._ipaddr;
+			port = di->ob_val._datanode_info._port;
+			error = hdfs_datanode_connect_init(d, host, port, true);
+		} else {
+			error = hdfs_datanode_connect_finalize(d);
+		}
+		if (d->dn_state == HDFS_DN_ST_ERROR && d->dn_conn_idx + 1 < d->dn_nlocs) {
+			d->dn_state = HDFS_DN_ST_INITED;
+			d->dn_conn_idx++;
+		}
+	} while (d->dn_state == HDFS_DN_ST_INITED);
+
+out:
+	return error;
+}
+
+// XXX Consider making datanode_connect_init/finalize() static and force users
+// to use either hdfs_datanode_connect() or hdfs_datanode_connect_nb()
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_connect_init(struct hdfs_datanode *d, const char *host, const char *port,
 	bool numerichost)
@@ -291,21 +462,6 @@ hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 		*events |= POLLIN;
 
 	return HDFS_SUCCESS;
-}
-
-// TODO remove completely or write a blocking wrapper around the nonblocking
-// datanode connect interface
-EXPORT_SYM struct hdfs_error
-hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *port)
-{
-	struct hdfs_error error;
-
-	ASSERT(d);
-
-	ASSERT(d->dn_sock == -1);
-	error = _connect(&d->dn_sock, host, port);
-
-	return error;
 }
 
 // Datanode write operations
