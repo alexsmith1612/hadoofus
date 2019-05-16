@@ -20,6 +20,8 @@
 
 #include "datatransfer.pb-c.h"
 
+// TODO look into datatransfer encryption
+
 _Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
 _Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
 
@@ -32,24 +34,10 @@ static char DN_ERROR_CHECKSUM[2] = {
 	(char)(HADOOP__HDFS__STATUS__ERROR_CHECKSUM & 0xff),
 };
 
+// XXX make these configurable?
 static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
 	     CHUNK_SIZE = 512,
 	     PACKET_SIZE = 64 * 1024;
-
-struct _packet_state {
-	int64_t seqno,
-		first_unacked,
-		offset;
-	off_t remains,
-	      fdoffset;
-	void *buf;
-	struct hdfs_heap_buf *recvbuf;
-	int sock,
-	    unacked_packets,
-	    proto,
-	    fd;
-	bool sendcrcs;
-};
 
 struct _read_state {
 	int64_t client_offset,
@@ -62,8 +50,9 @@ static struct hdfs_error	error_from_datanode(int);
 
 static struct hdfs_error	_datanode_read(struct hdfs_datanode *, off_t bloff, off_t len,
 				int fd, off_t fdoff, void *buf, bool verify);
-static struct hdfs_error	_datanode_write(struct hdfs_datanode *, const void *buf, int fd, off_t len,
-				off_t offset, bool sendcrcs);
+static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
+static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
+				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct _read_state *);
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
@@ -74,12 +63,13 @@ static struct hdfs_error	_recv_packet(struct _packet_state *, struct _read_state
 static struct hdfs_error	_process_recv_packet(struct _packet_state *, struct _read_state *,
 				ssize_t /*hdr_len*/, ssize_t /*plen*/, ssize_t /*dlen*/,
 				int64_t /*offset*/, bool /*lastpacket*/);
-static struct hdfs_error	_send_packet(struct _packet_state *);
+static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps);
 static void			_set_opres_msg(const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen);
-static struct hdfs_error	_wait_ack(struct _packet_state *ps);
-static struct hdfs_error	_wait_ack2(struct _packet_state *ps);
+static struct hdfs_error	_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
 
 //
 // high-level api
@@ -269,12 +259,25 @@ hdfs_datanode_connect(struct hdfs_datanode *d, const char *host, const char *por
 // Datanode write operations
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
+hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
+	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(buf);
 
-	return _datanode_write(d, buf, -1, len, -1, sendcrcs);
+	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
+{
+	ASSERT(buf);
+	ASSERT(len > 0);
+
+	// TODO write blocking wrapper around non-blocking interface
+	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, sendcrcs);
+}
+
+// TODO hdfs_datanode_write_file_nb()
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
@@ -282,8 +285,65 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 {
 	ASSERT(offset >= 0);
 	ASSERT(fd >= 0);
+	ASSERT(len > 0);
 
+	// TODO write blocking wrapper around non-blocking interface
 	return _datanode_write(d, NULL, fd, len, offset, sendcrcs);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_check_acks(struct hdfs_datanode *d, ssize_t *nacked, int *error_idx)
+{
+	struct hdfs_error error;
+
+	ASSERT(d);
+	ASSERT(nacked);
+	ASSERT(error_idx);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(d->dn_state >= HDFS_DN_ST_CONNECTED);
+
+	error = _check_acks(&d->dn_pstate, nacked, error_idx);
+	if (hdfs_is_error(error) && !hdfs_is_again(error)) {
+		d->dn_state = HDFS_DN_ST_ERROR;
+	}
+
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_idx)
+{
+	struct hdfs_error error;
+	ssize_t t_nwritten;
+
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(d->dn_state >= HDFS_DN_ST_CONNECTED);
+
+	if (!d->dn_last) {
+		// Must have already written all data passed by user. XXX consider?
+		ASSERT(d->dn_pstate.remains_tot == 0);
+		d->dn_last = true;
+	}
+
+	error = _datanode_write(d, NULL/*buf*/, -1/*fd*/, 0/*len*/, -1/*fdoff*/,
+	    0/*sendcrcs*/, &t_nwritten, nacked, error_idx);
+
+	// Only return HDFS_SUCCESS once all of the packets have been acknowledged
+	if (!hdfs_is_error(error)) {
+		error = d->dn_pstate.unacked.ua_num == 0 ? HDFS_SUCCESS : HDFS_AGAIN;
+	}
+
+	if (!hdfs_is_error(error) && d->dn_proto < HDFS_DATANODE_AP_2_0) {
+		// Write final zero-len packet; error here doesn't always matter. I
+		// think some HDFS versions drop the connection at this point, so we
+		// want to be lenient. Since the tcp send buffer should be empty at
+		// this point, it's unlikely for there to be a short write, so don't
+		// worry about them.
+		const int32_t zero = 0;
+		_write(d->dn_sock, __DECONST(void *, &zero), sizeof(zero), &t_nwritten);
+	}
+
+	return error;
 }
 
 // Datanode read operations
@@ -411,7 +471,7 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 }
 
 static void
-_compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crcs)
+_compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
 
@@ -427,6 +487,8 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		    HADOOP__HDFS__CLIENT_OPERATION_HEADER_PROTO__INIT;
 		Hadoop__Hdfs__ChecksumProto csum = HADOOP__HDFS__CHECKSUM_PROTO__INIT;
 		Hadoop__Hdfs__OpWriteBlockProto op = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__INIT;
+
+		// TODO add DatanodeInfoProto targets for proper pipeline creation
 
 		struct hdfs_token *h_token;
 		size_t sz;
@@ -451,18 +513,32 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		hdr.baseheader = &bhdr;
 		hdr.clientname = d->dn_client;
 
-		csum.bytesperchecksum = 512;
+		// XXX TODO check how bytesperchecksum and type are supposed to
+		// work for appends (i.e. consider the case where the file was
+		// created with a different chunk size and/or type)
+		csum.bytesperchecksum = CHUNK_SIZE;
 		csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL;
-		if (crcs)
+		if (d->dn_crcs)
 			csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32;
 
 		op.header = &hdr;
 
-		/* XXX maybe SETUP_APPEND iff located_block size > 0? */
+		// XXX TODO add support for recovery stages. Need to look into this more,
+		// but there likely needs to be a way for the user to specify the offset
+		// into the block at which they will begin writing (since they would start
+		// by writing the first unacked bytes) in addition to simply specifying
+		// that this will be a recovery pipeline. This could be done by having the
+		// user directly mess with the located block object that gets passed to
+		// _new()/_init(), but there should probably be a more clear way. Perhaps
+		// hdfs_datanode_set_recovery(off_t off) to be called between _init() and
+		// _connect() calls
+
+		// XXX SETUP_APPEND iff located_block size > 0? Double check what the
+		// correct behavior is with apache
 		op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
 
 		/* Not sure about any of this: */
-		op.pipelinesize = 1;
+		op.pipelinesize = 1; // XXX TODO update when adding proper pipeline creation
 		op.minbytesrcvd = d->dn_size;
 		op.maxbytesrcvd = d->dn_size;
 		op.latestgenerationstamp = d->dn_gen;
@@ -471,9 +547,10 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		sz = hadoop__hdfs__op_write_block_proto__get_packed_size(&op);
 		_bappend_vlint(h, sz);
 		_hbuf_reserve(h, sz);
-		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)&h->buf[h->used]);
-		h->used += sz;
+		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
+		_hbuf_append(h, sz);
 	} else {
+		// TODO pipelining/datanode targets?
 		_bappend_s64(h, d->dn_blkid);
 		_bappend_s64(h, d->dn_gen);
 		_bappend_s32(h, 1);
@@ -482,7 +559,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d, bool crc
 		_bappend_s8(h, 0);
 		_bappend_s32(h, 0);
 		hdfs_object_serialize(h, d->dn_token);
-		_bappend_s8(h, !!crcs);
+		_bappend_s8(h, !!d->dn_crcs);
 		_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
 	}
 }
@@ -572,71 +649,156 @@ out:
 }
 
 static struct hdfs_error
-_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-	off_t offset, bool sendcrcs)
+_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	struct hdfs_heap_buf header = { 0 },
-			     recvbuf = { 0 };
-
-	struct _packet_state pstate = { 0 };
-	const int32_t zero = 0;
 
 	ASSERT(d);
-	ASSERT(len > 0);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_NONE);
 
-	ASSERT(!d->dn_used);
-	d->dn_used = true;
+	d->dn_crcs = sendcrcs;
+	d->dn_op = HDFS_DN_OP_WRITE_BLOCK;
 
-	_compose_write_header(&header, d, sendcrcs);
-	error = _write_all(d->dn_sock, header.buf, header.used);
-	if (hdfs_is_error(error))
-		goto out;
+	return error;
+}
 
-	if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
-		error = _read_write_status2(d, &recvbuf);
+// XXX TODO Add support for iovecs instead of just one contiguous buffer. Would
+// need to have a dynamically allocated iovec array in struct hdfs_datanode or
+// in struct hdfs_packet state (that only gets realloc'd up).  The iovec array
+// passed in by the user would get shallow copied into our array, starting at
+// index 1 to allow an iovec for the packet header/crcs buffer. There would be a
+// pointer into our iovec array that could be modified by _send_packet() to
+// advance through the array as data get sent. Our copy of the iovec array would
+// also get modified by _send_packet() when a write (whether complete or short,
+// but the complete writes are actually of interest here) finishes in the middle
+// of an iovec. We may want to do some checks against IOV_MAX or
+// sysconf(_SC_IOV_MAX), but these do not seem to be portably defined.
+// send_packet() will have to loop through the iovecs to count how many to pass
+// to writev() via iovcnt (although a temporary adjustment will have to be made
+// to iov_len in the last iovec passed in order to pass exactly the correct
+// number remains_pkt of bytes; this iov_len will then get restored after the
+// call to writev() is made.
+static struct hdfs_error
+_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
+	off_t offset, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+{
+	ssize_t wlen, t_nacked = 0;
+	struct hdfs_error error = HDFS_SUCCESS, ret;
+
+	ASSERT(d);
+	ASSERT(nwritten);
+	ASSERT(nacked);
+	ASSERT(err_idx);
+	ASSERT(d->dn_state >= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(len >= d->dn_pstate.remains_tot);
+	if (d->dn_last)
+		ASSERT(len == 0);
 	else
-		error = _read_write_status(d, &recvbuf);
-	if (hdfs_is_error(error))
-		goto out;
+		ASSERT(len > 0);
 
-	// we're good to write. start sending packets.
-	pstate.sock = d->dn_sock;
-	pstate.sendcrcs = sendcrcs;
-	pstate.buf = __DECONST(void*, buf);
-	pstate.fd = fd;
-	pstate.remains = len;
-	pstate.fdoffset = offset;
-	pstate.recvbuf = &recvbuf;
-	pstate.proto = d->dn_proto;
-	pstate.offset = d->dn_size;
-	while (pstate.remains > 0) {
-		error = _send_packet(&pstate);
-		if (hdfs_is_error(error))
+	*nwritten = 0;
+	*nacked = 0;
+	*err_idx = -1;
+
+	d->dn_pstate.remains_tot = len;
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		_compose_write_header(&d->dn_hdrbuf, d);
+		d->dn_state = HDFS_DN_ST_SENDOP;
+		// fall through
+	case HDFS_DN_ST_SENDOP:
+		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		if (wlen < 0) {
+			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
-	}
-
-	// Drain remaining acks to ensure write succeeded
-	while (pstate.unacked_packets > 0) {
+		}
+		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		if (hdfs_is_again(error))
+			goto out;
+		// complete write
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		d->dn_state = HDFS_DN_ST_RECVOP;
+		// fall through
+	case HDFS_DN_ST_RECVOP:
 		if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
-			error = _wait_ack2(&pstate);
+			error = _read_write_status2(d, &d->dn_recvbuf);
 		else
-			error = _wait_ack(&pstate);
-		if (hdfs_is_error(error))
+			error = _read_write_status(d, &d->dn_recvbuf);
+		if (hdfs_is_again(error)) {
+			goto out; // no state or buffer change.
+		} else if (hdfs_is_error(error)) {
+			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
-	}
+		}
+		// Success!
+		d->dn_pstate.sock = d->dn_sock;
+		d->dn_pstate.sendcrcs = d->dn_crcs;
+		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
+		d->dn_pstate.recvbuf = &d->dn_recvbuf;
+		d->dn_pstate.proto = d->dn_proto;
+		d->dn_pstate.offset = d->dn_size;
+		d->dn_state = HDFS_DN_ST_PKT;
+		// fall through
+	case HDFS_DN_ST_PKT:
+		d->dn_pstate.buf = __DECONST(void *, buf);
+		d->dn_pstate.fd = fd;
+		d->dn_pstate.fdoffset = offset;
+		do {
+			// Try to drain any acks if we have many outstanding packets
+			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
+				ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+				if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
+					error = ret;
+					d->dn_state = HDFS_DN_ST_ERROR;
+					goto out;
+				}
+				*nacked += t_nacked;
+			}
+			error = _send_packet(&d->dn_pstate);
+			if (hdfs_is_again(error)) {
+				break;
+			} else if (hdfs_is_error(error)) {
+				d->dn_state = HDFS_DN_ST_ERROR;
+				goto out;
+			}
+			// Successfully wrote entire packet
+			ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+			ASSERT(d->dn_pstate.remains_pkt == 0);
+			if (d->dn_last) {
+				d->dn_state = HDFS_DN_ST_FINISHED;
+				break;
+			}
+		} while (d->dn_pstate.remains_tot > 0);
+		// XXX do we care about telling the user about the number of
+		// written bytes if there's any error?
+		*nwritten = len - d->dn_pstate.remains_tot;
+		// fall through
+	case HDFS_DN_ST_FINISHED:
+		// Check if there are any acks to drain (without clobbering return value)
+		ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+		if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
+			error = ret;
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		*nacked += t_nacked;
+		break;
 
-	// Write final zero-len packet; error here doesn't always matter. I
-	// think some HDFS versions drop the connection at this point, so we
-	// want to be lenient.
-	if (d->dn_proto < HDFS_DATANODE_AP_2_0)
-		_write_all(d->dn_sock, __DECONST(void*, &zero), sizeof zero);
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		// XXX consider allowing connection to be handled here
+	case HDFS_DN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
 
 out:
-	if (header.buf)
-		free(header.buf);
-	if (recvbuf.buf)
-		free(recvbuf.buf);
 	return error;
 }
 
@@ -700,38 +862,50 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	Hadoop__Hdfs__BlockOpResponseProto **opres_out)
 {
 	struct hdfs_heap_buf obuf = { 0 };
-	Hadoop__Hdfs__BlockOpResponseProto *opres;
-	struct hdfs_error error;
+	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	int64_t sz;
 
-	opres = NULL;
-	do {
+	// If we don't have any data queued up, try to read first
+	if (_hbuf_readlen(h) == 0) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error))
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
+	}
 
-		obuf.buf = h->buf;
+	do {
+		// try to parse what we already have
+		obuf.buf = _hbuf_readptr(h);
 		obuf.used = 0;
-		obuf.size = h->used;
+		obuf.size = _hbuf_readlen(h);
 
 		sz = _bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
+		if (obuf.used == _H_PARSE_EOF) {
+			// if we need more data, then try to read more and parse again
+			error = _read_to_hbuf(d->dn_sock, h);
+			if (hdfs_is_error(error)) // includes HDFS_AGAIN
+				goto out;
+		}
 	} while (obuf.used < 0);
 
+
+	// XXX TODO return error instead of assertion here, since this could
+	// actually happen if we read malformed or maliciously generated data
 	ASSERT(sz < INT_MAX - obuf.used);
-	while (h->used < obuf.used + (int)sz) {
+	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error))
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
-	obuf.buf = h->buf;
-	obuf.size = h->used;
+	obuf.buf = _hbuf_readptr(h);
+	obuf.size = _hbuf_readlen(h);
 
 	opres = hadoop__hdfs__block_op_response_proto__unpack(NULL, sz,
-	    (void *)&h->buf[obuf.used]);
+	    (void *)&obuf.buf[obuf.used]); // points past the already parsed vlint
 	obuf.used += sz;
 	if (opres == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO);
@@ -752,8 +926,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		*opres_out = opres;
 
 	// Skip recvbuf past stuff we parsed here
-	h->used -= obuf.used;
-	memmove(h->buf, h->buf + obuf.used, h->used);
+	_hbuf_consume(h, obuf.used);
 
 out:
 	return error;
@@ -797,14 +970,23 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	char *statusmsg = NULL;
 	size_t statussz;
 
-	while (true) {
-		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error))
-			goto out;
+	// Some data may be parsed multiple times with non-blocking
+	// sockets, which is not ideal, but it greatly simplifies the
+	// code and should not be a big performance hit
 
-		obuf.buf = h->buf;
+	// If we don't have any data queued up, try to read first
+	if (_hbuf_readlen(h) == 0) {
+		error = _read_to_hbuf(d->dn_sock, h);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+	}
+
+	// TODO change to while _hbuf_readlen(h) < 2?
+	while (true) {
+		// try to parse what we already have
+		obuf.buf = _hbuf_readptr(h);
 		obuf.used = 0;
-		obuf.size = h->used;
+		obuf.size = _hbuf_readlen(h);
 
 		status = _bslurp_s16(&obuf);
 		if (obuf.used >= 0)
@@ -814,14 +996,26 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 			goto out;
 		}
+
+		// if we need more data, then try to read more and parse again
+		error = _read_to_hbuf(d->dn_sock, h);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
 	}
 
 	statussz = obuf.used;
 
+	// If we don't have any data queued up, try to read first
+	if ((size_t)_hbuf_readlen(h) == statussz) {
+		error = _read_to_hbuf(d->dn_sock, h);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+	}
+
 	while (true) {
-		obuf.buf = h->buf + statussz;
+		obuf.buf = _hbuf_readptr(h) + statussz;
 		obuf.used = 0;
-		obuf.size = h->used - statussz;
+		obuf.size = _hbuf_readlen(h) - statussz;
 
 		statusmsg = _bslurp_text(&obuf);
 		if (obuf.used >= 0)
@@ -833,7 +1027,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 		}
 
 		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error))
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
@@ -851,9 +1045,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	}
 
 	// Skip the recv buffer past the read objects
-	h->used -= statussz;
-	if (h->used)
-		memmove(h->buf, h->buf + statussz, h->used);
+	_hbuf_consume(h, statussz);
 
 out:
 	if (statusmsg)
@@ -865,9 +1057,7 @@ static struct hdfs_error
 _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	Hadoop__Hdfs__BlockOpResponseProto *opres;
-
-	opres = NULL;
+	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
 
 	error = _read_blockop_resp_status(d, h, &opres);
 
@@ -1056,47 +1246,61 @@ out:
 }
 
 static struct hdfs_error
-_send_packet(struct _packet_state *ps)
+_send_packet(struct hdfs_packet_state *ps)
 {
-
 	struct hdfs_error error = HDFS_SUCCESS;
-	struct hdfs_heap_buf phdr = { 0 };
-	uint32_t *crcdata = NULL;
-	size_t crclen = 0, tosend;
+	size_t crclen = 0;
+	ssize_t wlen;
 	unsigned char *data = NULL;
-	bool last, datamalloced = false;
-	struct iovec ios[3];
+	bool datamalloced = false;
+	struct iovec ios[2];
+	int wlen_hdr = 0, wlen_data = 0;
+	bool is_new;
 
-	tosend = _min(ps->remains, PACKET_SIZE);
+	// if we have no data left to send from the last/current packet we're creating a new one
+	is_new = (_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
 
-	if (ps->offset % CHUNK_SIZE) {
-		// N.B.: If you have a partial block, appending the unaligned
-		// bits first makes the remaining writes aligned. We mostly do
-		// this to match Apache HDFS behavior on append.
-		int64_t remaining_in_chunk =
-		    CHUNK_SIZE - (ps->offset % CHUNK_SIZE);
-
-		tosend = _min(tosend, remaining_in_chunk);
-	}
-
-	last = (tosend == (size_t)ps->remains);
-
-	// Delay sending data while N packets remain unacknowledged.
-	// Apache Hadoop default is N=80, for a 5MB window.
-	if (ps->unacked_packets >= MAX_UNACKED_PACKETS) {
-		if (ps->proto >= HDFS_DATANODE_AP_2_0)
-			error = _wait_ack2(ps);
-		else
-			error = _wait_ack(ps);
-		if (hdfs_is_error(error))
+	if (is_new) {
+		// Delay sending data while N packets remain unacknowledged.
+		// Apache Hadoop default is N=80, for a 5MB window.
+		if (ps->unacked.ua_num >= MAX_UNACKED_PACKETS) {
+			// let the caller handle draining acks
+			error = HDFS_AGAIN;
 			goto out;
-	}
+		}
 
-	if (!ps->buf) {
+		ps->remains_pkt = _min(ps->remains_tot, PACKET_SIZE);
+
+		if (ps->offset % CHUNK_SIZE) {
+			// N.B.: If you have a partial block, appending the unaligned
+			// bits first makes the remaining writes aligned.
+			// Apache datanodes throw an error if an unaligned write has
+			// data length greater than the chunk length.
+
+			// XXX TODO make a comment in the public headers indicating
+			// that users may want to refrain from performing many small
+			// writes and instead buffer data until a larger write can be
+			// performed in order to lower the number of header bytes per
+			// data byte (and also help prevent unnecessarily bumping up
+			// against the MAX_UNACKED_PACKETS limit). Perhaps we should
+			// add an argument to _datanode_write() indicating whether or
+			// not we should construct and send a packet if it will end
+			// up being unaligned (i.e. if the last packet we would
+			// construct in a given invocation would be of length
+			// N*CHUNK_SIZE + remainder, make the packet with only
+			// N*CHUNK_SIZE data bytes)
+			int64_t remaining_in_chunk =
+				CHUNK_SIZE - (ps->offset % CHUNK_SIZE);
+
+			ps->remains_pkt = _min(ps->remains_pkt, remaining_in_chunk);
+		}
+	} // is_new
+
+	if (!ps->buf && ps->remains_pkt != 0) {
 #if !defined(__linux__) && !defined(__FreeBSD__)
 		datamalloced = true;
 #else
-		if (ps->sendcrcs) {
+		if (ps->sendcrcs && is_new) {
 			datamalloced = true;
 		} else {
 			struct stat sb;
@@ -1114,82 +1318,123 @@ _send_packet(struct _packet_state *ps)
 	}
 
 	if (datamalloced) {
-		data = malloc(tosend);
+		data = malloc(ps->remains_pkt);
 		ASSERT(data);
-		error = _pread_all(ps->fd, data, tosend, ps->fdoffset);
+		error = _pread_all(ps->fd, data, ps->remains_pkt, ps->fdoffset); // TODO ensure that this still works
 		if (hdfs_is_error(error))
 			goto out;
 	} else
 		data = ps->buf;
 
-	// calculate crcs, if requested
-	if (ps->sendcrcs) {
-		uint32_t crcinit;
+	if (is_new) {
+		// calculate crc length, if requested
+		crclen = (ps->sendcrcs) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
 
-		crclen = (tosend + CHUNK_SIZE - 1) / CHUNK_SIZE;
-		crcdata = malloc(4*crclen);
-		ASSERT(crcdata);
+		// construct header:
+		_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4);
+		if (ps->proto >= HDFS_DATANODE_AP_2_0) {
+			Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
+			size_t sz;
 
-		crcinit = crc32(0L, Z_NULL, 0);
-		for (unsigned i = 0; i < crclen; i++) {
-			uint32_t chunklen = _min(CHUNK_SIZE, tosend - i * CHUNK_SIZE);
-			uint32_t crc = crc32(crcinit, data + i * CHUNK_SIZE, chunklen);
-			crcdata[i] = htonl(crc);
+			pkt.offsetinblock = ps->offset;
+			pkt.seqno = ps->seqno;
+			pkt.lastpacketinblock = (ps->remains_pkt == 0);
+			pkt.datalen = ps->remains_pkt;
+
+			sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
+			_bappend_s16(ps->hdrbuf, sz);
+			_hbuf_reserve(ps->hdrbuf, sz);
+			hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hbuf_writeptr(ps->hdrbuf));
+			_hbuf_append(ps->hdrbuf, sz);
+		} else {
+			_bappend_s64(ps->hdrbuf, ps->offset/*from beginning of block*/);
+			_bappend_s64(ps->hdrbuf, ps->seqno);
+			_bappend_s8(ps->hdrbuf, (ps->remains_pkt == 0));
+			_bappend_s32(ps->hdrbuf, ps->remains_pkt);
 		}
-	}
 
-	// construct header:
-	_bappend_s32(&phdr, tosend + 4*crclen + 4);
-	if (ps->proto >= HDFS_DATANODE_AP_2_0) {
-		Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
-		size_t sz;
+		// calculate the crcs, if requested
+		if (crclen > 0) {
+			uint32_t crcinit;
 
-		pkt.offsetinblock = ps->offset;
-		pkt.seqno = ps->seqno;
-		pkt.lastpacketinblock = last;
-		pkt.datalen = tosend;
+			_hbuf_reserve(ps->hdrbuf, 4 * crclen);
 
-		sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
-		_bappend_s16(&phdr, sz);
-		_hbuf_reserve(&phdr, sz);
-		hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)&phdr.buf[phdr.used]);
-		phdr.used += sz;
-	} else {
-		_bappend_s64(&phdr, ps->offset/*from beginning of block*/);
-		_bappend_s64(&phdr, ps->seqno);
-		_bappend_s8(&phdr, last);
-		_bappend_s32(&phdr, tosend);
-	}
+			crcinit = crc32(0L, Z_NULL, 0);
+			for (unsigned i = 0; i < crclen; i++) {
+				uint32_t chunklen = _min(CHUNK_SIZE, ps->remains_pkt - i * CHUNK_SIZE);
+				uint32_t crc = crc32(crcinit, data + i * CHUNK_SIZE, chunklen);
+				_be32enc(_hbuf_writeptr(ps->hdrbuf), crc);
+				_hbuf_append(ps->hdrbuf, 4);
+			}
+		}
 
-	ios[0].iov_base = phdr.buf;
-	ios[0].iov_len = phdr.used;
+		// stash the size of this packet in order to give the user the number of bytes acked later
+		if (ps->unacked.ua_list_pos + ps->unacked.ua_num >= ps->unacked.ua_list_size) {
+			ps->unacked.ua_list_size += 128;
+			ps->unacked.ua_list = realloc(ps->unacked.ua_list, ps->unacked.ua_list_size * sizeof(*ps->unacked.ua_list));
+			ASSERT(ps->unacked.ua_list);
+		}
+		ps->unacked.ua_list[ps->unacked.ua_list_pos + ps->unacked.ua_num] = ps->remains_pkt;
+		ps->unacked.ua_num++;
+		ps->seqno++;
+		ps->offset += ps->remains_pkt;
+	} // is_new
 
-	if (data) {
-		ios[1].iov_base = crcdata;
-		ios[1].iov_len = 4*crclen;
-		ios[2].iov_base = data;
-		ios[2].iov_len = tosend;
+	ios[0].iov_base = _hbuf_readptr(ps->hdrbuf);
+	ios[0].iov_len = _hbuf_readlen(ps->hdrbuf);
 
-		error = _writev_all(ps->sock, ios, 3);
-		if (hdfs_is_error(error))
+	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
+		ASSERT(_hbuf_readlen(ps->hdrbuf) > 0);
+		error = _writev(ps->sock, ios, 1, &wlen);
+		if (wlen < 0)
 			goto out;
+		wlen_hdr = wlen;
+	} else if (data) {
+		ios[1].iov_base = data;
+		ios[1].iov_len = ps->remains_pkt;
+
+		// only pass the buffers with nonzero length to writev()
+		if (_hbuf_readlen(ps->hdrbuf) > 0) {
+			error = _writev(ps->sock, ios, 2, &wlen);
+		} else {
+			error = _writev(ps->sock, ios + 1, 1, &wlen);
+		}
+		if (wlen < 0)
+			goto out;
+		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
+		wlen_data = wlen - wlen_hdr; // written from the user data
 	} else {
 #if defined(__linux__)
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 1);
 
-		error = _writev_all(ps->sock, ios, 1);
-		if (hdfs_is_error(error))
-			goto out;
-		error = _sendfile_all(ps->sock, ps->fd, ps->fdoffset, tosend);
-		if (hdfs_is_error(error))
-			goto out;
+		do {
+			if (_hbuf_readlen(ps->hdrbuf) > 0) {
+				error = _writev(ps->sock, ios, 1, &wlen);
+				if (wlen < 0)
+					goto out; // XXX clear TCP_CORK?
+				wlen_hdr = wlen;
+				if (hdfs_is_again(error))
+					break;
+			}
+			error = _sendfile(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt, &wlen);
+			if (wlen < 0)
+				goto out; // XXX clear TCP_CORK?
+			wlen_data = wlen;
+		} while (0); // not a loop
 
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 0);
 #elif defined(__FreeBSD__)
-		error = _sendfile_all_bsd(ps->sock, ps->fd, ps->fdoffset, tosend,
-		    ios, 1);
-		if (hdfs_is_error(error))
+		if (_hbuf_readlen(ps->hdrbuf) > 0) {
+			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
+			    ios, 1, &wlen);
+		} else {
+			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
+			    NULL, 0, &wlen);
+		}
+		if (wlen < 0)
 			goto out;
+		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
+		wlen_data = wlen - wlen_hdr; // written from the user data
 #else
 		// !data => freebsd or linux. this branch should never be taken
 		// on other platforms.
@@ -1197,21 +1442,16 @@ _send_packet(struct _packet_state *ps)
 #endif
 	}
 
-	ps->unacked_packets++;
-	ps->remains -= tosend;
-	ps->fdoffset += tosend;
-	ps->seqno++;
-	ps->offset += tosend;
+	_hbuf_consume(ps->hdrbuf, wlen_hdr);
+	ps->remains_pkt -= wlen_data;
+	ps->remains_tot -= wlen_data;
+	ps->fdoffset += wlen_data;
 	if (ps->buf)
-		ps->buf = (char*)ps->buf + tosend;
+		ps->buf = (char *)ps->buf + wlen_data;
 
 out:
 	if (datamalloced)
 		free(data);
-	if (phdr.buf)
-		free(phdr.buf);
-	if (crcdata)
-		free(crcdata);
 	return error;
 }
 
@@ -1255,7 +1495,7 @@ _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
 }
 
 static struct hdfs_error
-_wait_ack(struct _packet_state *ps)
+_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf obuf = { 0 };
@@ -1268,107 +1508,125 @@ _wait_ack(struct _packet_state *ps)
 	ASSERT(ps->proto == HDFS_DATANODE_AP_1_0 ||
 	    ps->proto == HDFS_DATANODE_CDH3);
 
+	*nacked = 0;
+	*err_idx = -1;
+
 	if (ps->proto == HDFS_DATANODE_AP_1_0)
 		acksz = 8 + 2 + 2;
 	else if (ps->proto == HDFS_DATANODE_CDH3)
 		acksz = 8 + 2;
 
-	while (ps->recvbuf->used < acksz) {
+	while (_hbuf_readlen(ps->recvbuf) < acksz) {
 		error = _read_to_hbuf(ps->sock, ps->recvbuf);
-		if (hdfs_is_error(error))
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = ps->recvbuf->buf;
+	obuf.buf = _hbuf_readptr(ps->recvbuf);
 	obuf.used = 0;
-	obuf.size = ps->recvbuf->used;
+	obuf.size = _hbuf_readlen(ps->recvbuf);
 
 	seqno = _bslurp_s64(&obuf);
-	ASSERT(obuf.used >= 0);
+	ASSERT(obuf.used >= 0); // XXX reconsider
 
 	if (seqno != ps->first_unacked) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
+#if 0 // TODO stash the bad seqno in struct hdfs_datanode for users to access if they desire
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
 		    " expected %" PRIi64 "); aborting write.\n", seqno,
 		    ps->first_unacked);
+#endif
 		goto out;
 	}
 
 	ps->first_unacked++;
 
-	ASSERT(ps->proto == HDFS_DATANODE_AP_1_0 ||
-	    ps->proto == HDFS_DATANODE_CDH3);
-
 	if (ps->proto == HDFS_DATANODE_AP_1_0) {
 		nacks = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0);
+		ASSERT(obuf.used >= 0); // XXX reconsider
 
 		// We only connect to one datanode, we should only get one ack:
-		if (nacks != 1) {
+		if (nacks != 1) { // XXX TODO update when proper pipelining implemented
 			error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 			goto out;
 		}
 
 		ack = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0);
+		ASSERT(obuf.used >= 0); // XXX reconsider
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
+		// XXX TODO update when proper pipelining implemented (unsure how
+		// that works for CDH3 --- can it even give multiple acks?)
 		ack = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0);
+		ASSERT(obuf.used >= 0); // XXX reconsider
 	}
 
-	if (ack == HADOOP__HDFS__STATUS__SUCCESS)
-		ps->unacked_packets--;
-	else
+	if (ack == HADOOP__HDFS__STATUS__SUCCESS) {
+		*nacked = ps->unacked.ua_list[ps->unacked.ua_list_pos];
+		ps->unacked.ua_list_pos++;
+		ps->unacked.ua_num--;
+	} else {
 		error = error_from_datanode(ack);
+		*err_idx = 0; // XXX TODO change this when implementing full pipelining
+	}
 
 	// Skip the recv buffer past the ack
-	ps->recvbuf->used -= acksz;
-	if (ps->recvbuf->used)
-		memmove(ps->recvbuf->buf, ps->recvbuf->buf + acksz, ps->recvbuf->used);
+	_hbuf_consume(ps->recvbuf, acksz);
 
 out:
 	return error;
 }
 
 static struct hdfs_error
-_wait_ack2(struct _packet_state *ps)
+_check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_heap_buf obuf = { 0 },
-			     *h;
-	Hadoop__Hdfs__PipelineAckProto *ack;
-	struct hdfs_error error;
+			     *h = ps->recvbuf;
+	Hadoop__Hdfs__PipelineAckProto *ack = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	int64_t sz;
 
 	ASSERT(ps->proto >= HDFS_DATANODE_AP_2_0);
 
-	h = ps->recvbuf;
-	ack = NULL;
-	do {
-		error = _read_to_hbuf(ps->sock, h);
-		if (hdfs_is_error(error))
-			goto out;
+	*nacked = 0;
+	*err_idx = -1;
 
-		obuf.buf = h->buf;
+	// If we don't have any data queued up, try to read first
+	if (_hbuf_readlen(h) == 0) {
+		error = _read_to_hbuf(ps->sock, h);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+	}
+
+	do {
+		obuf.buf = _hbuf_readptr(h);
 		obuf.used = 0;
-		obuf.size = h->used;
+		obuf.size = _hbuf_readlen(h);
 
 		sz = _bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
+		if (obuf.used == _H_PARSE_EOF) {
+			error = _read_to_hbuf(ps->sock, h);
+			if (hdfs_is_error(error)) // includes HDFS_AGAIN
+				goto out;
+		}
 	} while (obuf.used < 0);
 
+	// XXX TODO return error instead of assertion here, since this could
+	// actually happen if we read malformed or maliciously generated data
 	ASSERT(sz > 0 && sz < INT_MAX - obuf.used);
-	while (h->used < obuf.used + (int)sz) {
+	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
 		error = _read_to_hbuf(ps->sock, h);
-		if (hdfs_is_error(error))
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
-	obuf.buf = h->buf;
-	obuf.size = h->used;
 
-	ack = hadoop__hdfs__pipeline_ack_proto__unpack(NULL, sz, (void *)&h->buf[obuf.used]);
+	obuf.buf = _hbuf_readptr(h);
+	obuf.size = _hbuf_readlen(h);
+
+	ack = hadoop__hdfs__pipeline_ack_proto__unpack(NULL, sz, (void *)&obuf.buf[obuf.used]);
 	obuf.used += sz;
 	if (ack == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_PIPELINEACKPROTO);
@@ -1377,31 +1635,70 @@ _wait_ack2(struct _packet_state *ps)
 
 	if (ack->seqno != ps->first_unacked) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
+#if 0 // TODO stash the bad seqno in struct hdfs_datanode for users to access if they desire
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
 		    " expected %" PRIi64 "); aborting write.\n", ack->seqno,
 		    ps->first_unacked);
+#endif
 		goto out;
 	}
-	ps->first_unacked++;
 
 	// We only connect to one datanode, we should only get one ack:
-	if (ack->n_reply != 1) {
+	if (ack->n_reply != 1) { // XXX TODO update when proper pipelining implemented
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 		goto out;
 	}
 
-	if (ack->reply[0] == HADOOP__HDFS__STATUS__SUCCESS)
-		ps->unacked_packets--;
-	else
-		error = error_from_datanode(ack->reply[0]);
+	for (unsigned i = 0; i < ack->n_reply; i++) {
+		if (ack->reply[i] != HADOOP__HDFS__STATUS__SUCCESS) {
+			error = error_from_datanode(ack->reply[i]);
+			*err_idx = i;
+			goto out;
+		}
+	}
+
+	// Pop the length of this acked packet off of the list
+	ps->first_unacked++;
+	*nacked = ps->unacked.ua_list[ps->unacked.ua_list_pos];
+	ps->unacked.ua_list_pos++;
+	ps->unacked.ua_num--;
 
 	// Skip the recv buffer past the ack
-	h->used -= obuf.used;
-	if (h->used)
-		memmove(h->buf, &h->buf[obuf.used], h->used);
+	_hbuf_consume(h, obuf.used);
 
 out:
 	if (ack)
 		hadoop__hdfs__pipeline_ack_proto__free_unpacked(ack, NULL);
+	return error;
+}
+
+struct hdfs_error
+_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *error_idx)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t t_nacked;
+	struct hdfs_unacked_packets *ua = &ps->unacked;
+
+	*nacked = 0;
+	*error_idx = -1;
+
+	while (ua->ua_num > 0) {
+		if (ps->proto >= HDFS_DATANODE_AP_2_0)
+			error = _check_one_ack2(ps, &t_nacked, error_idx);
+		else
+			error = _check_one_ack(ps, &t_nacked, error_idx);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			break;
+		*nacked += t_nacked;
+	}
+
+	// Reset the unacked list if empty or skip processed acks if past a threshold
+	if (ua->ua_num == 0)
+		ua->ua_list_pos = 0;
+	else if (ua->ua_list_pos > 32) { // XXX reconsider this threshold
+		memmove(ua->ua_list, ua->ua_list + ua->ua_list_pos, ua->ua_num * sizeof(*ua->ua_list));
+		ua->ua_list_pos = 0;
+	}
+
 	return error;
 }

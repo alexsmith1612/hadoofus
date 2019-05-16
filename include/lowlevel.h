@@ -53,6 +53,31 @@ struct hdfs_namenode {
 	int nn_error;
 };
 
+// TODO Consider changing this to a circular buffer of size MAX_UNACKED_PACKETS
+struct hdfs_unacked_packets {
+	int64_t ua_num,
+		ua_list_pos,
+		ua_list_size;
+	int64_t *ua_list; // array of lengths of unacked packets
+};
+
+struct hdfs_packet_state {
+	int64_t seqno,
+		first_unacked,
+		offset;
+	off_t remains_tot,
+	      remains_pkt,
+	      fdoffset;
+	void *buf;
+	struct hdfs_heap_buf *hdrbuf;
+	struct hdfs_heap_buf *recvbuf;
+	int sock,
+	    proto,
+	    fd;
+	bool sendcrcs;
+	struct hdfs_unacked_packets unacked;
+};
+
 // XXX perhaps move to net.c and only use opaque pointers here?
 struct hdfs_conn_ctx {
 	struct addrinfo  *ai;
@@ -66,6 +91,10 @@ enum hdfs_datanode_state {
 	HDFS_DN_ST_INITED,
 	HDFS_DN_ST_CONNPENDING,
 	HDFS_DN_ST_CONNECTED,
+	HDFS_DN_ST_SENDOP,
+	HDFS_DN_ST_RECVOP,
+	HDFS_DN_ST_PKT,
+	HDFS_DN_ST_FINISHED
 };
 
 // These are HDFS wire values (except NONE)
@@ -88,12 +117,16 @@ struct hdfs_datanode {
 	char *dn_client;
 	int dn_sock,
 	    dn_proto;
-	bool dn_used;
+	bool dn_last,
+	     dn_crcs;
 
 	/* v2+ */
 	char *dn_pool_id;
 
 	struct hdfs_conn_ctx dn_cctx;
+	struct hdfs_heap_buf dn_hdrbuf;
+	struct hdfs_heap_buf dn_recvbuf;
+	struct hdfs_packet_state dn_pstate;
 };
 
 extern _Thread_local int hdfs_datanode_unknown_status;
