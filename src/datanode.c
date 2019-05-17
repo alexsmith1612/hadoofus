@@ -131,7 +131,6 @@ hdfs_datanode_alloc(void)
 // hdfs_datanode_alloc()), and passed to hdfs_datanode_clean() or
 // hdfs_datanode_destroy() immediately prior to any subsequent calls to
 // hdfs_datanode_init()
-// XXX TODO add this comment to the public header files
 //
 // XXX Do we want a seprate init function that takes separate arguments instead
 // of a located block object? We'd have to enforce that they would then use
@@ -413,9 +412,6 @@ out:
 	return error;
 }
 
-// XXX TODO make comment noting that the returned fd is not invariant until
-// _connect_init() or _connect_finalize() return HDFS_SUCCESS (or just say that
-// is not invariant ever)
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 {

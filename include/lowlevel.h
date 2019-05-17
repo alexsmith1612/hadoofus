@@ -254,6 +254,10 @@ void		hdfs_namenode_destroy(struct hdfs_namenode *);
 // Datanode operations
 //
 
+//
+// Common Datanode API (between blocking and non-blocking)
+//
+
 // "DATA_TRANSFER_VERSION" XXX consider moving these values to an enum?
 // The datanode protocol used by Apache Hadoop 1.0.x (also 0.20.20x):
 #define HDFS_DATANODE_AP_1_0 0x11
@@ -262,44 +266,295 @@ void		hdfs_namenode_destroy(struct hdfs_namenode *);
 // The datanode protocol used by Apache Hadoop v2.0+ (at least v2.0.0-2.6.0):
 #define HDFS_DATANODE_AP_2_0 0x1C
 
-// Initializes a datanode connection object. Doesn't connect to the datanode.
-void		hdfs_datanode_init(struct hdfs_datanode *,
-		int64_t blkid, int64_t size, int64_t gen, /* block */
-		int64_t offset, const char *client, struct hdfs_object *token,
-		int proto);
+// Allocate a datanode object and set it to all 0s.
+//
+// Free with free(3) after calling hdfs_datanode_destroy()
+struct hdfs_datanode *	hdfs_datanode_alloc(void);
 
-// Sets the pool_id (required in HDFSv2+)
-void		hdfs_datanode_set_pool_id(struct hdfs_datanode *, const char *);
+// Initialize a datanode connection object. Doesn't connect to the datanode.
+//
+// Prior to calling hdfs_datanode_init() on a datanode object for the first time
+// the caller must set the datanode object to all 0s (this is already performed by
+// hdfs_datanode_alloc()).
+//
+// A datanode object may be reused by calling hdfs_datanode_clean() prior to
+// calling hdfs_datanode_init() again.
+void			hdfs_datanode_init(struct hdfs_datanode *d,
+			struct hdfs_object *located_block, const char *client,
+			int proto);
 
-// Attempt to connect to a host and port. Should only be called on a freshly-
-// initialized datanode struct.
-struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *, const char *host,
-			const char *port);
+// Sets the pool_id (required in HDFSv2+). This should not be called by users who
+// pass a located_block to hdfs_datanode_init().
+//
+// XXX This should either be removed, or a lower level init function that does not
+// require a located block object (or both, with pool_id being an optional
+// argument to the lower level init function)
+void			hdfs_datanode_set_pool_id(struct hdfs_datanode *, const char *);
 
-// Attempt to write a buffer to the block associated with this connection.
-// Returns HDFS_SUCCESS, or an error message on failure.
-struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *, const void *buf,
+// Clean a datanode struct prior to re-init()ing and reuse.
+//
+// Note that only one complete operation may be performed with a datanode
+// connection object per init()/connect()/clean() cycle
+void			hdfs_datanode_clean(struct hdfs_datanode *d);
+
+// Destroy a datanode object (caller should free).
+void			hdfs_datanode_destroy(struct hdfs_datanode *);
+
+//
+// Blocking Datanode API
+//
+
+// Attempt to connect (blocking) to the datanode associated with this struct.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+//
+// Should only be called on a freshly-initialized datanode struct.
+struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *d);
+
+// Attempt to write (blocking) a buffer to the block associated with this
+// connection.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
 			size_t len, bool sendcrcs);
 
-// Attempt to write from an fd to the block associated with this connection.
-// Returns HDFS_SUCCESS, or an error message on failure.
-struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *, int fd,
+// Attempt to write (blocking) from an fd at the given offset to the block
+// associated with this connection.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
 			off_t len, off_t offset, bool sendcrcs);
 
-// Attempt to read the block associated with this connection. Returns
-// HDFS_SUCCESS on success.  The passed buf should be large enough for the
-// entire block.  The caller knows the block size ahead of time.
-struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len,
-			void *buf, bool verifycrc);
+// Attempt to read (blocking) from the block associated with this connection into
+// the given buffer.
+//
+// len bytes are read, starting at the given byte offset into the block.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
+			size_t len, void *buf, bool verifycrcs);
 
-// Attempt to read the block associated with this connection. The block is
-// written to the passed fd at the given offset. If the block is larger than
-// len, returns an error (and the state of the file in the region [off,
-// off+len) is undefined).
-struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *, off_t bloff,
-			off_t len, int fd, off_t fdoff, bool verifycrc);
+// Attempt to read (blocking) from the block associated with this connection.
+//
+// len bytes are read, starting at the given byte offset bloff into the block. The
+// read bytes are written to the given fd starting at offset fdoff.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
+			int fd, off_t fdoff, bool verifycrcs);
 
-// Destroys a datanode object (caller should free).
-void		hdfs_datanode_destroy(struct hdfs_datanode *);
+//
+// Non-blocking Datanode API
+//
 
-#endif
+// Get the fd and event types to be waited on while using the non-blocking API and
+// HDFS_AGAIN is returned.
+//
+// *fd is set to the fd to be waited on, and *events is set to a bit mask of
+// events as defined with poll(2) (such as POLLOUT|POLLIN) that the user should
+// wait on.
+//
+// The returned fd and events are not invariant across datanode API calls, so
+// hdfs_datanode_get_eventfd() should be called before every time the user waits
+// on events.
+//
+// This function should only be called after the first time a connect API has been
+// invoked.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events);
+
+// Attempt to connect (non-blocking) to the datanode associated with this struct.
+//
+// Returns HDFS_SUCCESS when the connection is completed. Returns HDFS_AGAIN while
+// the connection is in progress. Returns another error code on failure.
+//
+// hdfs_datanode_connect_nb() should be called repeatedly until a value other than
+// HDFS_AGAIN is returned.
+struct hdfs_error	hdfs_datanode_connect_nb(struct hdfs_datanode *d);
+
+// Begin a connection attempt (non-blocking) to the given host and port.
+//
+// numerichost indicates whether or not AI_NUMERICHOST should be set when calling
+// getaddrinfo(2). That is, set numerichost to true if host is a numeric IPv4
+// address.
+//
+// Returns HDFS_SUCCESS if the connection is completed. Returns HDFS_AGAIN if the
+// connection is in progress but has not yet been completed. Returns another error
+// code on failure.
+//
+// If HDFS_AGAIN is returned, hdfs_datanode_connect_finalize() should be called
+// next.
+//
+// This function (and hdfs_datanode_connect_finalize()) will typically not need to
+// be called by users; use hdfs_datanode_connect_nb() instead.
+struct hdfs_error	hdfs_datanode_connect_init(struct hdfs_datanode *d, const char *host,
+			const char *port, bool numerichost);
+
+// Attempt to finalize a currently-in-progress connection attempt begun by
+// hdfs_datanode_connect_init().
+//
+// Returns HDFS_SUCCESS if the connection in completed. Returns HDFS_AGAIN if the
+// connection is still in progress but has not yet been completed. Returns another
+// error code on failure.
+//
+// hdfs_datanode_connect_finalize() should be called repeatedly until a value
+// other than HDFS_AGAIN is returned.
+//
+// This function (and hdfs_datanode_connect_init()) will typically not need to be
+// called by users; use hdfs_datanode_connect_nb() instead.
+struct hdfs_error	hdfs_datanode_connect_finalize(struct hdfs_datanode *d);
+
+// Initialize the datanode struct for non-blocking writes, and specifiy whether or
+// not crcs should be calculated and sent during the write.
+//
+// This function must be called prior to the first invocation of
+// hdfs_datanode_write_nb() or hdfs_datanode_write_file_nb().
+//
+// Returns HDFS_SUCCESS or another error code on failure.
+struct hdfs_error	hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs);
+
+// Attempt to write (non-blocking) a buffer to the block associated with this
+// connection.
+//
+// *nwritten is set to the number of bytes that have been written to the data node
+// during this invocation (which may be 0). *nacked is set to the number of bytes
+// that were acknowledged by the datanode during this inovcation (which may be 0).
+//
+// Returns HDFS_SUCCESS if the entire buffer was written, HDFS_AGAIN if there are
+// more bytes to be written, or another error code on failure.
+//
+// This function should be repeatedly called until all bytes are sent
+// (i.e. *nwritten is set to len and HDFS_SUCCESS is returned instead of
+// HDFS_AGAIN) or another error code is returned.
+//
+// If an error is received from a datanode along the pipeline, *error_idx is set
+// to the index of the datanode in the pipeline that reported the error; in all
+// other cases *error_idx is set to -1.
+//
+// Once data has been passed to this function, it must continue to be passed at
+// every invocation until *nwritten indicates that it has been sent to the
+// datanode.
+//
+// buf must point to the first unsent byte, and len must be set to the number of
+// to-be-sent bytes passed to the function for each invocation; that is, the user
+// must update buf and len between invocations
+//
+// Additional data may be passed to this function between invocations; that is,
+// the user may add more data to the end of buf (and appropriately increase len)
+// between invocations, regardless of whether HDFS_SUCCESS or HDFS_AGAIN were
+// returned in the previous invocation.
+//
+// The user is responsible for keeping track of how many total bytes have been
+// written to the block, and how much space is left in the block.
+//
+// Once all desired bytes have been written to the datanode (but not necessarily
+// acknowledged), the user should call hdfs_datanode_finish_block().
+//
+// For convenience purposes this function will initialize and/or finalize the
+// connection to the datanode if not already done so. This allows users to not
+// have to maintain state information regarding the connection setup.
+struct hdfs_error	hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
+			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
+
+// Attempt to write (non-blocking) from an fd at the given offset to the block
+// associated with this connection.
+//
+// Everything is as described for hdfs_datanode_write_nb(), except instead of buf
+// pointing to the first byte to be sent for every invocation, the byte at the
+// given offset into the fd must be the first byte to be sent for every
+// invocation.
+//
+// Note that this can potentially block during I/O on the user-provided fd, even
+// if the user has set it to be non-blocking
+struct hdfs_error	hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len,
+			off_t offset, ssize_t *nwritten, ssize_t *nacked, int *error_idx);
+
+// Check (non-blocking) if any acknowledgement packets are available during a
+// datanode write.
+//
+// *nacked is set to the number of bytes that have been acknowledged during this
+// invocation (which may be 0).
+//
+// Returns HDFS_SUCCESS if all written bytes have been acknowledged, HDFS_AGAIN if
+// there are more bytes to be acknowledged, or another error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
+struct hdfs_error	hdfs_datanode_check_acks(struct hdfs_datanode *d, ssize_t *nacked,
+			int *error_idx);
+
+// Attempt to finish (non-blocking) the block associated with this connection.
+//
+// This function should only be called after hdfs_datanode_write_nb() or
+// hdfs_datanode_write_file_nb() have indicated that all data passed to them have
+// been sent to the datanode (but not necessarily acknowledged). *nacked is set to
+// the number of bytes that have been acknowledged during this invocation (which
+// may be 0).
+//
+// Returns HDFS_SUCCESS if all written bytes have been acknowledged and the
+// pipeline has acknowledged that we have finished writing to the block. Returns
+// HDFS_AGAIN if there are more bytes to be acknowledged or the pipeline still
+// needs to acknowleged that we have finished writing to the block. Returns
+// another error on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
+//
+// This function should be called repeatedly until it returns HDFS_SUCCESS (or
+// another error code).
+struct hdfs_error	hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked,
+			int *error_idx);
+
+// Initialize the datanode struct with the block offset at which to begin a read
+// operation and the total number of bytes to be read, and specify whether or not
+// crcs are to be requested and validated.
+//
+// This function must be called prior to the first invocation of
+// hdfs_datanode_read_nb() or hdfs_datanode_read_file_nb().
+//
+// Returns HDFS_SUCCESS or another error code on failure.
+struct hdfs_error	hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t bloff,
+			off_t len, bool verifycrcs);
+
+// Attempt to read (non-blocking) up to len bytes from the block associated with
+// this connection into the given buffer.
+//
+// *nread is set to the number of bytes copied into buf (which may be 0). len may
+// be different than the total number of bytes left to be read from the block (as
+// given by the user in hdfs_datanode_read_nb_init() and internally updated as
+// data is passed to the user).
+//
+// Returns HDFS_SUCCESS once all of the data (as given to
+// hdfs_datanode_read_nb_init()) has been given to the user and the read status
+// has been returned to the server. Returns HDFS_AGAIN if there is more data to be
+// given to the user from the block or there is a status message still to be sent
+// to the the server. Returns another error code on failure.
+//
+// This function should be called repeatedly until all requested data from the
+// block has been passed to the user and HDFS_SUCCESS is returned or another error
+// code is returned. Note, however, that the user should not call
+// hdfs_datanode_get_eventfd() and poll() (or other event wait system) until this
+// function both returns HDFS_AGAIN and sets *nread to a value strictly less than
+// len (since there may be some data buffered by the library available to be read
+// that would not indicate a read event to the eventfd).
+//
+// For convenience purposes this function will initialize and/or finalize the
+// connection to the datanode if not already done so. This allows users to not
+// have to maintain state information regarding the connection setup.
+struct hdfs_error	hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, void *buf,
+			ssize_t *nread);
+
+// Attempt to read (non-blocking) up to len bytes from the block associated with
+// this connection and written to the given fd starting at offset fdoff.
+//
+// Everything else is as described for hdfs_datanode_read_nb().
+//
+// Note that this can potentially block during I/O on the user-provided fd, even
+// if the user has set it to be non-blocking
+struct hdfs_error	hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
+			off_t fdoff, ssize_t *nread);
+
+#endif // HADOOFUS_LOWLEVEL_H
