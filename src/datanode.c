@@ -841,13 +841,20 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 	ASSERT(d);
 	ASSERT(len > 0 || (d->dn_pstate.remains_tot == 0 && len == 0));
 	ASSERT(nread);
-	ASSERT(d->dn_state >= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 	ASSERT(d->dn_rinfo.inited);
 
 	*nread = 0;
 
 	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		error = hdfs_datanode_connect_nb(d);
+		// state transitions handled by hdfs_datanode_connect_nb()
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		// fall through
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
 		_compose_read_header(&d->dn_hdrbuf, d, d->dn_rinfo.client_offset, d->dn_pstate.remains_tot);
@@ -921,7 +928,7 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		// complete or partial write (possible 0 bytes)
+		// complete or partial write (possibly 0 bytes)
 		_hbuf_consume(&d->dn_hdrbuf, wlen);
 		// XXX should we call shutdown(2) here on HDFS_SUCCESS?
 		if (d->dn_rinfo.bad_crcs && !hdfs_is_error(error)) {
@@ -933,9 +940,6 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 		break;
 
 	case HDFS_DN_ST_ZERO:
-	case HDFS_DN_ST_INITED:
-	case HDFS_DN_ST_CONNPENDING:
-		// XXX consider allowing connection to be handled here
 	case HDFS_DN_ST_ERROR:
 	default:
 		ASSERT(false);
@@ -978,22 +982,23 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	*err_idx = -1;
 
 	if (d->dn_op == HDFS_DN_OP_NONE) {
-		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
+		ASSERT(d->dn_state <= HDFS_DN_ST_CONNECTED);
 		d->dn_op = HDFS_DN_OP_WRITE_BLOCK;
 	}
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
-	ASSERT(d->dn_state >= HDFS_DN_ST_CONNECTED);
-	ASSERT(len >= d->dn_pstate.remains_tot); // XXX consider returning error instead
-	if (d->dn_last)
-		ASSERT(len == 0);
-	else
-		ASSERT(len > 0);
-	// XXX perhaps allow remains_tot == 0 in all cases (but only call _send_packet()
-	// if (remains_tot > 0 || d->dn_last)) in order to simplify user logic for
-	// checking for ACKs if they have no data to send
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
+	ASSERT(len >= d->dn_pstate.remains_tot);
+
 	d->dn_pstate.remains_tot = len;
 
 	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		error = hdfs_datanode_connect_nb(d);
+		// state transitions handled by hdfs_datanode_connect_nb()
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		// fall through
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
 		_compose_write_header(&d->dn_hdrbuf, d);
@@ -1037,7 +1042,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		d->dn_pstate.buf = __DECONST(void *, buf);
 		d->dn_pstate.fd = fd;
 		d->dn_pstate.fdoffset = offset;
-		do {
+		while (d->dn_pstate.remains_tot > 0 || d->dn_last) {
 			// Try to drain any acks if we have many outstanding packets
 			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
 				ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
@@ -1050,7 +1055,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			}
 			error = _send_packet(&d->dn_pstate);
 			if (hdfs_is_again(error)) {
-				break;
+				break; // proceed to check acks below
 			} else if (hdfs_is_error(error)) {
 				d->dn_state = HDFS_DN_ST_ERROR;
 				goto out;
@@ -1062,7 +1067,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				d->dn_state = HDFS_DN_ST_FINISHED;
 				break;
 			}
-		} while (d->dn_pstate.remains_tot > 0);
+		}
 		// XXX do we care about telling the user about the number of
 		// written bytes if there's any error?
 		*nwritten = len - d->dn_pstate.remains_tot;
@@ -1079,9 +1084,6 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		break;
 
 	case HDFS_DN_ST_ZERO:
-	case HDFS_DN_ST_INITED:
-	case HDFS_DN_ST_CONNPENDING:
-		// XXX consider allowing connection to be handled here
 	case HDFS_DN_ST_ERROR:
 	default:
 		ASSERT(false);
