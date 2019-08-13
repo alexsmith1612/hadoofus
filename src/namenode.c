@@ -48,6 +48,12 @@ hdfs_namenode_allocate(void)
 	return res;
 }
 
+// XXX consider adding host and port as arguments and strdup() into the nn struct in order
+// to simplify non-blocking namenode connects into a single function call (instead
+// of _init() and _finalize()) and handle full connection in _connauth_nb().
+//
+// XXX consider adding username and real_user arguments and combining
+// the auth_nb_init() functions into the namenode_init() function
 EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
@@ -134,6 +140,48 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 
 out:
 	_unlock(&n->nn_lock);
+	return error;
+}
+
+// XXX reconsider name
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_connauth_nb(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	// XXX locking for state checks? Consider interaction with called functions
+
+	ASSERT(n);
+	ASSERT(n->nn_state >= HDFS_NN_ST_CONNPENDING && n->nn_state < HDFS_NN_ST_RPC);
+	ASSERT(n->nn_authhdr);
+
+	// all state transitions handled in called functions
+	switch (n->nn_state) {
+	case HDFS_NN_ST_CONNPENDING:
+		error = hdfs_namenode_connect_finalize(n);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		// fall through
+	case HDFS_NN_ST_CONNECTED:
+	case HDFS_NN_ST_AUTHPENDING:
+		error = hdfs_namenode_authenticate_nb(n);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		break;
+
+	case HDFS_NN_ST_ZERO:
+	case HDFS_NN_ST_INITED:
+		// XXX handle connect here if we move host and port to hdfs_namenode_init()
+	case HDFS_NN_ST_RPC:
+		// XXX consider returning HDFS_SUCCESS for ST_RPC, or call
+		// hdfs_namenode_continue() if _hbuf_readlen(&n->nn_sendbuf) > 0
+		// (or unconditionally?)
+	case HDFS_NN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+out:
 	return error;
 }
 
