@@ -115,34 +115,6 @@ hdfs_namenode_set_version(struct hdfs_namenode *n, enum hdfs_namenode_proto vers
 	}
 }
 
-EXPORT_SYM struct hdfs_error
-hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
-{
-	struct hdfs_error error = HDFS_SUCCESS;
-
-	// XXX TODO replace with wrapper around non-blocking implementation
-
-	_lock(&n->nn_lock);
-	ASSERT(n->nn_sock == -1);
-
-	if (n->nn_kerb == HDFS_TRY_KERB || n->nn_kerb == HDFS_REQUIRE_KERB) {
-		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
-		    NULL/*remoteip*/, NULL/*CBs*/, 0/*sec flags*/, &n->nn_sasl_ctx);
-		if (r != SASL_OK) {
-			error = error_from_sasl(r);
-			goto out;
-		}
-	}
-
-	error = _connect(&n->nn_sock, host, port);
-	if (hdfs_is_error(error))
-		goto out;
-
-out:
-	_unlock(&n->nn_lock);
-	return error;
-}
-
 // XXX reconsider name
 EXPORT_SYM struct hdfs_error
 hdfs_namenode_connauth_nb(struct hdfs_namenode *n)
@@ -179,6 +151,28 @@ hdfs_namenode_connauth_nb(struct hdfs_namenode *n)
 	case HDFS_NN_ST_ERROR:
 	default:
 		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *port)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct pollfd pfd;
+
+	// XXX consider locking scheme
+
+	error = hdfs_namenode_connect_init(n, host, port, false);
+	while (hdfs_is_again(error)) {
+		error = hdfs_namenode_get_eventfd(n, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+		error = hdfs_namenode_connect_finalize(n);
 	}
 
 out:
