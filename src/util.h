@@ -7,8 +7,6 @@
 #include <stdint.h>
 #include <time.h>
 
-#include <pthread.h>
-
 #include <protobuf-c/protobuf-c.h>
 
 #include <hadoofus/lowlevel.h>

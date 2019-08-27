@@ -13,7 +13,6 @@ OBJS = datanode.o \
 	 namenode.o \
 	 net.o \
 	 objects.o \
-	 pthread_wrappers.o \
 	 rpc2.o \
 	 util.o
 
