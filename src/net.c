@@ -141,50 +141,6 @@ out:
 	return error;
 }
 
-// XXX blocking. This should be removed once non-blocking namenodes have been implemented
-struct hdfs_error
-_connect(int *s, const char *host, const char *port)
-{
-	struct hdfs_error error = HDFS_SUCCESS;
-	struct hdfs_conn_ctx cctx = { 0 };
-
-	error = _connect_init(s, host, port, &cctx, false);
-
-	while (hdfs_is_again(error)) {
-		struct pollfd pfd = { .fd = *s, .events = POLLOUT };
-		ASSERT(*s != -1);
-		poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-		error = _connect_finalize(s, &cctx);
-	}
-
-	return error;
-}
-
-struct hdfs_error
-_write_all(int s, void *vbuf, size_t buflen)
-{
-	char *buf = vbuf;
-	struct hdfs_error error = HDFS_SUCCESS;
-
-	while (buflen > 0) {
-		ssize_t w;
-		w = write(s, buf, buflen);
-		if (w == -1) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				struct pollfd pfd = { .fd = s, .events = POLLOUT };
-				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-				continue;
-			}
-			error = error_from_errno(errno);
-			goto out;
-		}
-		buf += w;
-		buflen -= w;
-	}
-out:
-	return error;
-}
-
 // If complete write, returns HDFS_SUCCESS and sets *wlen to buflen.
 // If short write (including EAGAIN/EWOULDBLOCK), returns HDFS_AGAIN and
 // sets *wlen to number of bytes written (which is 0 for EAGAIN/EWOULDBLOCK).
@@ -311,84 +267,7 @@ _pwrite_all(int fd, const void *vbuf, size_t len, off_t offset)
 	return HDFS_SUCCESS;
 }
 
-struct hdfs_error
-_read_all(int fd, void *vbuf, size_t len)
-{
-	char *buf = vbuf;
-	int rc;
-	while (len > 0) {
-		rc = read(fd, buf, len);
-		if (rc == -1) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				struct pollfd pfd = { .fd = fd, .events = POLLIN };
-				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-				continue;
-			}
-			return error_from_errno(errno);
-		}
-		if (rc == 0)
-			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-		len -= rc;
-		buf += rc;
-	}
-	return HDFS_SUCCESS;
-}
-
-struct hdfs_error
-_writev_all(int s, struct iovec *iov, int iovcnt)
-{
-	int rc = 0;
-	while (iovcnt > 0) {
-		if (rc >= (int)iov->iov_len) {
-			rc -= iov->iov_len;
-			iov++;
-			iovcnt--;
-			continue;
-		} else if (rc > 0) {
-			iov->iov_base = (char*)iov->iov_base + rc;
-			iov->iov_len -= rc;
-		}
-
-		rc = writev(s, iov, iovcnt);
-		if (rc == -1) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				struct pollfd pfd = { .fd = s, .events = POLLOUT };
-				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-				continue;
-			}
-			return error_from_errno(errno);
-		}
-		if (rc == 0)
-			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-	}
-	return HDFS_SUCCESS;
-}
-
 #if defined(__linux__)
-
-struct hdfs_error
-_sendfile_all(int s, int fd, off_t offset, size_t tosend)
-{
-	int rc;
-
-	while (tosend > 0) {
-		rc = sendfile(s, fd, &offset, tosend);
-		if (rc == -1) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				struct pollfd pfd = { .fd = s, .events = POLLOUT };
-				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-				continue;
-			}
-			return error_from_errno(errno);
-		}
-		if (rc == 0)
-			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-
-		tosend -= rc;
-	}
-
-	return HDFS_SUCCESS;
-}
 
 // XXX note that this can still block on reading from the fd
 struct hdfs_error
@@ -412,54 +291,6 @@ _sendfile(int s, int fd, off_t offset, size_t tosend, ssize_t *wlen)
 }
 
 #elif defined(__FreeBSD__)
-
-struct hdfs_error
-_sendfile_all_bsd(int s, int fd, off_t offset, size_t tosend,
-	struct iovec *hdrs, int hdrcnt)
-{
-	int rc;
-	off_t sent;
-
-	struct sf_hdtr hdtr = {
-		.headers = hdrs,
-		.hdr_cnt = hdrcnt,
-	};
-
-	while (hdtr.hdr_cnt > 0 || tosend > 0) {
-		rc = sendfile(fd, s, offset, tosend, &hdtr, &sent, 0);
-		if (rc == -1) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				struct pollfd pfd = { .fd = s, .events = POLLOUT };
-				poll(&pfd, 1, -1); // XXX check return (EINTR?) and/or revents?
-				continue;
-			}
-			return error_from_errno(errno);
-		}
-		if (sent == 0)
-			return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-
-		while (hdtr.hdr_cnt > 0 && sent > 0) {
-			if ((size_t)sent >= hdtr.headers->iov_len) {
-				sent -= hdtr.headers->iov_len;
-				hdtr.headers++;
-				hdtr.hdr_cnt--;
-				continue;
-			} else {
-				hdtr.headers->iov_base =
-					(char *)hdtr.headers->iov_base + sent;
-				hdtr.headers->iov_len -= sent;
-				sent = 0;
-			}
-		}
-
-		if (sent > 0) {
-			offset += sent;
-			tosend -= sent;
-		}
-	}
-
-	return HDFS_SUCCESS;
-}
 
 // XXX note that this can still block on reading from the fd
 struct hdfs_error
