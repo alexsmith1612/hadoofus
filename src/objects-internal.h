@@ -62,8 +62,8 @@ struct _hdfs_result {
 
 struct _hdfs_pending {
 	int64_t pd_msgno;
-	struct hdfs_rpc_response_future *pd_future;
 	struct hdfs_object *(*pd_slurper)(struct hdfs_heap_buf *);
+	void *pd_userdata;
 };
 
 void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);

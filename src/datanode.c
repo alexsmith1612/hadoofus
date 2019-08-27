@@ -16,7 +16,6 @@
 #include "heapbuf.h"
 #include "net.h"
 #include "objects-internal.h"
-#include "pthread_wrappers.h"
 #include "util.h"
 
 #include "datatransfer.pb-c.h"

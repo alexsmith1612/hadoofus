@@ -10,11 +10,8 @@
 
 #include "net.h"
 #include "objects-internal.h"
-#include "pthread_wrappers.h"
 #include "rpc2-internal.h"
 #include "util.h"
-
-static void *			_namenode_recv_worker(void *);
 
 static short			_namenode_auth_sasl_get_events(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_simple(struct hdfs_namenode *n);
@@ -22,15 +19,10 @@ static struct hdfs_error	_namenode_auth_kerb(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_sasl_loop(struct hdfs_namenode *n);
 static struct hdfs_error	_namenode_auth_sasl_send_resp(struct hdfs_namenode *n);
 
-static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
-		int64_t msgno, struct hdfs_rpc_response_future *future,
-		hdfs_object_slurper slurper);
-
-static struct hdfs_rpc_response_future *
-		_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno);
-
-static void	_future_complete(struct hdfs_rpc_response_future *future,
-		struct hdfs_object *obj);
+static void			_namenode_pending_insert(struct hdfs_namenode *n, int64_t msgno,
+				hdfs_object_slurper slurper, void *userdata);
+static struct hdfs_error	_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno,
+				void **userdata);
 
 // SASL helpers
 static struct hdfs_error	_conn_try_desasl(struct hdfs_namenode *n);
@@ -71,14 +63,11 @@ hdfs_namenode_init_ver(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs,
 	n->nn_state = HDFS_NN_ST_INITED;
 	// Note: nn_sasl_state gets initialized in _namenode_auth_kerb() prior to being used
 
-	_mtx_init(&n->nn_lock);
-	_mtx_init(&n->nn_sendlock);
 	n->nn_sock = -1;
-	n->nn_dead = false;
 	n->nn_msgno = 0;
 	n->nn_pending = NULL;
 	n->nn_pending_len = 0;
-	n->nn_recver_started = false;
+	n->nn_pending_size = 0;
 
 	n->nn_kerb = kerb_prefs;
 	n->nn_sasl_ctx = NULL;
@@ -107,8 +96,6 @@ hdfs_namenode_init_ver(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs,
 		memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
 	}
 
-	n->nn_error = 0;
-
 	memset(&n->nn_cctx, 0, sizeof(n->nn_cctx));
 	n->nn_authhdr = NULL;
 }
@@ -118,8 +105,6 @@ EXPORT_SYM struct hdfs_error
 hdfs_namenode_connauth_nb(struct hdfs_namenode *n)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-
-	// XXX locking for state checks? Consider interaction with called functions
 
 	ASSERT(n);
 	ASSERT(n->nn_state >= HDFS_NN_ST_CONNPENDING && n->nn_state < HDFS_NN_ST_RPC);
@@ -161,8 +146,6 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 	struct hdfs_error error = HDFS_SUCCESS;
 	struct pollfd pfd;
 
-	// XXX consider locking scheme
-
 	error = hdfs_namenode_connect_init(n, host, port, false);
 	while (hdfs_is_again(error)) {
 		error = hdfs_namenode_get_eventfd(n, &pfd.fd, &pfd.events);
@@ -186,8 +169,6 @@ hdfs_namenode_connect_init(struct hdfs_namenode *n, const char *host, const char
 	ASSERT(n);
 	ASSERT(host);
 	ASSERT(port);
-
-	_lock(&n->nn_lock);
 	ASSERT(n->nn_state == HDFS_NN_ST_INITED);
 	ASSERT(n->nn_sock == -1);
 
@@ -215,7 +196,6 @@ hdfs_namenode_connect_init(struct hdfs_namenode *n, const char *host, const char
 		n->nn_state = HDFS_NN_ST_ERROR;
 
 out:
-	_unlock(&n->nn_lock);
 	return error;
 }
 
@@ -225,8 +205,6 @@ hdfs_namenode_connect_finalize(struct hdfs_namenode *n)
 	struct hdfs_error error = HDFS_SUCCESS;
 
 	ASSERT(n);
-
-	_lock(&n->nn_lock);
 	ASSERT(n->nn_sock >= 0);
 	if (n->nn_state == HDFS_NN_ST_CONNECTED)
 		goto out;
@@ -239,7 +217,6 @@ hdfs_namenode_connect_finalize(struct hdfs_namenode *n)
 		n->nn_state = HDFS_NN_ST_ERROR;
 
 out:
-	_unlock(&n->nn_lock);
 	return error;
 }
 
@@ -249,8 +226,6 @@ hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events)
 	ASSERT(n);
 	ASSERT(fd);
 	ASSERT(events);
-
-	_lock(&n->nn_lock);
 	ASSERT(n->nn_sock >= 0);
 	ASSERT(n->nn_state >= HDFS_NN_ST_CONNPENDING);
 
@@ -279,12 +254,10 @@ hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events)
 		break;
 
 	case HDFS_NN_ST_RPC:
-		// XXX revisit this locking pattern
-		_lock(&n->nn_sendlock);
 		if (_hbuf_readlen(&n->nn_sendbuf) > 0)
 			*events |= POLLOUT;
-		_unlock(&n->nn_sendlock);
-		// XXX if we remove worker thread set POLLIN if there are pending RPCs
+		if (n->nn_pending_len > 0)
+			*events |= POLLIN;
 		break;
 
 	case HDFS_NN_ST_ZERO:
@@ -295,11 +268,9 @@ hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events)
 		ASSERT(false);
 	}
 
-	_unlock(&n->nn_lock);
 	return HDFS_SUCCESS;
 }
 
-// XXX Assumes that nn_lock is held
 static short
 _namenode_auth_sasl_get_events(struct hdfs_namenode *n)
 {
@@ -327,7 +298,6 @@ EXPORT_SYM void
 hdfs_namenode_auth_nb_init_full(struct hdfs_namenode *n, const char *username,
 	const char *real_user)
 {
-	_lock(&n->nn_lock);
 	ASSERT(n->nn_proto == HDFS_NN_v1 || n->nn_proto == HDFS_NN_v2 || n->nn_proto == HDFS_NN_v2_2);
 	ASSERT(n->nn_state >= HDFS_NN_ST_INITED && n->nn_state < HDFS_NN_ST_AUTHPENDING);
 	ASSERT(!n->nn_authhdr);
@@ -339,7 +309,6 @@ hdfs_namenode_auth_nb_init_full(struct hdfs_namenode *n, const char *username,
 	if (n->nn_proto == HDFS_NN_v2_2)
 		_authheader_set_clientid(n->nn_authhdr, n->nn_client_id);
 
-	_unlock(&n->nn_lock);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -356,10 +325,7 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 	struct hdfs_error error = HDFS_SUCCESS;
 	struct pollfd pfd;
 
-	// XXX consider locking scheme
-
 	hdfs_namenode_auth_nb_init_full(n, username, real_user);
-
 	while (true) {
 		error = hdfs_namenode_authenticate_nb(n);
 		if (!hdfs_is_again(error))
@@ -423,8 +389,6 @@ hdfs_namenode_authenticate_nb(struct hdfs_namenode *n)
 	struct hdfs_error error = HDFS_SUCCESS;
 
 	ASSERT(n);
-
-	_lock(&n->nn_lock);
 	ASSERT(n->nn_state >= HDFS_NN_ST_CONNECTED && n->nn_state < HDFS_NN_ST_RPC);
 	ASSERT(n->nn_sock != -1);
 	ASSERT(n->nn_authhdr);
@@ -454,11 +418,9 @@ hdfs_namenode_authenticate_nb(struct hdfs_namenode *n)
 	}
 
 out:
-	_unlock(&n->nn_lock);
 	return error;
 }
 
-// XXX Assumes that nn_lock is held
 static struct hdfs_error
 _namenode_auth_simple(struct hdfs_namenode *n)
 {
@@ -514,7 +476,6 @@ out:
 	return error;
 }
 
-// XXX Assumes that nn_lock is held
 static struct hdfs_error
 _namenode_auth_kerb(struct hdfs_namenode *n)
 {
@@ -597,7 +558,6 @@ out:
 	return error;
 }
 
-// XXX Assumes that nn_lock is held
 static struct hdfs_error
 _namenode_auth_sasl_loop(struct hdfs_namenode *n)
 {
@@ -779,7 +739,6 @@ out:
 	return error;
 }
 
-// XXX Assumes nn_lock is held
 static struct hdfs_error
 _namenode_auth_sasl_send_resp(struct hdfs_namenode *n)
 {
@@ -822,34 +781,32 @@ hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 {
 	int64_t res;
 
-	_lock(&n->nn_lock);
 	res = n->nn_msgno;
-	_unlock(&n->nn_lock);
 
 	return res;
 }
 
+// XXX consider changing userdata to a union (like epoll uses), e.g.
+// union hdfs_userdata {
+//         void *ptr;
+//         int fd;
+//         uint32_t u32;
+//         uint64_t u64;
+// };
 EXPORT_SYM struct hdfs_error
 hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
-	struct hdfs_rpc_response_future *future)
+	int64_t *msgno, void *userdata)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	bool nnlocked = false, needs_kick = false, sllocked = false;
-	int64_t msgno;
 	int offset, pre_rlen, post_rlen, rpc_len;
 	ssize_t wlen;
 
-	ASSERT(future);
-	ASSERT(future->fu_inited && !future->fu_invoked);
-
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
+	ASSERT(n->nn_state != HDFS_NN_ST_ERROR);
 
-	_lock(&n->nn_lock);
-	nnlocked = true;
-
-	ASSERT(!n->nn_dead);
-
+	// XXX consider getting rid of these error codes and just asserting that
+	// nn_sock != -1 and nn_state == HDFS_NN_ST_RPC.
 	if (n->nn_sock == -1 || n->nn_state < HDFS_NN_ST_CONNECTED) {
 		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
 		goto out;
@@ -860,36 +817,16 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	}
 
 	// Take a number
-	msgno = n->nn_msgno;
+	*msgno = n->nn_msgno;
 	n->nn_msgno++;
 
-	future->fu_invoked = true;
-	_namenode_pending_insert_unlocked(n, msgno, future,
-	    _rpc2_slurper_for_rpc(rpc));
-
-	if (!n->nn_recver_started)
-		n->nn_recver_started = needs_kick = true;
-
-	_unlock(&n->nn_lock);
-	nnlocked = false;
-
-	if (needs_kick) {
-		int rc;
-
-		rc = pipe(n->nn_recv_sigpipe);
-		ASSERT(rc == 0);
-		rc = pthread_create(&n->nn_recv_thr, NULL,
-		    _namenode_recv_worker, n);
-		ASSERT(rc == 0);
-	}
+	// XXX consider interaction with recv and any user locking implications
+	_namenode_pending_insert(n, *msgno, _rpc2_slurper_for_rpc(rpc), userdata);
 
 	// Serialize rpc and transmit
-	_rpc_invocation_set_msgno(rpc, msgno);
+	_rpc_invocation_set_msgno(rpc, *msgno);
 	_rpc_invocation_set_proto(rpc, n->nn_proto);
 	_rpc_invocation_set_clientid(rpc, n->nn_client_id);
-
-	_lock(&n->nn_sendlock);
-	sllocked = true;
 
 	// XXX HACK determine the offset of the beginning of this serialized rpc for sasl
 	// encoding. Since hdfs_object_serialize() can lead to _hbuf_reserve() calls which
@@ -905,38 +842,33 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 
 	if (n->nn_sasl_ssf > 0) {
 		error = _sasl_encode_at_offset(n->nn_sasl_ctx, &n->nn_sendbuf, offset);
-		if (hdfs_is_error(error))
-			goto out; // XXX TODO set nn_state
+		if (hdfs_is_error(error)) {
+			n->nn_state = HDFS_NN_ST_ERROR;
+			goto out;
+		}
 	}
 
+	// XXX consider calling hdfs_namenode_invoke_continue() instead of directly calling _write() here
 	error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
-	if (wlen < 0)
+	if (wlen < 0) {
+		n->nn_state = HDFS_NN_ST_ERROR;
 		goto out;
+	}
 	_hbuf_consume(&n->nn_sendbuf, wlen);
-	_unlock(&n->nn_sendlock);
-	sllocked = false;
 
 out:
-	if (nnlocked)
-		_unlock(&n->nn_lock);
-	if (sllocked)
-		_unlock(&n->nn_sendlock);
 	return error;
 }
 
 // XXX reconsider name
 EXPORT_SYM struct hdfs_error
-hdfs_namenode_continue(struct hdfs_namenode *n)
+hdfs_namenode_invoke_continue(struct hdfs_namenode *n)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	bool nnlocked = false, sllocked = false;
 	ssize_t wlen;
 
-
-	_lock(&n->nn_lock);
-	nnlocked = true;
-
-	ASSERT(!n->nn_dead); // XXX return error instead?
+	ASSERT(n);
+	ASSERT(n->nn_state != HDFS_NN_ST_ERROR);
 
 	if (n->nn_sock == -1 || n->nn_state < HDFS_NN_ST_CONNECTED) {
 		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
@@ -947,112 +879,18 @@ hdfs_namenode_continue(struct hdfs_namenode *n)
 		goto out;
 	}
 
-	_unlock(&n->nn_lock);
-	nnlocked = false;
-
-	_lock(&n->nn_sendlock);
-	sllocked = true;
-
+	// Try to send anything in the sendbuf
 	if (_hbuf_readlen(&n->nn_sendbuf) > 0) {
 		error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
-		if (wlen < 0)
+		if (wlen < 0) {
+			n->nn_state = HDFS_NN_ST_ERROR;
 			goto out;
+		}
 		_hbuf_consume(&n->nn_sendbuf, wlen);
 	}
-	_unlock(&n->nn_sendlock);
-	sllocked = false;
 
 out:
-	if (nnlocked)
-		_unlock(&n->nn_lock);
-	if (sllocked)
-		_unlock(&n->nn_sendlock);
 	return error;
-}
-
-EXPORT_SYM struct hdfs_rpc_response_future *
-hdfs_rpc_response_future_alloc(void)
-{
-	struct hdfs_rpc_response_future *result;
-
-	result = malloc(sizeof(*result));
-	ASSERT(result != NULL);
-	result->fu_inited = false;
-	return result;
-}
-
-EXPORT_SYM void
-hdfs_rpc_response_future_free(struct hdfs_rpc_response_future **f)
-{
-
-	ASSERT(f != NULL && !(*f)->fu_inited);
-	free(*f);
-	*f = NULL;
-}
-
-// XXX: Some optimization could be done for repeated users of the same
-// heap-allocated futures.  There is no need to destroy and init the pthread
-// objects every reuse.  Be careful not to break the use in src/highlevel.c,
-// though, where pthread object destruction is necessary.
-EXPORT_SYM void
-hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *future)
-{
-
-	ASSERT(!future->fu_inited);
-
-	_mtx_init(&future->fu_lock);
-	_cond_init(&future->fu_cond);
-	future->fu_res = NULL;
-	future->fu_invoked = false;
-	future->fu_inited = true;
-}
-
-EXPORT_SYM void
-hdfs_rpc_response_future_clean(struct hdfs_rpc_response_future *future)
-{
-
-	if (future->fu_inited) {
-		_mtx_destroy(&future->fu_lock);
-		_cond_destroy(&future->fu_cond);
-		memset(future, 0, sizeof *future);
-	}
-}
-
-EXPORT_SYM void
-hdfs_future_get(struct hdfs_rpc_response_future *future, struct hdfs_object **object)
-{
-
-	ASSERT(future->fu_inited && future->fu_invoked);
-
-	_lock(&future->fu_lock);
-	while (!future->fu_res)
-		_wait(&future->fu_lock, &future->fu_cond);
-	_unlock(&future->fu_lock);
-	*object = future->fu_res;
-
-	hdfs_rpc_response_future_clean(future);
-}
-
-EXPORT_SYM bool
-hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_object **object, uint64_t ms)
-{
-	uint64_t absms;
-
-	ASSERT(future->fu_inited && future->fu_invoked);
-
-	absms = _now_ms() + ms;
-	_lock(&future->fu_lock);
-	while (!future->fu_res && _now_ms() < absms)
-		_waitlimit(&future->fu_lock, &future->fu_cond, absms);
-	if (!future->fu_res) {
-		_unlock(&future->fu_lock);
-		return false;
-	}
-	_unlock(&future->fu_lock);
-	*object = future->fu_res;
-
-	hdfs_rpc_response_future_clean(future);
-	return true;
 }
 
 // Releases and cleans resources associated with the namenode 'n'. Callers
@@ -1061,26 +899,6 @@ hdfs_future_get_timeout(struct hdfs_rpc_response_future *future, struct hdfs_obj
 EXPORT_SYM void
 hdfs_namenode_destroy(struct hdfs_namenode *n)
 {
-	int rc;
-	bool thread_started;
-
-	_lock(&n->nn_lock);
-	ASSERT(!n->nn_dead);
-	n->nn_dead = true;
-
-	thread_started = n->nn_recver_started;
-	if (n->nn_recver_started) {
-		rc = write(n->nn_recv_sigpipe[1], "a", 1);
-		ASSERT(rc == 1);
-	}
-	_unlock(&n->nn_lock);
-
-	if (thread_started) {
-		rc = pthread_join(n->nn_recv_thr, NULL);
-		ASSERT(rc == 0);
-	}
-
-	ASSERT(!n->nn_recver_started);
 	if (n->nn_sock != -1)
 		close(n->nn_sock);
 	if (n->nn_pending)
@@ -1098,214 +916,152 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 
 	hdfs_conn_ctx_free(&n->nn_cctx);
 
-	_mtx_destroy(&n->nn_lock);
-	_mtx_destroy(&n->nn_sendlock);
 	memset(n, 0, sizeof *n);
 	// XXX Consider: set nn_sock = -1?
 }
 
-static void *
-_namenode_recv_worker(void *v_nn)
+// Returns HDFS_SUCCESS if a result is passed to the user, HDFS_AGAIN if more data is
+// needed, and other values on errors. Note that since the data for more than one rpc may
+// be read into nn_recvbuf at a time, the user should call this function in a loop until a
+// non-HDFS_SUCCESS value is returned or they have completed all pending RPCs since there
+// may no longer be any data in the socket buffer to trigger a poll() or similar call to
+// return
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_recv(struct hdfs_namenode *n, struct hdfs_object **object, int64_t *msgno,
+	void **userdata)
 {
-	const size_t RESIZE_AT = 4*1024, RESIZE_BY = 16*1024;
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct hdfs_heap_buf *objbuf;
+	struct _hdfs_result *result = NULL;
+	int obj_size;
 
-	bool nnlocked = false;
-	int sock, obj_size, error, i;
+	ASSERT(n);
+	ASSERT(object);
+	ASSERT(msgno);
+	// XXX consider returning HDFS_ERR_NAMENODE_UNCONNECTED and
+	// HDFS_ERR_NAMENODE_UNAUTHENTICATED like hdfs_namenode_invoke()
+	ASSERT(n->nn_state = HDFS_NN_ST_RPC);
+	ASSERT(n->nn_pending_len > 0);
 
-	struct _hdfs_result *result;
-	struct hdfs_rpc_response_future *future;
-	struct hdfs_namenode *n = v_nn;
-	struct hdfs_error herror;
+	*object = NULL;
+	*msgno = -1;
 
-	error = 0;
+	objbuf = n->nn_sasl_ssf > 0 ? &n->nn_objbuf : &n->nn_recvbuf;
 
-	while (true) {
-		struct hdfs_heap_buf *objbuf;
-
-		_lock(&n->nn_lock);
-		nnlocked = true;
-		sock = n->nn_sock;
-
-		// If hdfs_namenode_destroy() happened, die:
-		if (n->nn_dead) {
-			herror = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
-			break;
-		}
-
-		_unlock(&n->nn_lock);
-		nnlocked = false;
-
-		ASSERT(sock != -1);
-
-		if (n->nn_sasl_ssf > 0) {
-			objbuf = &n->nn_objbuf;
-		} else {
-			objbuf = &n->nn_recvbuf;
-		}
-
-		if (n->nn_proto == HDFS_NN_v1)
+	// Try to deserialize whatever's already in nn_recvbuf before reading from the
+	// socket in case we already have a complete RPC response
+        while (true) {
+		// XXX consider changing _deserialize function signatures to return struct
+		// hdfs_error with struct _hdfs_result as an output parameter.
+		// XXX combine obj_size into hdfs_result? or get rid of hdfs_result
+		// entirely and just have 3 separate output parameters?
+		switch (n->nn_proto) {
+		case HDFS_NN_v1:
 			result = _hdfs_result_deserialize(_hbuf_readptr(objbuf),
 			    _hbuf_readlen(objbuf), &obj_size);
-		else if (n->nn_proto == HDFS_NN_v2) {
-			_lock(&n->nn_lock);
+			break;
+		case HDFS_NN_v2:
 			result = _hdfs_result_deserialize_v2(_hbuf_readptr(objbuf),
 			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
 			    n->nn_pending_len);
-			_unlock(&n->nn_lock);
-		} else if (n->nn_proto == HDFS_NN_v2_2) {
-			_lock(&n->nn_lock);
+			break;
+		case HDFS_NN_v2_2:
 			result = _hdfs_result_deserialize_v2_2(_hbuf_readptr(objbuf),
 			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
 			    n->nn_pending_len);
-			_unlock(&n->nn_lock);
-		} else
+			break;
+		default:
 			ASSERT(false);
-
-		if (!result) {
-			ssize_t r;
-
-			_hbuf_resize(&n->nn_recvbuf, RESIZE_AT, RESIZE_BY);
-
-			r = recv(sock, _hbuf_writeptr(&n->nn_recvbuf),
-			    _hbuf_remsize(&n->nn_recvbuf), MSG_DONTWAIT);
-			if (r == 0) {
-				herror = error_from_hdfs(HDFS_ERR_END_OF_STREAM);
-				goto out;
-			}
-			if (r > 0) {
-				_hbuf_append(&n->nn_recvbuf, r);
-				if (n->nn_sasl_ssf > 0) {
-					herror = _conn_try_desasl(n);
-					// bail on sasl decode errors
-					if (hdfs_is_error(herror))
-						goto out;
-				}
-			} else {
-				if (errno != EAGAIN && errno != EWOULDBLOCK) {
-					// bail on socket errors
-					error = errno;
-					herror = error_from_errno(error);
-					goto out;
-				}
-
-				struct pollfd pfds[] = { {
-					.fd = sock,
-					.events = POLLIN,
-				}, {
-					.fd = n->nn_recv_sigpipe[0],
-					.events = POLLIN,
-				} };
-				int rc;
-
-				do {
-					rc = poll(pfds, nelem(pfds),
-					    -1 /* infinite */);
-				} while (rc < 0 && errno == EINTR);
-				ASSERT(rc > 0);
-			}
-			continue;
 		}
 
-		if (result == _HDFS_INVALID_PROTO) {
-			// bail on protocol errors
-			error = EBADMSG;
-			herror = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+		if (result)
+			break;
+
+		// read anything that's available in the socket
+		error = _read_to_hbuf(n->nn_sock, &n->nn_recvbuf);
+		if (hdfs_is_again(error)) {
+			goto out;
+		} else if (hdfs_is_error(error)) {
+			n->nn_state = HDFS_NN_ST_ERROR;
 			goto out;
 		}
 
-		// if we got here, we have read a valid / complete hdfs result
-		// off the wire; skip the buffer forward:
-		_hbuf_consume(objbuf, obj_size);
+		// we received new data
+		if (n->nn_sasl_ssf > 0) {
+			error = _conn_try_desasl(n);
+			if (hdfs_is_error(error)) {
+				n->nn_state = HDFS_NN_ST_ERROR;
+				goto out;
+			}
+		}
+	}
 
-		future = _namenode_pending_remove(n, result->rs_msgno);
-		ASSERT(future); // got a response to a msgno we didn't request
+	if (result == _HDFS_INVALID_PROTO) {
+		// bail on protocol errors
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+		n->nn_state = HDFS_NN_ST_ERROR;
+		goto out;
+	}
 
-		_future_complete(future, result->rs_obj);
+	// we have read and deserialized a valid/complete hdfs result
+	_hbuf_consume(objbuf, obj_size);
 
-		// don't free the object we just handed the user:
-		result->rs_obj = NULL;
-		_hdfs_result_free(result);
+	*object = result->rs_obj;
+	*msgno = result->rs_msgno;
+
+	// don't free the object we just handed the user
+	result->rs_obj = NULL;
+	_hdfs_result_free(result);
+
+	error =_namenode_pending_remove(n, *msgno, userdata);
+	if (hdfs_is_error(error)) {
+		n->nn_state = HDFS_NN_ST_ERROR;
+		goto out;
 	}
 
 out:
-	if (!nnlocked)
-		_lock(&n->nn_lock);
-	if (error != 0)
-		n->nn_error = error;
-	n->nn_dead = true;
-	n->nn_recver_started = false;
-
-	close(n->nn_recv_sigpipe[1]);
-	close(n->nn_recv_sigpipe[0]);
-	n->nn_recv_sigpipe[1] = -1;
-	n->nn_recv_sigpipe[0] = -1;
-
-	/* Clear pending RPCs with an error */
-	for (i = 0; i < n->nn_pending_len; i++) {
-		struct hdfs_object *obj;
-
-		future = n->nn_pending[i].pd_future;
-		obj = hdfs_pseudo_exception_new(herror);
-		_future_complete(future, obj);
-	}
-	n->nn_pending_len = 0;
-	_unlock(&n->nn_lock);
-
-	return NULL;
+	// XXX consider setting HDFS_NN_ST_ERROR only here instead of above
+	return error;
 }
 
+// XXX the nn_pending* variables are the only resources that are modified by both the
+// sending and receiving functions (after namenode connection and authentication have been
+// completed), so perhaps we want to have a lock in hdfs_namenode just for use in
+// _namenode_pending_insert()/_remove() and allow users to concurrently use hdfs_namenode
+// for sending and receiving (but requiring the user to provide synchronization for
+// multiple threads sending and/or multiple threads receiving).
 static void
-_namenode_pending_insert_unlocked(struct hdfs_namenode *n, int64_t msgno,
-	struct hdfs_rpc_response_future *future, hdfs_object_slurper slurper)
+_namenode_pending_insert(struct hdfs_namenode *n, int64_t msgno,
+	hdfs_object_slurper slurper, void *userdata)
 {
 	const int RESIZE_FACTOR = 16;
 
-	if (n->nn_pending_len % RESIZE_FACTOR == 0) {
-		n->nn_pending = realloc(n->nn_pending,
-		    (n->nn_pending_len + RESIZE_FACTOR) * sizeof *n->nn_pending);
+	if (n->nn_pending_len == n->nn_pending_size) {
+		n->nn_pending_size += RESIZE_FACTOR;
+		n->nn_pending = realloc(n->nn_pending, n->nn_pending_size * sizeof(*n->nn_pending));
 		ASSERT(n->nn_pending);
 	}
 
 	n->nn_pending[n->nn_pending_len].pd_msgno = msgno;
-	n->nn_pending[n->nn_pending_len].pd_future = future;
 	n->nn_pending[n->nn_pending_len].pd_slurper = slurper;
+	n->nn_pending[n->nn_pending_len].pd_userdata = userdata;
 	n->nn_pending_len++;
 }
 
-static struct hdfs_rpc_response_future *
-_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno)
+static struct hdfs_error
+_namenode_pending_remove(struct hdfs_namenode *n, int64_t msgno, void **userdata)
 {
-	struct hdfs_rpc_response_future *res = NULL;
-
-	_lock(&n->nn_lock);
-
 	for (int i = 0; i < n->nn_pending_len; i++) {
 		if (n->nn_pending[i].pd_msgno == msgno) {
-			res = n->nn_pending[i].pd_future;
+			if (userdata)
+				*userdata = n->nn_pending[i].pd_userdata;
 			if (i != n->nn_pending_len - 1)
 				n->nn_pending[i] = n->nn_pending[n->nn_pending_len - 1];
 			n->nn_pending_len--;
-			break;
+			return HDFS_SUCCESS;
 		}
 	}
-
-	_unlock(&n->nn_lock);
-
-	return res;
-}
-
-static void
-_future_complete(struct hdfs_rpc_response_future *f, struct hdfs_object *o)
-{
-	ASSERT(o);
-
-	_lock(&f->fu_lock);
-
-	ASSERT(!f->fu_res);
-	f->fu_res = o;
-	_notifyall(&f->fu_cond);
-
-	_unlock(&f->fu_lock);
+	return error_from_hdfs(HDFS_ERR_NAMENODE_BAD_MSGNO);
 }
 
 static int

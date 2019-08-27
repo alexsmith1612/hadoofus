@@ -100,6 +100,10 @@ hdfs_exception_get_message(struct hdfs_object *o)
 // N.B. These functions abort(3) on errors below the ClientProtocol level (such
 // as socket errors)
 //
+// N.B. These functions assume that there are no pending RPCs when they are
+// called, that is, the blocking API may not be used while any non-blocking API
+// RPC is waiting for its response.
+//
 
 //
 // Non-blocking API (suffixed with _nb):
@@ -109,9 +113,14 @@ hdfs_exception_get_message(struct hdfs_object *o)
 // minimize the risk of discrepancies appearing between the two during
 // development)
 //
-// These routines assume that *future is a properly initialized
-// struct hdfs_rpc_response_future, and they invoke the given RPC on that
-// future, which is then used to retrieve the response object (see lowlevel.h).
+// These routines assume that *msgno is a valid pointer to an int64_t. They
+// invoke the given RPC and set *msgno to the given msgno for this RPC
+// invocation, which the user must then use to correlate objects received from
+// hdfs_namenode_recv() with their given RPC invocation (see lowlevel.h).
+//
+// userdata is a pointer that will be passed back to the caller when the result
+// is returned by hdfs_namenode_recv() (this has the same semantics as
+// hdfs_namenode_invoke()---see lowlevel.h)
 //
 // Their return values match that of hdfs_namenode_invoke() and should be
 // handled equivalently
@@ -119,14 +128,14 @@ hdfs_exception_get_message(struct hdfs_object *o)
 
 struct hdfs_error	hdfs_getProtocolVersion_nb(struct hdfs_namenode *,
 			const char *protocol, int64_t client_version,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 int64_t			hdfs_getProtocolVersion(struct hdfs_namenode *,
 			const char *protocol, int64_t client_version,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getBlockLocations_nb(struct hdfs_namenode *, const char *path,
-			int64_t offset, int64_t length, struct hdfs_rpc_response_future *future);
+			int64_t offset, int64_t length, int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getBlockLocations(struct hdfs_namenode *, const char *path,
 			int64_t offset, int64_t length, struct hdfs_object **exception_out);
@@ -134,7 +143,7 @@ struct hdfs_object *	hdfs_getBlockLocations(struct hdfs_namenode *, const char *
 struct hdfs_error	hdfs_create_nb(struct hdfs_namenode *, const char *path,
 			uint16_t perms, const char *clientname, bool overwrite,
 			bool create_parent, int16_t replication, int64_t blocksize,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 // 'void' prior to v2.2, and result will always be NULL for those versions.
 struct hdfs_object *	hdfs_create(struct hdfs_namenode *, const char *path,
@@ -143,31 +152,31 @@ struct hdfs_object *	hdfs_create(struct hdfs_namenode *, const char *path,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_append_nb(struct hdfs_namenode *, const char *path,
-			const char *client, struct hdfs_rpc_response_future *future);
+			const char *client, int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_append(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setReplication_nb(struct hdfs_namenode *, const char *path,
-			int16_t replication, struct hdfs_rpc_response_future *future);
+			int16_t replication, int64_t *msgno, void *userdata);
 
 bool			hdfs_setReplication(struct hdfs_namenode *, const char *path,
 			int16_t replication, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setPermission_nb(struct hdfs_namenode *, const char *path,
-			int16_t perms, struct hdfs_rpc_response_future *future);
+			int16_t perms, int64_t *msgno, void *userdata);
 
 void			hdfs_setPermission(struct hdfs_namenode *, const char *path,
 			int16_t perms, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setOwner_nb(struct hdfs_namenode *, const char *path,
-			const char *owner, const char *group, struct hdfs_rpc_response_future *future);
+			const char *owner, const char *group, int64_t *msgno, void *userdata);
 
 void			hdfs_setOwner(struct hdfs_namenode *, const char *path,
 			const char *owner, const char *group, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_abandonBlock_nb(struct hdfs_namenode *, struct hdfs_object *block,
-			const char *path, const char *client, struct hdfs_rpc_response_future *future);
+			const char *path, const char *client, int64_t *msgno, void *userdata);
 
 void			hdfs_abandonBlock(struct hdfs_namenode *, struct hdfs_object *block,
 			const char *path, const char *client, struct hdfs_object **exception_out);
@@ -188,7 +197,7 @@ void			hdfs_abandonBlock(struct hdfs_namenode *, struct hdfs_object *block,
 struct hdfs_error	hdfs_addBlock_nb(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object *excluded,
 			struct hdfs_object *previous_block, int64_t fileid,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_addBlock(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object *excluded,
@@ -210,110 +219,110 @@ struct hdfs_object *	hdfs_addBlock(struct hdfs_namenode *, const char *path,
  */
 struct hdfs_error	hdfs_complete_nb(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object *last_block,
-			int64_t fileid, struct hdfs_rpc_response_future *future);
+			int64_t fileid, int64_t *msgno, void *userdata);
 
 bool			hdfs_complete(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object *last_block,
 			int64_t fileid, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_rename_nb(struct hdfs_namenode *, const char *src,
-			const char *dst, struct hdfs_rpc_response_future *future);
+			const char *dst, int64_t *msgno, void *userdata);
 
 bool			hdfs_rename(struct hdfs_namenode *, const char *src,
 			const char *dst, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_delete_nb(struct hdfs_namenode *, const char *path,
-			bool can_recurse, struct hdfs_rpc_response_future *future);
+			bool can_recurse, int64_t *msgno, void *userdata);
 
 bool			hdfs_delete(struct hdfs_namenode *, const char *path,
 			bool can_recurse, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_mkdirs_nb(struct hdfs_namenode *, const char *path,
-			int16_t perms, struct hdfs_rpc_response_future *future);
+			int16_t perms, int64_t *msgno, void *userdata);
 
 bool			hdfs_mkdirs(struct hdfs_namenode *, const char *path,
 			int16_t perms, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getListing_nb(struct hdfs_namenode *, const char *path,
-			struct hdfs_object *begin, struct hdfs_rpc_response_future *future);
+			struct hdfs_object *begin, int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getListing(struct hdfs_namenode *, const char *path,
 			struct hdfs_object *begin, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_renewLease_nb(struct hdfs_namenode *, const char *client,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs_renewLease(struct hdfs_namenode *, const char *client,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getStats_nb(struct hdfs_namenode *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getStats(struct hdfs_namenode *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getPreferredBlockSize_nb(struct hdfs_namenode *,
-			const char *path, struct hdfs_rpc_response_future *future);
+			const char *path, int64_t *msgno, void *userdata);
 
 int64_t			hdfs_getPreferredBlockSize(struct hdfs_namenode *,
 			const char *path, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getFileInfo_nb(struct hdfs_namenode *,
-			const char *path, struct hdfs_rpc_response_future *future);
+			const char *path, int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getFileInfo(struct hdfs_namenode *,
 			const char *path, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getContentSummary_nb(struct hdfs_namenode *,
-			const char *path, struct hdfs_rpc_response_future *future);
+			const char *path, int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getContentSummary(struct hdfs_namenode *,
 			const char *path, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setQuota_nb(struct hdfs_namenode *, const char *path,
-			int64_t ns_quota, int64_t ss_quota, struct hdfs_rpc_response_future *future);
+			int64_t ns_quota, int64_t ss_quota, int64_t *msgno, void *userdata);
 
 void			hdfs_setQuota(struct hdfs_namenode *, const char *path,
 			int64_t ns_quota, int64_t ss_quota, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_fsync_nb(struct hdfs_namenode *, const char *path,
-			const char *client, struct hdfs_rpc_response_future *future);
+			const char *client, int64_t *msgno, void *userdata);
 
 void			hdfs_fsync(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setTimes_nb(struct hdfs_namenode *, const char *path,
-			int64_t mtime, int64_t atime, struct hdfs_rpc_response_future *future);
+			int64_t mtime, int64_t atime, int64_t *msgno, void *userdata);
 
 void			hdfs_setTimes(struct hdfs_namenode *, const char *path,
 			int64_t mtime, int64_t atime, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_recoverLease_nb(struct hdfs_namenode *, const char *path,
-			const char *client, struct hdfs_rpc_response_future *future);
+			const char *client, int64_t *msgno, void *userdata);
 
 bool			hdfs_recoverLease(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_concat_nb(struct hdfs_namenode *, const char *target,
-			struct hdfs_object *srcs, struct hdfs_rpc_response_future *future);
+			struct hdfs_object *srcs, int64_t *msgno, void *userdata);
 
 void			hdfs_concat(struct hdfs_namenode *, const char *target,
 			struct hdfs_object *srcs, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_getDelegationToken_nb(struct hdfs_namenode *, const char *renewer,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getDelegationToken(struct hdfs_namenode *, const char *renewer,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_cancelDelegationToken_nb(struct hdfs_namenode *, struct hdfs_object *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs_cancelDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_renewDelegationToken_nb(struct hdfs_namenode *, struct hdfs_object *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 int64_t			hdfs_renewDelegationToken(struct hdfs_namenode *, struct hdfs_object *,
 			struct hdfs_object **exception_out);
@@ -322,7 +331,7 @@ int64_t			hdfs_renewDelegationToken(struct hdfs_namenode *, struct hdfs_object *
 #define			HDFS_SAFEMODE_LEAVE	"SAFEMODE_LEAVE"
 #define			HDFS_SAFEMODE_GET	"SAFEMODE_GET"
 struct hdfs_error	hdfs_setSafeMode_nb(struct hdfs_namenode *, const char *safemodeaction,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 			struct hdfs_object **exception_out);
@@ -331,13 +340,13 @@ bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 #define			HDFS_DNREPORT_LIVE	"LIVE"
 #define			HDFS_DNREPORT_DEAD	"DEAD"
 struct hdfs_error	hdfs_getDatanodeReport_nb(struct hdfs_namenode *, const char *dnreporttype,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *dnreporttype,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_reportBadBlocks_nb(struct hdfs_namenode *, struct hdfs_object *blocks,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs_reportBadBlocks(struct hdfs_namenode *, struct hdfs_object *blocks,
 			struct hdfs_object **exception_out);
@@ -346,37 +355,37 @@ void			hdfs_reportBadBlocks(struct hdfs_namenode *, struct hdfs_object *blocks,
 #define			HDFS_UPGRADEACTION_DETAILED		"DETAILED_STATUS"
 #define			HDFS_UPGRADEACTION_FORCE_PROCEED	"FORCE_PROCEED"
 struct hdfs_error	hdfs_distributedUpgradeProgress_nb(struct hdfs_namenode *, const char *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs_distributedUpgradeProgress(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
-struct hdfs_error	hdfs_finalizeUpgrade_nb(struct hdfs_namenode *, struct hdfs_rpc_response_future *future);
+struct hdfs_error	hdfs_finalizeUpgrade_nb(struct hdfs_namenode *, int64_t *msgno, void *userdata);
 
 void			hdfs_finalizeUpgrade(struct hdfs_namenode *, struct hdfs_object **exception_out);
 
-struct hdfs_error	hdfs_refreshNodes_nb(struct hdfs_namenode *, struct hdfs_rpc_response_future *future);
+struct hdfs_error	hdfs_refreshNodes_nb(struct hdfs_namenode *, int64_t *msgno, void *userdata);
 
 void			hdfs_refreshNodes(struct hdfs_namenode *, struct hdfs_object **exception_out);
 
-struct hdfs_error	hdfs_saveNamespace_nb(struct hdfs_namenode *, struct hdfs_rpc_response_future *future);
+struct hdfs_error	hdfs_saveNamespace_nb(struct hdfs_namenode *, int64_t *msgno, void *userdata);
 
 void			hdfs_saveNamespace(struct hdfs_namenode *, struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_isFileClosed_nb(struct hdfs_namenode *, const char *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 bool			hdfs_isFileClosed(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_metaSave_nb(struct hdfs_namenode *, const char *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs_metaSave(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_setBalancerBandwidth_nb(struct hdfs_namenode *, int64_t,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs_setBalancerBandwidth(struct hdfs_namenode *, int64_t,
 			struct hdfs_object **exception_out);
@@ -384,27 +393,27 @@ void			hdfs_setBalancerBandwidth(struct hdfs_namenode *, int64_t,
 // HDFSv2+
 
 struct hdfs_error	hdfs2_getServerDefaults_nb(struct hdfs_namenode *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs2_getServerDefaults(struct hdfs_namenode *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs2_getFileLinkInfo_nb(struct hdfs_namenode *, const char *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs2_getFileLinkInfo(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs2_createSymlink_nb(struct hdfs_namenode *, const char * /*target*/,
 			const char * /*link*/, int16_t /*dirperms*/, bool /*createparent*/,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 void			hdfs2_createSymlink(struct hdfs_namenode *, const char * /*target*/,
 			const char * /*link*/, int16_t /*dirperms*/, bool /*createparent*/,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs2_getLinkTarget_nb(struct hdfs_namenode *, const char *,
-			struct hdfs_rpc_response_future *future);
+			int64_t *msgno, void *userdata);
 
 struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);

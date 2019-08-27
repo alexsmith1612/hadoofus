@@ -3,6 +3,7 @@
 
 #include <sys/types.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -10,13 +11,7 @@
 
 #include <protobuf-c/protobuf-c.h>
 
-struct hdfs_rpc_response_future {
-	pthread_mutex_t fu_lock;
-	pthread_cond_t fu_cond;
-	struct hdfs_object *fu_res;
-	bool fu_inited : 1;
-	bool fu_invoked : 1;
-};
+#include <hadoofus/lowlevel.h>
 
 #define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
 
