@@ -23,7 +23,6 @@
 
 struct hdfs_namenode;
 struct _hdfs_pending;
-struct hdfs_rpc_response_future;
 
 // XXX TODO reconsider these states
 enum hdfs_namenode_state {
@@ -57,7 +56,6 @@ struct hdfs_conn_ctx {
 struct hdfs_namenode {
 	enum hdfs_namenode_state nn_state;
 	enum hdfs_namenode_sasl_state nn_sasl_state;
-	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
 	struct hdfs_heap_buf nn_recvbuf;
 	struct hdfs_heap_buf nn_objbuf;
@@ -68,21 +66,15 @@ struct hdfs_namenode {
 	const char *nn_sasl_out;
 	int nn_sock,
 	    nn_pending_len,
+	    nn_pending_size,
 	    nn_sasl_ssf;
 	unsigned nn_sasl_outlen;
 	enum hdfs_kerb nn_kerb;
-	bool nn_dead/*user-killed*/,
-	     nn_recver_started;
-	pthread_mutex_t nn_sendlock;
 	struct hdfs_conn_ctx nn_cctx;
 	struct hdfs_object *nn_authhdr;
 
-	pthread_t nn_recv_thr;
-	int nn_recv_sigpipe[2];
-
 	enum hdfs_namenode_proto nn_proto;
 	uint8_t nn_client_id[_HDFS_CLIENT_ID_LEN];
-	int nn_error;
 };
 
 // TODO Consider changing this to a circular buffer of size MAX_UNACKED_PACKETS

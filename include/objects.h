@@ -70,6 +70,8 @@ enum hdfs_error_numeric {
 	// v1 DN wire protocol errors
 	HDFS_ERR_V1_DATANODE_PROTOCOL,
 
+	// Namenode gave unexpected msgno
+	HDFS_ERR_NAMENODE_BAD_MSGNO,
 	// Other namenode protocol response parsing failures
 	HDFS_ERR_NAMENODE_PROTOCOL,
 

@@ -99,7 +99,7 @@ hdfs_namenode_delete(struct hdfs_namenode *h)
 
 #define _HDFS_RPC_NB_DECL(name, args...) \
 EXPORT_SYM struct hdfs_error \
-hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, struct hdfs_rpc_response_future *future)
+hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, int64_t *msgno, void *userdata)
 
 #define _HDFS_RPC_NB_BODY(v1_case, v2_case, v2_2_case) \
 { \
@@ -118,7 +118,7 @@ hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, struct hdfs_rpc_response_f
 	}; \
 	ASSERT(rpc); \
 \
-	error = hdfs_namenode_invoke(h, rpc, future); \
+	error = hdfs_namenode_invoke(h, rpc, msgno, userdata); \
 	hdfs_object_free(rpc); \
 	return error; \
 }
@@ -129,27 +129,35 @@ hdfs_ ## name (struct hdfs_namenode *h, ##args, struct hdfs_object **exception_o
 
 #define _HDFS_RPC_BODY_EX(name, ver, htype, static_asserts, ret_ex, args...) \
 { \
-	struct hdfs_rpc_response_future future; \
+	int64_t i_msgno, r_msgno; \
 	struct hdfs_object *object; \
 	struct hdfs_error error; \
+	struct pollfd pfd; \
 \
 	_Static_assert(htype >= _H_START && htype < _H_END, \
 	    "htype must be a valid type (given '" #htype "')"); \
 	static_asserts; \
 \
-	future.fu_inited = false; \
-	hdfs_rpc_response_future_init(&future); \
-	error = hdfs ## ver ## _ ## name ## _nb(h, ##args, &future); \
+	ASSERT(h->nn_pending_len == 0); \
+\
+	error = hdfs ## ver ## _ ## name ## _nb(h, ##args, &i_msgno, NULL/*userdata*/); \
 	while (hdfs_is_again(error)) { \
-		struct pollfd pfd = { 0 }; \
 		error = hdfs_namenode_get_eventfd(h, &pfd.fd, &pfd.events); \
 		BAIL_ON_ERR(error); \
 		poll(&pfd, 1, -1); /* XXX check return (EINTR?) and/or revents?*/ \
-		error = hdfs_namenode_continue(h); \
+		error = hdfs_namenode_invoke_continue(h); \
 	}; \
 	BAIL_ON_ERR(error); \
 \
-	hdfs_future_get(&future, &object); \
+	do { \
+		error = hdfs_namenode_get_eventfd(h, &pfd.fd, &pfd.events); \
+		BAIL_ON_ERR(error); \
+		poll(&pfd, 1, -1); /* XXX check return (EINTR?) and/or revents?*/ \
+		error = hdfs_namenode_recv(h, &object, &r_msgno, NULL/*userdata*/); \
+	} while (hdfs_is_again(error)); \
+	BAIL_ON_ERR(error); \
+	/* XXX perhaps set error = error_from_hdfs(HDFS_ERR_NAMENODE_BAD_MSGNO) and call BAIL_ON_ERR(error) instead */ \
+	ASSERT(r_msgno == i_msgno); \
 \
 	ret_ex; \
 }
@@ -1044,7 +1052,7 @@ _HDFS_PRIM_RPC_BODY(isFileClosed,
 // XXX TODO merge all hdfs2_*() functions into hdfs_*() functions
 #define _HDFS2_RPC_NB_DECL(name, args...) \
 EXPORT_SYM struct hdfs_error \
-hdfs2_ ## name ## _nb(struct hdfs_namenode *h, ##args, struct hdfs_rpc_response_future *future)
+hdfs2_ ## name ## _nb(struct hdfs_namenode *h, ##args, int64_t *msgno, void *userdata)
 
 #define _HDFS2_PRIM_RPC_DECL(type, name, args...) \
 EXPORT_SYM type \
