@@ -228,8 +228,6 @@ enum hdfs_exception_type {
 	H_SASL_EXCEPTION,
 	H_RPC_EXCEPTION,
 	H_RPC_NO_SUCH_METHOD_EXCEPTION,
-	/* Namenode recv_worker encountered an error, or was destroyed. */
-	H_HADOOFUS_RPC_ABORTED,
 
 	_H_EXCEPTION_END,
 };
@@ -427,10 +425,7 @@ struct hdfs_fsserverdefaults {
 };
 
 struct hdfs_exception {
-	union {
-		char *_msg;
-		struct hdfs_error _error;
-	};
+	char *_msg;
 	enum hdfs_exception_type _etype;
 };
 
@@ -506,8 +501,6 @@ struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
 			const char * /*user*/, const char * /*real user*/,
 			enum hdfs_kerb);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_exception_type, const char *);
-struct hdfs_object *	hdfs_pseudo_exception_new(struct hdfs_error);
-struct hdfs_error	hdfs_pseudo_exception_get_error(const struct hdfs_object *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
 struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,

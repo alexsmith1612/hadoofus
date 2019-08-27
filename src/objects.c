@@ -127,8 +127,6 @@ static struct {
 		.type = RPC_EXCEPTION_STR, },
 	[H_RPC_NO_SUCH_METHOD_EXCEPTION - _H_EXCEPTION_START] = {
 		.type = RPC_ENOENT_EXCEPTION_STR, },
-	[H_HADOOFUS_RPC_ABORTED - _H_EXCEPTION_START] = {
-		.type = "not.a.real.Exception", },
 };
 
 enum hdfs_object_type
@@ -1082,28 +1080,6 @@ hdfs_protocol_exception_new(enum hdfs_exception_type etype, const char *msg)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_pseudo_exception_new(struct hdfs_error error)
-{
-	struct hdfs_object *r = _objmalloc();
-
-	r->ob_type = H_PROTOCOL_EXCEPTION;
-	r->ob_val._exception = (struct hdfs_exception) {
-		._etype = H_HADOOFUS_RPC_ABORTED,
-		._error = error,
-	};
-	return r;
-}
-
-EXPORT_SYM struct hdfs_error
-hdfs_pseudo_exception_get_error(const struct hdfs_object *obj)
-{
-	ASSERT(obj->ob_type == H_PROTOCOL_EXCEPTION);
-	ASSERT(obj->ob_val._exception._etype == H_HADOOFUS_RPC_ABORTED);
-
-	return obj->ob_val._exception._error;
-}
-
-EXPORT_SYM struct hdfs_object *
 hdfs_array_string_new(int32_t len, const char **strings)
 {
 	struct hdfs_object *r = _objmalloc();
@@ -1471,8 +1447,7 @@ hdfs_object_free(struct hdfs_object *obj)
 			free(obj->ob_val._token._strings[i]);
 		break;
 	case H_PROTOCOL_EXCEPTION:
-		if (obj->ob_val._exception._etype != H_HADOOFUS_RPC_ABORTED)
-			free(obj->ob_val._exception._msg);
+		free(obj->ob_val._exception._msg);
 		break;
 	case H_UPGRADE_ACTION:
 		/* FALLTHROUGH */
