@@ -8,7 +8,6 @@
 
 #include <err.h>
 #include <errno.h>
-#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
