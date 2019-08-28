@@ -28,9 +28,6 @@
 
 _Static_assert(_H_INVALID < H_PROTOCOL_EXCEPTION, "overlapping type");
 
-static struct _hdfs_result _HDFS_INVALID_PROTO_OBJ;
-struct _hdfs_result *_HDFS_INVALID_PROTO = &_HDFS_INVALID_PROTO_OBJ;
-
 static struct {
 	const char *type;
 	bool objtype;
@@ -2028,19 +2025,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	}
 }
 
-void
-_hdfs_result_free(struct _hdfs_result *r)
+struct hdfs_error
+_hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res)
 {
-	if (r->rs_obj)
-		hdfs_object_free(r->rs_obj);
-	free(r);
-}
-
-struct _hdfs_result *
-_hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
-{
-	struct _hdfs_result *r = NULL;
-	struct hdfs_object *o = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf rbuf = {
 		.buf = buf,
 		.used = 0,
@@ -2051,6 +2039,9 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 	char *etype = NULL, *emsg = NULL;
 	char *otype = NULL, *ttype = NULL;
 	enum hdfs_object_type realtype;
+
+	ASSERT(res);
+	res->rs_obj = NULL;
 
 	msgno = _bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
@@ -2068,11 +2059,10 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 		if (rbuf.used < 0)
 			goto out;
 
-		r = malloc(sizeof *r);
-		ASSERT(r);
-		r->rs_msgno = msgno;
-		r->rs_obj = _object_exception(etype, emsg);
-		goto out;
+		res->rs_msgno = msgno;
+		res->rs_obj = _object_exception(etype, emsg);
+		res->rs_size = rbuf.used;
+		goto out; // HDFS_SUCCESS
 	}
 
 	// If we got this far we're reading a normal object
@@ -2082,7 +2072,7 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 
 	realtype = _string_to_type(otype);
 	if (realtype == _H_INVALID) {
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
 	}
 
@@ -2107,14 +2097,12 @@ _hdfs_result_deserialize(char *buf, int buflen, int *obj_size)
 		ASSERT(streq(ttype, NULL_TYPE2));
 	}
 
-	o = hdfs_object_slurp(&rbuf, realtype);
+	res->rs_obj = hdfs_object_slurp(&rbuf, realtype);
 	if (rbuf.used < 0)
 		goto out;
 
-	r = malloc(sizeof *r);
-	ASSERT(r);
-	r->rs_msgno = msgno;
-	r->rs_obj = o;
+	res->rs_msgno = msgno;
+	res->rs_size = rbuf.used;
 
 out:
 	if (otype)
@@ -2126,49 +2114,53 @@ out:
 	if (emsg)
 		free(emsg);
 
-	if (r) {
-		*obj_size = rbuf.used;
-	} else {
-		if (o)
-			hdfs_object_free(o);
-		if (rbuf.used == _H_PARSE_ERROR)
-			r = _HDFS_INVALID_PROTO;
+	if (rbuf.used == _H_PARSE_EOF) {
+		error = HDFS_AGAIN;
+	} else if (rbuf.used == _H_PARSE_ERROR) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 	}
-	return r;
+
+	if (!hdfs_is_error(error)) {
+		ASSERT(rbuf.used >= 0);
+		ASSERT(res->rs_obj);
+		ASSERT(res->rs_size == rbuf.used);
+	}
+
+	return error;
 }
 
-struct _hdfs_result *
-_hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
+struct hdfs_error
+_hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdfs_result *res,
 	struct _hdfs_pending *pend, int npend)
 {
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf rbuf = {
 		.buf = buf,
 		.used = 0,
 		.size = buflen,
 	};
-	RpcResponseHeaderProto *resphd;
-	struct _hdfs_result *result;
-	struct hdfs_object *obj;
+	RpcResponseHeaderProto *resphd = NULL;
 	int64_t resphdsz;
-	char *etype, *emsg;
+	char *etype = NULL, *emsg = NULL;
 	int32_t respsz;
 	int i;
 
-	etype = emsg = NULL;
-	resphd = NULL;
-	result = NULL;
+	ASSERT(res);
+	res->rs_obj = NULL;
 
 	resphdsz = _bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	if (resphdsz > (rbuf.size - rbuf.used))
+	if (resphdsz > (rbuf.size - rbuf.used)) {
+		error = HDFS_AGAIN;
 		goto out;
+	}
 
 	resphd = rpc_response_header_proto__unpack(NULL, resphdsz,
 	    (void *)&rbuf.buf[rbuf.used]);
 	rbuf.used += resphdsz;
 	if (resphd == NULL) {
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
 	}
 
@@ -2178,7 +2170,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 
 	// Got a response to an unexpected msgno
 	if (i == npend) {
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_BAD_MSGNO);
 		goto out;
 	}
 
@@ -2192,35 +2184,33 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
 		if (rbuf.used < 0)
 			goto out;
 
-		result = malloc(sizeof(*result));
-		ASSERT(result);
-		result->rs_msgno = (int64_t)resphd->callid;
-		result->rs_obj = _object_exception(etype, emsg);
-		goto out;
-	} else if (resphd->status == RPC_STATUS_PROTO__FATAL) {
+		res->rs_msgno = (int64_t)resphd->callid;
+		res->rs_obj = _object_exception(etype, emsg);
+		res->rs_size = rbuf.used;
+		goto out; // HDFS_SUCCESS
+	} else if (resphd->status != RPC_STATUS_PROTO__SUCCESS) {
 		/* This shouldn't happen. */
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
 	}
 
-	ASSERT(resphd->status == RPC_STATUS_PROTO__SUCCESS);
 	respsz = _bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	if (respsz > (rbuf.size - rbuf.used))
-		goto out;
-
-	rbuf.size = rbuf.used + respsz;
-	obj = pend[i].pd_slurper(&rbuf);
-	if (obj == NULL) {
-		rbuf.used = _H_PARSE_ERROR;
+	if (respsz > (rbuf.size - rbuf.used)) {
+		error = HDFS_AGAIN;
 		goto out;
 	}
 
-	result = malloc(sizeof(*result));
-	ASSERT(result);
-	result->rs_msgno = (int64_t)resphd->callid;
-	result->rs_obj = obj;
+	rbuf.size = rbuf.used + respsz;
+	res->rs_obj = pend[i].pd_slurper(&rbuf);
+	if (res->rs_obj == NULL) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+		goto out;
+	}
+
+	res->rs_msgno = (int64_t)resphd->callid;
+	res->rs_size = rbuf.used;
 
 out:
 	if (resphd)
@@ -2229,52 +2219,59 @@ out:
 	free(emsg);
 	free(etype);
 
-	if (result) {
+	if (rbuf.used == _H_PARSE_EOF) {
+		error = HDFS_AGAIN;
+	} else if (rbuf.used == _H_PARSE_ERROR) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+	}
+
+	if (!hdfs_is_error(error)) {
 		ASSERT(rbuf.used >= 0);
-		ASSERT(result != _HDFS_INVALID_PROTO);
+		ASSERT(res->rs_obj);
+		ASSERT(res->rs_size == rbuf.used);
+	}
 
-		*obj_size = rbuf.used;
-	} else if (rbuf.used == _H_PARSE_ERROR)
-		result = _HDFS_INVALID_PROTO;
-
-	return result;
+	return error;
 }
 
-struct _hdfs_result *
-_hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
+struct hdfs_error
+_hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 	struct _hdfs_pending *pend, int npend)
 {
+	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf rbuf = {
 		.buf = buf,
 		.used = 0,
 		.size = buflen,
 	};
-	Hadoop__Common__RpcResponseHeaderProto *resphd;
-	struct _hdfs_result *result;
-	struct hdfs_object *obj;
+	Hadoop__Common__RpcResponseHeaderProto *resphd = NULL;
 	int64_t resphdsz, totalsz, respsz;
 	int i;
 
-	resphd = NULL;
-	result = NULL;
+	ASSERT(res);
+	res->rs_obj = NULL;
 
 	totalsz = _bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	if (totalsz > (rbuf.size - rbuf.used))
+	if (totalsz > (rbuf.size - rbuf.used)) {
+		error = HDFS_AGAIN;
 		goto out;
+	}
 
 	resphdsz = _bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	if (resphdsz > (rbuf.size - rbuf.used))
+	if (resphdsz > (rbuf.size - rbuf.used)) {
+		error = HDFS_AGAIN;
 		goto out;
+	}
 
 	resphd = hadoop__common__rpc_response_header_proto__unpack(NULL,
 	    resphdsz, (void *)&rbuf.buf[rbuf.used]);
 	rbuf.used += resphdsz;
 	if (resphd == NULL) {
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
 	}
 
@@ -2284,7 +2281,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 
 	// Got a response to an unexpected msgno
 	if (i == npend) {
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_BAD_MSGNO);
 		goto out;
 	}
 
@@ -2292,54 +2289,59 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
 
 	if (resphd->status ==
 	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__ERROR) {
-		result = malloc(sizeof(*result));
-		ASSERT(result);
-		result->rs_msgno = (int64_t)resphd->callid;
+		res->rs_msgno = (int64_t)resphd->callid;
 		/* XXX: errordetail also potentially interesting */
-		result->rs_obj = _object_exception(resphd->exceptionclassname,
+		res->rs_obj = _object_exception(resphd->exceptionclassname,
 		    resphd->errormsg);
-		goto out;
-	} else if (resphd->status ==
-	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__FATAL) {
+		res->rs_size = rbuf.used;
+		goto out; // HDFS_SUCCESS
+	} else if (resphd->status !=
+	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__SUCCESS) {
 		/* This shouldn't happen. */
-		rbuf.used = _H_PARSE_ERROR;
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
 	}
-	ASSERT(resphd->status ==
-	    HADOOP__COMMON__RPC_RESPONSE_HEADER_PROTO__RPC_STATUS_PROTO__SUCCESS);
 
 	respsz = _bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	if (respsz > (rbuf.size - rbuf.used))
-		goto out;
-
-	rbuf.size = rbuf.used + respsz;
-	obj = pend[i].pd_slurper(&rbuf);
-	if (obj == NULL) {
-		rbuf.used = _H_PARSE_ERROR;
+	if (respsz > (rbuf.size - rbuf.used)) {
+		error = HDFS_AGAIN;
 		goto out;
 	}
 
-	result = malloc(sizeof(*result));
-	ASSERT(result);
-	result->rs_msgno = (int64_t)resphd->callid;
-	result->rs_obj = obj;
+	rbuf.size = rbuf.used + respsz;
+	res->rs_obj = pend[i].pd_slurper(&rbuf);
+	if (res->rs_obj == NULL) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+		goto out;
+	}
+
+	res->rs_msgno = (int64_t)resphd->callid;
+	res->rs_size = rbuf.used;
 
 out:
 	if (resphd)
 		hadoop__common__rpc_response_header_proto__free_unpacked(resphd, NULL);
 
-	if (result) {
+	if (rbuf.used == _H_PARSE_EOF) {
+		error = HDFS_AGAIN;
+	} else if (rbuf.used == _H_PARSE_ERROR) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+	}
+
+	if (!hdfs_is_error(error)) {
 		ASSERT(rbuf.used >= 0);
-		ASSERT(result != _HDFS_INVALID_PROTO);
-		ASSERT(rbuf.used == totalsz + 4);
+		ASSERT(res->rs_obj);
+		ASSERT(res->rs_size == rbuf.used);
+		if (rbuf.used != totalsz + 4) {
+			error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+			hdfs_object_free(res->rs_obj);
+			res->rs_obj = NULL;
+		}
+	}
 
-		*obj_size = rbuf.used;
-	} else if (rbuf.used == _H_PARSE_ERROR)
-		result = _HDFS_INVALID_PROTO;
-
-	return result;
+	return error;
 }
 
 EXPORT_SYM struct hdfs_object *

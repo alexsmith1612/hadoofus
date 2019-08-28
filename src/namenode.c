@@ -932,8 +932,7 @@ hdfs_namenode_recv(struct hdfs_namenode *n, struct hdfs_object **object, int64_t
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	struct hdfs_heap_buf *objbuf;
-	struct _hdfs_result *result = NULL;
-	int obj_size;
+	struct _hdfs_result res = { 0 };
 
 	ASSERT(n);
 	ASSERT(object);
@@ -951,30 +950,27 @@ hdfs_namenode_recv(struct hdfs_namenode *n, struct hdfs_object **object, int64_t
 	// Try to deserialize whatever's already in nn_recvbuf before reading from the
 	// socket in case we already have a complete RPC response
         while (true) {
-		// XXX consider changing _deserialize function signatures to return struct
-		// hdfs_error with struct _hdfs_result as an output parameter.
-		// XXX combine obj_size into hdfs_result? or get rid of hdfs_result
-		// entirely and just have 3 separate output parameters?
+		// XXXPERF consider passing the nn_pending index back from the
+		// deserialization functions so that we don't have to perform the linear
+		// seach for both deserialization and _namenode_pending_remove()
 		switch (n->nn_proto) {
 		case HDFS_NN_v1:
-			result = _hdfs_result_deserialize(_hbuf_readptr(objbuf),
-			    _hbuf_readlen(objbuf), &obj_size);
+			error = _hdfs_result_deserialize(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &res);
 			break;
 		case HDFS_NN_v2:
-			result = _hdfs_result_deserialize_v2(_hbuf_readptr(objbuf),
-			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
-			    n->nn_pending_len);
+			error = _hdfs_result_deserialize_v2(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &res, n->nn_pending, n->nn_pending_len);
 			break;
 		case HDFS_NN_v2_2:
-			result = _hdfs_result_deserialize_v2_2(_hbuf_readptr(objbuf),
-			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
-			    n->nn_pending_len);
+			error = _hdfs_result_deserialize_v2_2(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &res, n->nn_pending, n->nn_pending_len);
 			break;
 		default:
 			ASSERT(false);
 		}
 
-		if (result)
+		if (!hdfs_is_again(error))
 			break;
 
 		// read anything that's available in the socket
@@ -996,23 +992,15 @@ hdfs_namenode_recv(struct hdfs_namenode *n, struct hdfs_object **object, int64_t
 		}
 	}
 
-	if (result == _HDFS_INVALID_PROTO) {
-		// bail on protocol errors
-		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
+	if (hdfs_is_error(error)) {
 		n->nn_state = HDFS_NN_ST_ERROR;
 		goto out;
 	}
 
 	// we have read and deserialized a valid/complete hdfs result
-	_hbuf_consume(objbuf, obj_size);
-
-	*object = result->rs_obj;
-	*msgno = result->rs_msgno;
-
-	// don't free the object we just handed the user
-	result->rs_obj = NULL;
-	_hdfs_result_free(result);
-
+	_hbuf_consume(objbuf, res.rs_size);
+	*object = res.rs_obj;
+	*msgno = res.rs_msgno;
 	error =_namenode_pending_remove(n, *msgno, userdata);
 	if (hdfs_is_error(error)) {
 		n->nn_state = HDFS_NN_ST_ERROR;
