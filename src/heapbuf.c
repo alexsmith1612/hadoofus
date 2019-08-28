@@ -332,31 +332,6 @@ _bslurp_text(struct hdfs_heap_buf *b)
 	return res;
 }
 
-// XXX remove this if _sasl_encode_at_offset is used
-void
-_sasl_encode_inplace(sasl_conn_t *ctx, struct hdfs_heap_buf *b)
-{
-	const char *out;
-	unsigned outlen;
-	int r;
-
-	r = sasl_encode(ctx, b->buf, b->used, &out, &outlen);
-	if (r != SASL_OK) {
-		fprintf(stderr, "sasl_encode: %s\n",
-		    sasl_errstring(r, NULL, NULL));
-		abort();
-	}
-
-	free(b->buf);
-	b->buf = malloc(4 + outlen);
-	ASSERT(b->buf);
-
-	// copy in length-prefixed encoded bits
-	_be32enc(b->buf, outlen);
-	memcpy(b->buf + 4, out, outlen);
-	b->used = b->size = 4 + outlen;
-}
-
 struct hdfs_error
 _sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
 {
@@ -382,40 +357,4 @@ _sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
 	_hbuf_append(h, 4 + outlen);
 
 	return HDFS_SUCCESS;
-}
-
-// XXX this function is unused---remove?
-// Returns decoded size; sets remain; resizes bufp/remain if needed.
-// On error, returns SASL error code (negative)
-int
-_sasl_decode_at_offset(sasl_conn_t *ctx, char **bufp, size_t offset, int r, int *remain)
-{
-	const char *out;
-	unsigned outlen;
-	int s;
-	uint32_t sasl_len;
-
-	// this is pretty fragile. at the moment we expect to slurp exactly one
-	// kerb reply in a given read(). fixing it will require adding another
-	// buffer to the read code when the connection is sasl'd, which is more
-	// work for now (it's not clear that hadoop supports ssf > 0 anyway).
-	if (r < 4)
-		abort();
-
-	sasl_len = _be32dec(*bufp + offset);
-	if ((unsigned)r - 4 != sasl_len)
-		abort();
-
-	s = sasl_decode(ctx, *bufp + offset + 4, sasl_len, &out, &outlen);
-	if (s != SASL_OK)
-		return s;
-
-	if (outlen > (unsigned)*remain) {
-		*remain = outlen + 4*1024;
-		*bufp = realloc(*bufp, offset + *remain);
-		ASSERT(*bufp);
-	}
-
-	memcpy(*bufp + offset, out, outlen);
-	return outlen;
 }

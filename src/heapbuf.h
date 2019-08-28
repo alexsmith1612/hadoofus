@@ -58,7 +58,5 @@ char *		_bslurp_text(struct hdfs_heap_buf *);
 void		_bslurp_mem1(struct hdfs_heap_buf *, size_t, char **);
 
 struct hdfs_error	_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset);
-void	_sasl_encode_inplace(sasl_conn_t *, struct hdfs_heap_buf *);
-int	_sasl_decode_at_offset(sasl_conn_t *, char **bufp, size_t offset, int r, int *remain);
 
-#endif
+#endif // _HADOOFUS_HEAPBUF_H
