@@ -10,8 +10,8 @@
 // This is the high-level HDFS API.
 //
 
-// Creates a new namenode connection. On error, returns NULL and sets
-// *error_out to an error value.
+// Creates a new namenode connection and authenticates (blocking). On error,
+// returns NULL and sets *error_out to an error value.
 //
 // Kerb setting one of:
 //   HDFS_NO_KERB      -- "Authenticate" with plaintext username (hadoop default)

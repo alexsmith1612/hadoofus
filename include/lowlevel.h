@@ -19,6 +19,10 @@
 // EINTR is, explicitly, handled poorly.  I encourage application developers to
 // mask signals in threads that interact with libhadoofus.
 
+// No structures provided by this library may be used concurrently by separate
+// threads (i.e. without locks/synchronization). libhadoofus is otherwise
+// thread-safe.
+
 #include <hadoofus/objects.h>
 
 struct hdfs_namenode;
@@ -174,109 +178,220 @@ extern _Thread_local const char *hdfs_datanode_opresult_message;
 // without breaking ABI in the future.)
 //
 // Free with free(3).
+//
+// XXX consider renaming to hdfs_namenode_alloc() for consistency with datanode?
 struct hdfs_namenode *	hdfs_namenode_allocate(void);
 
-// Initialize the connection object. Doesn't actually connect or authenticate
-// with the namenode.
+// Initialize the namenode connection object. Doesn't actually connect to or
+// authenticate with the namenode. Uses the latest supported namenode protocol
+// version.
 //
 // Kerb setting one of:
 //   HDFS_NO_KERB      -- "Authenticate" with plaintext username (hadoop default)
 //   HDFS_TRY_KERB     -- attempt kerb, but allow fallback to plaintext
 //   HDFS_REQUIRE_KERB -- fail if server attempts to fallback to plaintext
+//
+// N.B.: TRY_KERB or REQUIRE_KERB mean the caller has already initialized SASL,
+// using sasl_client_init().
+//
+// XXX our sasl/kerberos support almost certainly does not work at all
+// currently. Perhaps we remove it as an option until it does work (particularly
+// with HDFS_NN_v2_2)
 void		hdfs_namenode_init(struct hdfs_namenode *, enum hdfs_kerb);
 
-// Set the protocol version used to communicate with the namenode. It is only
-// valid to do this BEFORE connecting to any namenode.
+// Initialize the namenode connection object as in hdfs_namenode_init(), but
+// with the addition of specifying the protocol version used to communicate with
+// the namenode.
 //
 // Versions are one of:
 //   HDFS_NN_v1        -- v1.x
 //   HDFS_NN_v2        -- v2.0
-//   HDFS_NN_v2_2      -- v2.2
-void		hdfs_namenode_set_version(struct hdfs_namenode *, enum hdfs_namenode_proto);
+//   HDFS_NN_v2_2      -- v2.2+
+void			hdfs_namenode_init_ver(struct hdfs_namenode *n,
+			enum hdfs_kerb kerb_prefs, enum hdfs_namenode_proto ver);
 
-// Connect to the given host/port. You should only use this on a freshly
-// initialized namenode object (don't re-use the same object until it's been
-// destroyed / re-initialized).
-struct hdfs_error	hdfs_namenode_connect(struct hdfs_namenode *, const char *host, const char *port);
-
-// XXX TODO description
+// Get the fd and event types to be waited on while using the non-blocking API and
+// HDFS_AGAIN is returned.
+//
+// *fd is set to the fd to be waited on, and *events is set to a bit mask of
+// events as defined with poll(2) (such as POLLOUT|POLLIN) that the user should
+// wait on.
+//
+// The returned fd and events are not invariant across namenode API calls, so
+// hdfs_namenode_get_eventfd() should be called before every time the user waits on
+// events.
+//
+// This function should only be called after the first time a connect API has been
+// invoked.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+//
+// Note: once a namenode object had been connected and authenticated, POLLOUT will be
+// set when events are to be waited on for hdfs_namenode_invoke_continue() or
+// hdfs_namenode_invoke(), and POLLIN will be set when events are to be waited on for
+// hdfs_namenode_recv().
+//
+// Note that *events may be set to 0 if there are no events to wait on (e.g. if the
+// namenode object has already been connected and authenticated and there is no
+// remaining serialized RPC request data to send nor any pending RPC responses to
+// receive).
 struct hdfs_error	hdfs_namenode_get_eventfd(struct hdfs_namenode *n, int *fd, short *events);
 
-// Sends the authentication header. You must do this before issuing any RPCs.
+// Connect (blocking) to the given host/port. You should only use this on a freshly
+// initialized namenode object (don't re-use the same object until it's been
+// destroyed / re-initialized).
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_namenode_connect(struct hdfs_namenode *, const char *host, const char *port);
+
+// Begin a connection attempt (non-blocking) to the given host and port.
+//
+// numerichost indicates whether or not AI_NUMERICHOST should be set when calling
+// getaddrinfo(2). That is, set numerichost to true if host is a numeric IPv4
+// address.
+//
+// Returns HDFS_SUCCESS if the connection is completed. Returns HDFS_AGAIN if the
+// connection is in progress but has not yet been completed. Returns another error
+// code on failure.
+//
+// If HDFS_AGAIN is returned, hdfs_namenode_connect_finalize() or
+// hdfs_namenode_connauth_nb() should be called next.
+//
+// NOTE host and port are passed to getaddrinfo(3) in this function. Thus, this
+// function may block while the hostname is resolved. In order to ensure that this
+// function does not block, the user should set host to a numerical IPv4 address (in
+// a string representation, as is required by getaddrinfo(3)) and set numerichost to
+// true
+struct hdfs_error	hdfs_namenode_connect_init(struct hdfs_namenode *n, const char *host,
+			const char *port, bool numerichost);
+
+// Attempt to finalize a currently-in-progress connection attempt begun by
+// hdfs_namenode_connect_init().
+//
+// Returns HDFS_SUCCESS if the connection in completed. Returns HDFS_AGAIN if the
+// connection is still in progress but has not yet been completed. Returns another
+// error code on failure.
+//
+// hdfs_namenode_connect_finalize() should be called repeatedly until a value
+// other than HDFS_AGAIN is returned.
+struct hdfs_error	hdfs_namenode_connect_finalize(struct hdfs_namenode *n);
+
+// Perform authentication (blocking) with the connected namenode. This must be done
+// prior to issuing any RPCs.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_namenode_authenticate(struct hdfs_namenode *, const char *username);
 struct hdfs_error	hdfs_namenode_authenticate_full(struct hdfs_namenode *,
-		const char *username, const char *real_user);
+			const char *username, const char *real_user);
 
-int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
+// Initialize the authentication header for use with the non-blocking
+// authentication API
+void			hdfs_namenode_auth_nb_init(struct hdfs_namenode *n, const char *username);
+void			hdfs_namenode_auth_nb_init_full(struct hdfs_namenode *n, const char *username,
+			const char *real_user);
 
-// The caller must initialize the input future object before invoking the rpc.
-// Once this routine is called, the future belongs to the library until one of
-// two things happens:
-//   1) hdfs_future_get() on that future returns, or:
-//   2) the caller cancels the future by invoking hdfs_namenode_destroy().
-// XXX TODO update description for non-blocking
-struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *,
-			struct hdfs_object *, struct hdfs_rpc_response_future *);
+// Perform authentication (non-blocking) with the namenode. This must be done prior
+// to issuing any RPCs.
+//
+// One of hdfs_namenode_auth_nb_init() or hdfs_namenode_auth_nb_init_full() MUST be
+// called prior to this function.
+//
+// Returns HDFS_SUCCESS if the authentication is completed. Returns HDFS_AGAIN if the
+// the authentication is in progress but has not yet been completed. Returns another
+// error code on failure.
+//
+// hdfs_namenode_authenticate_nb() should be called repeatedly until a value other
+// than HDFS_AGAIN is returned.
+struct hdfs_error	hdfs_namenode_authenticate_nb(struct hdfs_namenode *n);
 
-// XXX TODO description
-struct hdfs_error	hdfs_namenode_continue(struct hdfs_namenode *n);
+// Proceed through the namenode connection and authentication process via a single
+// non-blocking API call. Use of this API allows users to maintain less state
+// information while the connection and authentication proceeds.
+//
+// Users MUST call hdfs_namenode_connect_init() and one of
+// hdfs_namenode_auth_nb_init() or hdfs_namenode_auth_nb_init_full() prior to calling
+// this function.
+//
+// Returns HDFS_SUCCESS if the namenode connection and authentication have both
+// completed successfully. Returns HDFS_AGAIN if the namenode connection or
+// authentication has not yet fully completed. Returns another error code on failue.
+//
+// On HDFS_AGAIN, hdfs_namenode_connauth_nb() should be called again when the
+// appropriate resources become available.
+struct hdfs_error	hdfs_namenode_connauth_nb(struct hdfs_namenode *n);
 
-// Allocate, initialize, clean, and release resources associated with RPC future objects.
-struct hdfs_rpc_response_future *hdfs_rpc_response_future_alloc(void);
-// Allocated futures are uninitialized.  Use init() before invoking an RPC with one.
-void		hdfs_rpc_response_future_init(struct hdfs_rpc_response_future *);
-// Futures may be reused multiple times by clean()ing and re-init()ing.
-// We lack a cancellation system at this time, so it is invalid to clean or free
-// a future that has been passed to hdfs_namenode_invoke().
-void		hdfs_rpc_response_future_clean(struct hdfs_rpc_response_future *);
-// Either way, clean() and free() to release allocated resources.
-void		hdfs_rpc_response_future_free(struct hdfs_rpc_response_future **);
+int64_t			hdfs_namenode_get_msgno(struct hdfs_namenode *);
 
-// hdfs_future_get waits until the promised object is available and emits it in
-// the outparameter.  It will either be the appropriate response type, NULL (of
-// the appropriate type), or an H_PROTOCOL_EXCEPTION.
+// Serialize the given rpc object and attempt to send (non-blocking) it and any
+// previously serialized but unsent rpc data to the namenode.
 //
-// H_PROTOCOL_EXCEPTION objects have an _etype member that can be used to
-// determine the kind of exception raised.
+// Returns HDFS_SUCCESS if all serialized RPCs have fully sent to the
+// namenode. Returns HDFS_AGAIN if there is more serialized RPC data to be
+// sent. Returns another error on failure.
 //
-// If the future was aborted due to a socket error, protocol parse error, or
-// user induced shutdown of the namenode connection, a specific exception of
-// _etype H_HADOOFUS_RPC_ABORTED is raised.  If that is the etype, the
-// hdfs_error value can be retrieved with hdfs_pseudo_exception_get_error().
+// If HDFS_SUCCESS or HDFS_AGAIN is returned, *msgno is set to the call id of the
+// invoked RPC for correlation with responses as returned by hdfs_namenode_recv().
+// *msgno will never be set to a negative number.
 //
-// Possible errors include:
+// userdata is a pointer that will be passed back to the caller when
+// hdfs_namenode_recv() returns the RPC result for this invocation.
 //
-//   * Caller told us to shutdown (destroy):
-//     he_hdfserr: HDFS_ERR_NAMENODE_UNCONNECTED
-//
-//   * Server or middlebox closed the socket (TCP RST):
-//     he_hdfserr: HDFS_ERR_END_OF_STREAM
-//
-//   * Other socket errors:
-//     he_errno: Anything recv(2) may return, aside from EAGAIN/EWOULDBLOCK
-//
-//   * We were unable to parse the response from the Namenode:
-//     he_hdfserr: HDFS_ERR_NAMENODE_PROTOCOL
-//
-//   * SASL decode error:
-//     he_saslerr: anything sasl_decode() may return
-//
-// (hdfs_future_get invokes hdfs_rpc_response_future_clean, and the caller does
-// not need to in order to reuse the future.)
-void		hdfs_future_get(struct hdfs_rpc_response_future *, struct hdfs_object **);
+// If HDFS_AGAIN is returned, hdfs_namenode_invoke_continue() should be called in
+// order to continue sending the serialized RPC data. Alternatively,
+// hdfs_namenode_invoke() may be called to serialize another RPC and attempt to send
+// all serialized RPC data that remains to be sent.
+struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
+			int64_t *msgno, void *userdata);
 
-// Like regular hdfs_future_get, but with bounded wait.
+// Attempt to send (non-blocking) any serialized RPC data that has not yet been sent
+// to the namenode.
 //
-// Returns 'false' if the RPC received no response in the time limit. The
-// Namenode object still owns the future.
-bool		hdfs_future_get_timeout(struct hdfs_rpc_response_future *, struct hdfs_object **, uint64_t limitms);
+// Returns HDFS_SUCCESS if all serialized RPC data has been successfully sent to the
+// namenode. Returns HDFS_AGAIN if more data remains to be sent to the namenode.
+// Returns another error on failure.
+//
+// As with hdfs_namenode_invoke(), if HDFS_AGAIN is returned,
+// hdfs_namenode_invoke_continue() should be called in order to continue sending the
+// serialized RPC data. Alternatively, hdfs_namenode_invoke() may be called to
+// serialize another RPC and attempt to send all serialized RPC data that remains to
+// be sent.
 
-// Aborts any pending completions, stops the worker thread, if any, and releases
-// resources associated with a namenode object.
+// XXX consider better name
+struct hdfs_error	hdfs_namenode_invoke_continue(struct hdfs_namenode *n);
+
+// Attempt to receive (non-blocking) a pending RPC response from the namenode.
+//
+// This function should only be called when there is a pending RPC (i.e. if the user
+// has invoked an RPC for which it has not yet received a response).
+//
+// Returns HDFS_SUCCESS if a complete RPC response was received. Returns HDFS_AGAIN
+// if more data is required from the namenode for a complete RPC response. Returns
+// another error code on failure.
+//
+// On HDFS_SUCCESS, *msgno is set to the call id of the RPC invocation (to be
+// correlated with the msgno given by hdfs_namenode_invoke() ), and *object is set to
+// the response object of the appropriate type for the RPC, H_NULL (of the
+// appropriate type), or H_PROTOCOL_EXCEPTION. This emitted object should be freed by
+// the user with hdfs_object_free().
+//
+// On HDFS_SUCCESS, if userdata is not NULL then *userdata is set to the value passed
+// to hdfs_namenode_invoke() for this RPC invocation.
+//
+// This function should be called repeatedly (without waiting on the namenode
+// eventfd) until there are no more pending RPCs (i.e. all invoked RPCs have received
+// responses) or a value other than HDFS_SUCCESS is returned.
+//
+// NOTE THAT RPC RESPONSES MAY BE RECEIVED IN A DIFFERENT ORDER THAN THE REQUESTS
+// WERE INVOKED.
+struct hdfs_error	hdfs_namenode_recv(struct hdfs_namenode *n, struct hdfs_object **object,
+			int64_t *msgno, void **userdata);
+
+// Terminate the namenode connection and release resources associated with the
+// namenode object.
 //
 // Like any other RPC cancellation, pending operations that have not been
 // acknowledged by the server are indeterminate.
-void		hdfs_namenode_destroy(struct hdfs_namenode *);
+void			hdfs_namenode_destroy(struct hdfs_namenode *);
 
 //
 // Datanode operations
