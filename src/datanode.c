@@ -1322,11 +1322,11 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	}
 
 	_set_opres_msg(opres->message);
+
 	if (opres->status != HADOOP__HDFS__STATUS__SUCCESS)
 		error = error_from_datanode(opres->status);
-
 	// Shouldn't happen, I believe; call it a protocol error.
-	if (opres->message != NULL)
+	else if (opres->message != NULL)
 		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 
 	if (hdfs_is_error(error))
@@ -1389,34 +1389,21 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	// sockets, which is not ideal, but it greatly simplifies the
 	// code and should not be a big performance hit
 
-	// If we don't have any data queued up, try to read first
-	if (_hbuf_readlen(h) == 0) {
+	while (_hbuf_readlen(h) < 2) {
 		error = _read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	// TODO change to while _hbuf_readlen(h) < 2?
-	while (true) {
-		// try to parse what we already have
-		obuf.buf = _hbuf_readptr(h);
-		obuf.used = 0;
-		obuf.size = _hbuf_readlen(h);
+	obuf.buf = _hbuf_readptr(h);
+	obuf.size = _hbuf_readlen(h);
 
-		status = _bslurp_s16(&obuf);
-		if (obuf.used >= 0)
-			break;
-
-		if (obuf.used == _H_PARSE_ERROR) {
-			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
-			goto out;
-		}
-
-		// if we need more data, then try to read more and parse again
-		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error)) // includes HDFS_AGAIN
-			goto out;
+	status = _bslurp_s16(&obuf);
+	if (obuf.used == _H_PARSE_ERROR) {
+		error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
+		goto out;
 	}
+	ASSERT(obuf.used > 0); // should not be able to fail
 
 	statussz = obuf.used;
 
@@ -1427,24 +1414,24 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 			goto out;
 	}
 
-	while (true) {
+	do {
+		// try to parse what we already have
 		obuf.buf = _hbuf_readptr(h) + statussz;
 		obuf.used = 0;
 		obuf.size = _hbuf_readlen(h) - statussz;
 
 		statusmsg = _bslurp_text(&obuf);
-		if (obuf.used >= 0)
-			break;
-
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 			goto out;
 		}
-
-		error = _read_to_hbuf(d->dn_sock, h);
-		if (hdfs_is_error(error)) // includes HDFS_AGAIN
-			goto out;
-	}
+		if (obuf.used == _H_PARSE_EOF) {
+			// if we need more data, then try to read more and parse again
+			error = _read_to_hbuf(d->dn_sock, h);
+			if (hdfs_is_error(error)) // includes HDFS_AGAIN
+				goto out;
+		}
+	} while (obuf.used < 0);
 
 	statussz += obuf.used;
 
