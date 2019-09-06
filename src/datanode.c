@@ -1230,7 +1230,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	obuf.size = _hbuf_readlen(h);
 
 	status = _bslurp_s16(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 
 	if (status != HADOOP__HDFS__STATUS__SUCCESS) {
 		error = error_from_datanode(status);
@@ -1248,11 +1248,11 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	obuf.size = _hbuf_readlen(h);
 
 	crcs = _bslurp_s8(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 	chunk_size = _bslurp_s32(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 	server_offset = _bslurp_s64(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 
 	ri->server_offset = server_offset;
 	ri->chunk_size = chunk_size;
@@ -1300,10 +1300,11 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		}
 	} while (obuf.used < 0);
 
+	if (sz >= INT_MAX - obuf.used) {
+		error = error_from_hdfs(HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO); // XXX consider different error
+		goto out;
+	}
 
-	// XXX TODO return error instead of assertion here, since this could
-	// actually happen if we read malformed or maliciously generated data
-	ASSERT(sz < INT_MAX - obuf.used);
 	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
 		error = _read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
@@ -1351,11 +1352,10 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	if (hdfs_is_error(error)) // includes HDFS_AGAIN
 		goto out;
 
-	// XXX TODO change these assertions to return an error code.  We don't
-	// want to terminate the process from the library based on potentially
-	// malformed or maliciously generated data received over a socket
-	ASSERT(opres->readopchecksuminfo);
-	ASSERT(opres->readopchecksuminfo->checksum);
+	if (!opres->readopchecksuminfo || !opres->readopchecksuminfo->checksum) {
+		error = error_from_hdfs(HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO); // XXX consider different error code
+		goto out;
+	}
 
 	ri->server_offset = opres->readopchecksuminfo->chunkoffset;
 
@@ -1505,15 +1505,15 @@ _recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 		obuf.size = _hbuf_readlen(recvbuf);
 
 		plen = _bslurp_s32(&obuf);
-		ASSERT(obuf.used > 0); // XXX reconsider
+		ASSERT(obuf.used > 0); // should not be able to fail
 		offset = _bslurp_s64(&obuf);
-		ASSERT(obuf.used > 0); // XXX reconsider
+		ASSERT(obuf.used > 0); // should not be able to fail
 		/*seqno = */_bslurp_s64(&obuf);
-		ASSERT(obuf.used > 0); // XXX reconsider
+		ASSERT(obuf.used > 0); // should not be able to fail
 		ri->lastpacket = _bslurp_s8(&obuf);
-		ASSERT(obuf.used > 0); // XXX reconsider
+		ASSERT(obuf.used > 0); // should not be able to fail
 		dlen = _bslurp_s32(&obuf);
-		ASSERT(obuf.used > 0); // XXX reconsider
+		ASSERT(obuf.used > 0); // should not be able to fail
 
 		error = _process_recv_packet(ps, ri, 25, plen, dlen, offset);
 		goto out;
@@ -1529,9 +1529,9 @@ _recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 	obuf.size = _hbuf_readlen(recvbuf);
 
 	plen = _bslurp_s32(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 	hlen = (uint16_t)_bslurp_s16(&obuf);
-	ASSERT(obuf.used > 0); // XXX reconsider
+	ASSERT(obuf.used > 0); // should not be able to fail
 
 	while (_hbuf_readlen(recvbuf) < 6 + hlen) {
 		error = _read_to_hbuf(ps->sock, recvbuf);
@@ -1951,7 +1951,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	obuf.size = _hbuf_readlen(ps->recvbuf);
 
 	seqno = _bslurp_s64(&obuf);
-	ASSERT(obuf.used >= 0); // XXX reconsider
+	ASSERT(obuf.used >= 0); // should not be able to fail
 
 	// Unsure if these are ever actually sent, or existed in v1, but
 	// Apache and libhdfs3 check for/skip heartbeat acks in v2.2+
@@ -1974,7 +1974,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 
 	if (ps->proto == HDFS_DATANODE_AP_1_0) {
 		nacks = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0); // XXX reconsider
+		ASSERT(obuf.used >= 0); // should not be able to fail
 
 		// We only connect to one datanode, we should only get one ack:
 		if (nacks != 1) { // XXX TODO update when proper pipelining implemented
@@ -1983,12 +1983,12 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		}
 
 		ack = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0); // XXX reconsider
+		ASSERT(obuf.used >= 0); // should not be able to fail
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
 		// XXX TODO update when proper pipelining implemented (unsure how
 		// that works for CDH3 --- can it even give multiple acks?)
 		ack = _bslurp_s16(&obuf);
-		ASSERT(obuf.used >= 0); // XXX reconsider
+		ASSERT(obuf.used >= 0); // should not be able to fail
 	}
 
 	if (ack == HADOOP__HDFS__STATUS__SUCCESS) {
@@ -2045,9 +2045,11 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		}
 	} while (obuf.used < 0);
 
-	// XXX TODO return error instead of assertion here, since this could
-	// actually happen if we read malformed or maliciously generated data
-	ASSERT(sz > 0 && sz < INT_MAX - obuf.used);
+	if (sz <= 0 || sz >= INT_MAX - obuf.used) {
+		error = error_from_hdfs(HDFS_ERR_INVALID_PIPELINEACKPROTO); // XXX consider different error code
+		goto out;
+	}
+
 	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
 		error = _read_to_hbuf(ps->sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
