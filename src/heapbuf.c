@@ -127,6 +127,19 @@ _bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
 	} while (val);
 }
 
+int
+_get_vlint_encoding_size(int64_t i64)
+{
+	uint64_t val;
+	int ret = 1;
+
+	val = (uint64_t)i64;
+
+	while (val >>= 7) { ret++; }
+
+	return ret;
+}
+
 void
 _bappend_text(struct hdfs_heap_buf *h, const char *arg)
 {

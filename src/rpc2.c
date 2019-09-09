@@ -13,8 +13,9 @@
 
 /* Support logic for v2+ Namenode RPC (requests) */
 
+// passing NULL for dest only returns the packed size
 #define ENCODE_PREAMBLE(lowerCamel, CamelCase, UPPER_CASE)		\
-static void								\
+static size_t								\
 _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	struct hdfs_rpc_invocation *rpc)				\
 {									\
@@ -29,10 +30,13 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 
 #define ENCODE_POSTSCRIPT(lower_case)							\
 	sz = hadoop__hdfs__ ## lower_case ## _request_proto__get_packed_size(&req);	\
-	_hbuf_reserve(dest, sz);							\
-	hadoop__hdfs__ ## lower_case ## _request_proto__pack(&req,			\
-	    (void *)&dest->buf[dest->used]);						\
-	dest->used += sz;								\
+	if (dest) {									\
+		_hbuf_reserve(dest, sz);						\
+		hadoop__hdfs__ ## lower_case ## _request_proto__pack(&req,		\
+		    (void *)_hbuf_writeptr(dest));					\
+		_hbuf_append(dest, sz);							\
+	}										\
+	return sz;									\
 }
 
 /* New in v2 methods */
@@ -408,7 +412,7 @@ ENCODE_PREAMBLE(getLinkTarget, GetLinkTarget, GET_LINK_TARGET)
 }
 ENCODE_POSTSCRIPT(get_link_target)
 
-typedef void (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
+typedef size_t (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
 	_rpc2_encoder	re_encoder;
@@ -442,22 +446,40 @@ static struct _rpc2_enc_lut {
 #undef _RENC
 };
 
-void
-_rpc2_request_serialize(struct hdfs_heap_buf *dest,
-	struct hdfs_rpc_invocation *rpc)
+// XXX perhaps make this non-static and add _rpc2_request_get_size_by_index()
+// and _rpc2_request_serialize_by_index() APIs to avoid multiple unnecessary index calculations
+static unsigned
+_rpc2_request_get_index(struct hdfs_rpc_invocation *rpc)
 {
 	/* XXXPERF Could be a hash/rt/sorted table */
 	unsigned i;
-
 	for (i = 0; rpc2_encoders[i].re_method; i++) {
 		if (streq(rpc->_method, rpc2_encoders[i].re_method)) {
-			rpc2_encoders[i].re_encoder(dest, rpc);
-			return;
+			return i;
 		}
 	}
 
 	/* The method does not exist in HDFSv2, or it is not yet implemented. */
 	ASSERT(false);
+}
+
+void
+_rpc2_request_serialize(struct hdfs_heap_buf *dest,
+	struct hdfs_rpc_invocation *rpc)
+{
+	unsigned i;
+
+	i = _rpc2_request_get_index(rpc);
+	rpc2_encoders[i].re_encoder(dest, rpc);
+}
+
+size_t
+_rpc2_request_get_size(struct hdfs_rpc_invocation *rpc)
+{
+	unsigned i;
+
+	i = _rpc2_request_get_index(rpc);
+	return rpc2_encoders[i].re_encoder(NULL, rpc);
 }
 
 /* Support logic for Namenode RPC response parsing */
