@@ -1536,6 +1536,8 @@ _serialize_rpc_v1(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 {
 	struct hdfs_heap_buf rbuf = { 0 };
 
+	// XXX TODO try to refactor to avoid using local heapbufs
+
 	_bappend_s32(&rbuf, rpc->_msgno);
 	_bappend_string(&rbuf, rpc->_method);
 	_bappend_s32(&rbuf, rpc->_nargs);
@@ -1582,6 +1584,8 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	HadoopRpcRequestProto rpcwrapper = HADOOP_RPC_REQUEST_PROTO__INIT;
 	RpcPayloadHeaderProto header = RPC_PAYLOAD_HEADER_PROTO__INIT;
 	size_t rpcwrapper_sz, header_sz;
+
+	// XXX TODO try to refactor to avoid using local heapbufs
 
 	_rpc2_request_serialize(&method_buf, rpc);
 
@@ -1643,31 +1647,24 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	 * +-----------------------------------------------------------------+
 	 */
 
-	struct hdfs_heap_buf method_buf = { 0 },
-			     method_len_buf = { 0 },
-			     rpcwrapper_buf = { 0 },
-			     header_buf = { 0 };
 	Hadoop__Common__RequestHeaderProto rpcwrapper =
 	    HADOOP__COMMON__REQUEST_HEADER_PROTO__INIT;
 	Hadoop__Common__RpcRequestHeaderProto header =
 	    HADOOP__COMMON__RPC_REQUEST_HEADER_PROTO__INIT;
-	size_t rpcwrapper_sz, header_sz;
+	size_t method_sz, method_vlint_sz, rpcwrapper_sz,
+	    rpcwrapper_vlint_sz, header_sz, header_vlint_sz, totsz;
 
-	_rpc2_request_serialize(&method_buf, rpc);
-	_bappend_vlint(&method_len_buf, method_buf.used);
+	method_sz = _rpc2_request_get_size(rpc);
+	method_vlint_sz = _get_vlint_encoding_size(method_sz);
 
 	rpcwrapper.methodname = rpc->_method;
 	rpcwrapper.declaringclassprotocolname =
 	    __DECONST(char *, CLIENT_PROTOCOL);
 	rpcwrapper.clientprotocolversion = 1;
+
 	rpcwrapper_sz =
 	    hadoop__common__request_header_proto__get_packed_size(&rpcwrapper);
-
-	_bappend_vlint(&rpcwrapper_buf, rpcwrapper_sz);
-	_hbuf_reserve(&rpcwrapper_buf, rpcwrapper_sz);
-	hadoop__common__request_header_proto__pack(&rpcwrapper,
-	    (void *)&rpcwrapper_buf.buf[rpcwrapper_buf.used]);
-	rpcwrapper_buf.used += rpcwrapper_sz;
+	rpcwrapper_vlint_sz = _get_vlint_encoding_size(rpcwrapper_sz);
 
 	header.has_rpckind = true;
 	header.rpckind = HADOOP__COMMON__RPC_KIND_PROTO__RPC_PROTOCOL_BUFFER;
@@ -1682,24 +1679,28 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 
 	header_sz =
 	    hadoop__common__rpc_request_header_proto__get_packed_size(&header);
+	header_vlint_sz = _get_vlint_encoding_size(header_sz);
 
-	_bappend_vlint(&header_buf, header_sz);
-	_hbuf_reserve(&header_buf, header_sz);
+	totsz = header_vlint_sz + header_sz +
+	    rpcwrapper_vlint_sz + rpcwrapper_sz +
+	    method_vlint_sz + method_sz;
+	_hbuf_reserve(dest, totsz + 4);
+
+	// total size
+	_bappend_s32(dest, totsz);
+	// header
+	_bappend_vlint(dest, header_sz);
 	hadoop__common__rpc_request_header_proto__pack(&header,
-	    (void *)&header_buf.buf[header_buf.used]);
-	header_buf.used += header_sz;
-
-	_bappend_s32(dest, header_buf.used + rpcwrapper_buf.used +
-	    method_len_buf.used + method_buf.used);
-	_bappend_mem(dest, header_buf.used, header_buf.buf);
-	_bappend_mem(dest, rpcwrapper_buf.used, rpcwrapper_buf.buf);
-	_bappend_mem(dest, method_len_buf.used, method_len_buf.buf);
-	_bappend_mem(dest, method_buf.used, method_buf.buf);
-
-	free(header_buf.buf);
-	free(method_buf.buf);
-	free(method_len_buf.buf);
-	free(rpcwrapper_buf.buf);
+	    (void *)_hbuf_writeptr(dest));
+	_hbuf_append(dest, header_sz);
+	// rpcwrapper
+	_bappend_vlint(dest, rpcwrapper_sz);
+	hadoop__common__request_header_proto__pack(&rpcwrapper,
+	    (void *)_hbuf_writeptr(dest));
+	_hbuf_append(dest, rpcwrapper_sz);
+	// method
+	_bappend_vlint(dest, method_sz);
+	_rpc2_request_serialize(dest, rpc);
 }
 
 // XXX TODO consider removing struct hdfs_authheader from struct hdfs_object,

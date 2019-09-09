@@ -22,6 +22,10 @@ static inline int	_hbuf_readlen(struct hdfs_heap_buf *h) { return h->used - h->p
 static inline void	_hbuf_consume(struct hdfs_heap_buf *h, size_t num) { h->pos += num; }
 static inline void	_hbuf_reset(struct hdfs_heap_buf *h) { h->pos = h->used = 0; }
 
+// Return the number of bytes needed to encode the input as a vlint
+// Note, this is in heapbuf.{c,h} to keep it with _bappend_vlint()
+int	_get_vlint_encoding_size(int64_t);
+
 // Append serialized data to the passed buf. Resizes the underlying (malloc'd)
 // buf as needed; 'size' is kept current (and is the size of the underlying
 // buf), 'used' is the number of bytes of valid data.
