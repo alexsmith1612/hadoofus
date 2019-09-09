@@ -51,6 +51,7 @@ struct hdfs_namenode {
 	int64_t nn_msgno;
 	struct hdfs_heap_buf nn_recvbuf;
 	struct hdfs_heap_buf nn_objbuf;
+	struct hdfs_heap_buf nn_sendbuf;
 	struct _hdfs_pending *nn_pending;
 	sasl_conn_t *nn_sasl_ctx;
 	int nn_sock,
