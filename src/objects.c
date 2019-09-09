@@ -1702,6 +1702,9 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	free(rpcwrapper_buf.buf);
 }
 
+// XXX TODO consider removing struct hdfs_authheader from struct hdfs_object,
+// and directly call this function from namenode.c (instead of indirectly
+// through hdfs_object_serialize())
 static void
 _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 {
@@ -1709,6 +1712,10 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 	enum hdfs_namenode_proto pr;
 	size_t cc_sz;
 
+	// XXX TODO try to refactor this to avoid using any local heapbufs
+	// XXX TODO ensure that this appends to dest and doesn't just write to the beginning
+
+	// XXX should this assertion be removed since issue #27 has been closed for a while?
 	ASSERT(auth->_real_username == NULL);	// Issue #27
 	pr = auth->_proto;
 
@@ -1725,12 +1732,15 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 
 		_bappend_s32(dest, abuf.used);
 		_bappend_mem(dest, abuf.used, abuf.buf);
-		goto authheader_out;
+		goto out;
 	}
 
+	// XXX TODO double check this. Also consider the interaction between
+	// this and HDFS_TRY_KERB if we fall back to simple auth (does v2.2 even
+	// allow for fallback to simple auth?)
 	/* 2.2 doesn't send any header for SASL connections */
 	if (pr == HDFS_NN_v2_2 && auth->_kerberized != HDFS_NO_KERB)
-		goto authheader_out;
+		goto out;
 
 	Hadoop__Common__UserInformationProto ui = HADOOP__COMMON__USER_INFORMATION_PROTO__INIT;
 	Hadoop__Common__IpcConnectionContextProto context =
@@ -1796,7 +1806,7 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 		free(hbuf.buf);
 	}
 
-authheader_out:
+out:
 	free(abuf.buf);
 }
 
