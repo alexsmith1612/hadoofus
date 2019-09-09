@@ -705,11 +705,10 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	struct hdfs_rpc_response_future *future)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	bool nnlocked, needs_kick;
+	bool nnlocked = false, needs_kick = false, sllocked = false;
 	int64_t msgno;
-	struct hdfs_heap_buf hbuf = { 0 };
-
-	needs_kick = false;
+	int offset, pre_rlen, post_rlen, rpc_len;
+	ssize_t wlen;
 
 	ASSERT(future);
 	ASSERT(future->fu_inited && !future->fu_invoked);
@@ -722,11 +721,11 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 
 	ASSERT(!n->nn_dead);
 
-	if (n->nn_sock == -1) {
+	if (n->nn_sock == -1 || n->nn_state < HDFS_NN_ST_CONNECTED) {
 		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
 		goto out;
 	}
-	if (!n->nn_authed) {
+	if (n->nn_state != HDFS_NN_ST_RPC) {
 		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNAUTHENTICATED);
 		goto out;
 	}
@@ -760,20 +759,85 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	_rpc_invocation_set_proto(rpc, n->nn_proto);
 	_rpc_invocation_set_clientid(rpc, n->nn_client_id);
 
-	hdfs_object_serialize(&hbuf, rpc);
-
-	if (n->nn_sasl_ssf > 0)
-		_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
-
 	_lock(&n->nn_sendlock);
-	error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
-	_unlock(&n->nn_sendlock);
+	sllocked = true;
 
-	free(hbuf.buf);
+	// XXX HACK determine the offset of the beginning of this serialized rpc for sasl
+	// encoding. Since hdfs_object_serialize() can lead to _hbuf_reserve() calls which
+	// may lead to memmove() calls, we cannot simply stash nn_sendbuf.used prior to
+	// serializeing the RPC, as that offset may no longer be valid after
+	// serialization. As a workaround, compare the _hbuf_readlen() values before and
+	// after serialization, and subtract the difference from nn_sendbuf.used.
+	pre_rlen = _hbuf_readlen(&n->nn_sendbuf);
+	hdfs_object_serialize(&n->nn_sendbuf, rpc);
+	post_rlen = _hbuf_readlen(&n->nn_sendbuf);
+	rpc_len = post_rlen - pre_rlen;
+	offset = n->nn_sendbuf.used - rpc_len;
+
+	if (n->nn_sasl_ssf > 0) {
+		error = _sasl_encode_at_offset(n->nn_sasl_ctx, &n->nn_sendbuf, offset);
+		if (hdfs_is_error(error))
+			goto out; // XXX TODO set nn_state
+	}
+
+	error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
+	if (wlen < 0)
+		goto out;
+	_hbuf_consume(&n->nn_sendbuf, wlen);
+	_unlock(&n->nn_sendlock);
+	sllocked = false;
 
 out:
 	if (nnlocked)
 		_unlock(&n->nn_lock);
+	if (sllocked)
+		_unlock(&n->nn_sendlock);
+	return error;
+}
+
+// XXX reconsider name
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_continue(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	bool nnlocked = false, sllocked = false;
+	ssize_t wlen;
+
+
+	_lock(&n->nn_lock);
+	nnlocked = true;
+
+	ASSERT(!n->nn_dead); // XXX return error instead?
+
+	if (n->nn_sock == -1 || n->nn_state < HDFS_NN_ST_CONNECTED) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNCONNECTED);
+		goto out;
+	}
+	if (n->nn_state != HDFS_NN_ST_RPC) {
+		error = error_from_hdfs(HDFS_ERR_NAMENODE_UNAUTHENTICATED);
+		goto out;
+	}
+
+	_unlock(&n->nn_lock);
+	nnlocked = false;
+
+	_lock(&n->nn_sendlock);
+	sllocked = true;
+
+	if (_hbuf_readlen(&n->nn_sendbuf) > 0) {
+		error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
+		if (wlen < 0)
+			goto out;
+		_hbuf_consume(&n->nn_sendbuf, wlen);
+	}
+	_unlock(&n->nn_sendlock);
+	sllocked = false;
+
+out:
+	if (nnlocked)
+		_unlock(&n->nn_lock);
+	if (sllocked)
+		_unlock(&n->nn_sendlock);
 	return error;
 }
 

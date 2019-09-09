@@ -219,8 +219,12 @@ int64_t		hdfs_namenode_get_msgno(struct hdfs_namenode *);
 // two things happens:
 //   1) hdfs_future_get() on that future returns, or:
 //   2) the caller cancels the future by invoking hdfs_namenode_destroy().
+// XXX TODO update description for non-blocking
 struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *,
 			struct hdfs_object *, struct hdfs_rpc_response_future *);
+
+// XXX TODO description
+struct hdfs_error	hdfs_namenode_continue(struct hdfs_namenode *n);
 
 // Allocate, initialize, clean, and release resources associated with RPC future objects.
 struct hdfs_rpc_response_future *hdfs_rpc_response_future_alloc(void);
