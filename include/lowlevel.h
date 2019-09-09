@@ -25,11 +25,15 @@ struct hdfs_namenode;
 struct _hdfs_pending;
 struct hdfs_rpc_response_future;
 
+// XXX heapbufs use int for size/used but prior to changing nn_recvbuf/nn_objbuf
+// from raw char *'s they used size_t for size/used, if we anticipate this being
+// an issue/the buffers needing more than 2GB, then we should change the heapbuf
+// struct to use int64_t instead of int
 struct hdfs_namenode {
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
-	char *nn_recvbuf,
-	     *nn_objbuf;
+	struct hdfs_heap_buf nn_recvbuf;
+	struct hdfs_heap_buf nn_objbuf;
 	struct _hdfs_pending *nn_pending;
 	sasl_conn_t *nn_sasl_ctx;
 	int nn_sock,
@@ -40,10 +44,6 @@ struct hdfs_namenode {
 	     nn_authed,
 	     nn_recver_started;
 	pthread_mutex_t nn_sendlock;
-	size_t nn_recvbuf_used,
-	       nn_recvbuf_size,
-	       nn_objbuf_used,
-	       nn_objbuf_size;
 
 	pthread_t nn_recv_thr;
 	int nn_recv_sigpipe[2];

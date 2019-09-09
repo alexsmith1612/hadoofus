@@ -59,13 +59,8 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_sasl_ctx = NULL;
 	n->nn_sasl_ssf = 0;
 
-	n->nn_recvbuf = NULL;
-	n->nn_recvbuf_used = 0;
-	n->nn_recvbuf_size = 0;
-
-	n->nn_objbuf = NULL;
-	n->nn_objbuf_used = 0;
-	n->nn_objbuf_size = 0;
+	memset(&n->nn_recvbuf, 0, sizeof(n->nn_recvbuf));
+	memset(&n->nn_objbuf, 0, sizeof(n->nn_objbuf));
 
 	n->nn_proto = HDFS_NN_v1;
 	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
@@ -520,10 +515,10 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 		close(n->nn_sock);
 	if (n->nn_pending)
 		free(n->nn_pending);
-	if (n->nn_recvbuf)
-		free(n->nn_recvbuf);
-	if (n->nn_objbuf)
-		free(n->nn_objbuf);
+	if (n->nn_recvbuf.buf)
+		free(n->nn_recvbuf.buf);
+	if (n->nn_objbuf.buf)
+		free(n->nn_objbuf.buf);
 	if (n->nn_sasl_ctx)
 		sasl_dispose(&n->nn_sasl_ctx);
 	_mtx_destroy(&n->nn_lock);
@@ -534,7 +529,7 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 static void *
 _namenode_recv_worker(void *v_nn)
 {
-	const size_t RESIZE = 16*1024;
+	const size_t RESIZE_AT = 4*1024, RESIZE_BY = 16*1024;
 
 	bool nnlocked = false;
 	int sock, obj_size, error, i;
@@ -547,8 +542,7 @@ _namenode_recv_worker(void *v_nn)
 	error = 0;
 
 	while (true) {
-		char *objbuffer;
-		size_t *objused;
+		struct hdfs_heap_buf *objbuf;
 
 		_lock(&n->nn_lock);
 		nnlocked = true;
@@ -566,49 +560,42 @@ _namenode_recv_worker(void *v_nn)
 		ASSERT(sock != -1);
 
 		if (n->nn_sasl_ssf > 0) {
-			objbuffer = n->nn_objbuf;
-			objused = &n->nn_objbuf_used;
+			objbuf = &n->nn_objbuf;
 		} else {
-			objbuffer = n->nn_recvbuf;
-			objused = &n->nn_recvbuf_used;
+			objbuf = &n->nn_recvbuf;
 		}
 
 		if (n->nn_proto == HDFS_NN_v1)
-			result = _hdfs_result_deserialize(objbuffer, *objused,
-			    &obj_size);
+			result = _hdfs_result_deserialize(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &obj_size);
 		else if (n->nn_proto == HDFS_NN_v2) {
 			_lock(&n->nn_lock);
-			result = _hdfs_result_deserialize_v2(objbuffer,
-			    *objused, &obj_size, n->nn_pending,
+			result = _hdfs_result_deserialize_v2(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
 			    n->nn_pending_len);
 			_unlock(&n->nn_lock);
 		} else if (n->nn_proto == HDFS_NN_v2_2) {
 			_lock(&n->nn_lock);
-			result = _hdfs_result_deserialize_v2_2(objbuffer,
-			    *objused, &obj_size, n->nn_pending,
+			result = _hdfs_result_deserialize_v2_2(_hbuf_readptr(objbuf),
+			    _hbuf_readlen(objbuf), &obj_size, n->nn_pending,
 			    n->nn_pending_len);
 			_unlock(&n->nn_lock);
 		} else
 			ASSERT(false);
 
 		if (!result) {
-			ssize_t r, remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
+			ssize_t r;
 
-			if (remain < 4*1024) {
-				n->nn_recvbuf_size += RESIZE;
-				n->nn_recvbuf = realloc(n->nn_recvbuf, n->nn_recvbuf_size);
-				ASSERT(n->nn_recvbuf);
-				remain = n->nn_recvbuf_size - n->nn_recvbuf_used;
-			}
+			_hbuf_resize(&n->nn_recvbuf, RESIZE_AT, RESIZE_BY);
 
-			r = recv(sock, n->nn_recvbuf + n->nn_recvbuf_used,
-			    remain, MSG_DONTWAIT);
+			r = recv(sock, _hbuf_writeptr(&n->nn_recvbuf),
+			    _hbuf_remsize(&n->nn_recvbuf), MSG_DONTWAIT);
 			if (r == 0) {
 				herror = error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 				goto out;
 			}
 			if (r > 0) {
-				n->nn_recvbuf_used += r;
+				_hbuf_append(&n->nn_recvbuf, r);
 				if (n->nn_sasl_ssf > 0) {
 					herror = _conn_try_desasl(n);
 					// bail on sasl decode errors
@@ -650,10 +637,7 @@ _namenode_recv_worker(void *v_nn)
 
 		// if we got here, we have read a valid / complete hdfs result
 		// off the wire; skip the buffer forward:
-
-		*objused -= obj_size;
-		if (*objused)
-			memmove(objbuffer, objbuffer + obj_size, *objused);
+		_hbuf_consume(objbuf, obj_size);
 
 		future = _namenode_pending_remove(n, result->rs_msgno);
 		ASSERT(future); // got a response to a msgno we didn't request
@@ -774,40 +758,39 @@ _sasl_interacts(sasl_interact_t *in)
 static struct hdfs_error
 _conn_try_desasl(struct hdfs_namenode *n)
 {
-	size_t o = 0;
-	while (o + 4 <= n->nn_recvbuf_used) {
+	int o = 0;
+	// XXX TODO review this function. It seems like o is always 0
+	// and recvbuf never skips past the read data
+	while (o + 4 <= _hbuf_readlen(&n->nn_recvbuf)) {
 		uint32_t clen;
 		int r;
 		const char *out;
 		unsigned outlen;
 
-		clen = _be32dec(n->nn_recvbuf);
+		clen = _be32dec(_hbuf_readptr(&n->nn_recvbuf));
 		if (clen > INT32_MAX) // XXX consider different error code
 			return error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 
 		// did we get an incomplete sasl chunk?
-		if (clen > n->nn_recvbuf_used - o - 4)
+		if ((int32_t)clen > _hbuf_readlen(&n->nn_recvbuf) - o - 4)
 			break;
 
-		r = sasl_decode(n->nn_sasl_ctx, n->nn_recvbuf + o + 4, clen,
-		    &out, &outlen);
+		r = sasl_decode(n->nn_sasl_ctx, _hbuf_readptr(&n->nn_recvbuf) + o + 4,
+		    clen, &out, &outlen);
 		if (r != SASL_OK)
 			return error_from_sasl(r);
 
-		if (outlen > n->nn_objbuf_size - n->nn_objbuf_used) {
-			n->nn_objbuf_size = n->nn_objbuf_used + outlen + 4*1024;
-			n->nn_objbuf = realloc(n->nn_objbuf, n->nn_objbuf_size);
-			ASSERT(n->nn_objbuf);
-		}
+		if (outlen > INT32_MAX) // XXX consider different error code
+			return error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 
-		memcpy(n->nn_objbuf + n->nn_objbuf_used, out, outlen);
-		n->nn_objbuf_used += outlen;
+		_hbuf_resize(&n->nn_objbuf, outlen, outlen + 4*1024);
+
+		memcpy(_hbuf_writeptr(&n->nn_objbuf), out, outlen);
+		_hbuf_append(&n->nn_objbuf, outlen);
 	}
 
 	if (o > 0) {
-		n->nn_recvbuf_used -= o;
-		if (n->nn_recvbuf_used > 0)
-			memmove(n->nn_recvbuf, n->nn_recvbuf + o, n->nn_recvbuf_used);
+		_hbuf_consume(&n->nn_recvbuf, o);
 	}
 
 	return HDFS_SUCCESS;
