@@ -66,6 +66,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 
 	memset(&n->nn_recvbuf, 0, sizeof(n->nn_recvbuf));
 	memset(&n->nn_objbuf, 0, sizeof(n->nn_objbuf));
+	memset(&n->nn_sendbuf, 0, sizeof(n->nn_sendbuf));
 
 	n->nn_proto = HDFS_NN_v1;
 	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
@@ -594,6 +595,8 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 		free(n->nn_recvbuf.buf);
 	if (n->nn_objbuf.buf)
 		free(n->nn_objbuf.buf);
+	if (n->nn_sendbuf.buf)
+		free(n->nn_sendbuf.buf);
 	if (n->nn_sasl_ctx)
 		sasl_dispose(&n->nn_sasl_ctx);
 
