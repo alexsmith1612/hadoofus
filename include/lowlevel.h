@@ -30,6 +30,15 @@ enum hdfs_namenode_state {
 	HDFS_NN_ST_ERROR = -1,
 	HDFS_NN_ST_ZERO = 0,
 	HDFS_NN_ST_INITED,
+	HDFS_NN_ST_CONNPENDING,
+	HDFS_NN_ST_CONNECTED,
+};
+
+// Do not directly access this struct
+struct hdfs_conn_ctx {
+	struct addrinfo  *ai;
+	struct addrinfo  *rp;
+	int serrno;
 };
 
 // XXX heapbufs use int for size/used but prior to changing nn_recvbuf/nn_objbuf
@@ -52,6 +61,7 @@ struct hdfs_namenode {
 	     nn_authed,
 	     nn_recver_started;
 	pthread_mutex_t nn_sendlock;
+	struct hdfs_conn_ctx nn_cctx;
 
 	pthread_t nn_recv_thr;
 	int nn_recv_sigpipe[2];
@@ -94,13 +104,6 @@ struct hdfs_read_info {
 	bool has_crcs,
 	     bad_crcs,
 	     lastpacket;
-};
-
-// Do not directly access this struct
-struct hdfs_conn_ctx {
-	struct addrinfo  *ai;
-	struct addrinfo  *rp;
-	int serrno;
 };
 
 enum hdfs_datanode_state {
