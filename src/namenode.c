@@ -57,7 +57,15 @@ hdfs_namenode_allocate(void)
 EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
+	return hdfs_namenode_init_ver(n, kerb_prefs, _HDFS_NN_vLATEST); // XXX consider version
+}
+
+EXPORT_SYM void
+hdfs_namenode_init_ver(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs,
+	enum hdfs_namenode_proto ver)
+{
 	ASSERT(n);
+	// TODO argument assertions?
 	ASSERT(n->nn_state == HDFS_NN_ST_ZERO); // XXX reconsider --- this would require users to initialize nn to all zeros prior to this
 
 	n->nn_state = HDFS_NN_ST_INITED;
@@ -83,25 +91,8 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	memset(&n->nn_objbuf, 0, sizeof(n->nn_objbuf));
 	memset(&n->nn_sendbuf, 0, sizeof(n->nn_sendbuf));
 
-	n->nn_proto = HDFS_NN_v1;
-	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
-	n->nn_error = 0;
-
-	memset(&n->nn_cctx, 0, sizeof(n->nn_cctx));
-	n->nn_authhdr = NULL;
-}
-
-EXPORT_SYM void
-hdfs_namenode_set_version(struct hdfs_namenode *n, enum hdfs_namenode_proto vers)
-{
-
-	/* Only allowed before we are connected. */
-	ASSERT(n->nn_sock == -1);
-
-	ASSERT(vers >= HDFS_NN_v1 && vers <= _HDFS_NN_vLATEST);
-	n->nn_proto = vers;
-
-	if (vers >= HDFS_NN_v2_2) {
+	n->nn_proto = ver;
+	if (n->nn_proto >= HDFS_NN_v2_2) {
 		ssize_t rd;
 		int fd;
 
@@ -112,7 +103,14 @@ hdfs_namenode_set_version(struct hdfs_namenode *n, enum hdfs_namenode_proto vers
 		ASSERT(rd == sizeof(n->nn_client_id));
 
 		close(fd);
+	} else {
+		memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
 	}
+
+	n->nn_error = 0;
+
+	memset(&n->nn_cctx, 0, sizeof(n->nn_cctx));
+	n->nn_authhdr = NULL;
 }
 
 // XXX reconsider name

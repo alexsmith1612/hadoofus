@@ -14,6 +14,9 @@
 	    hdfs_error_str(error), __func__, __FILE__, __LINE__);	\
 } while (false)
 
+// XXX TODO rename to hdfs_namenode_new() since there is not default version
+// highlevel API anymore (although perhaps leave this as is and add an
+// hdfs_namenode_new() that defaults to v2.2+)
 EXPORT_SYM struct hdfs_namenode *
 hdfs_namenode_new_version(const char *host, const char *port,
 	const char *username, enum hdfs_kerb kerb_pref,
@@ -23,9 +26,7 @@ hdfs_namenode_new_version(const char *host, const char *port,
 	struct hdfs_namenode *h;
 
 	h = hdfs_namenode_allocate();
-	hdfs_namenode_init(h, kerb_pref);
-
-	hdfs_namenode_set_version(h, vers);
+	hdfs_namenode_init_ver(h, kerb_pref, vers);
 
 	error = hdfs_namenode_connect(h, host, port);
 	if (hdfs_is_error(error))
