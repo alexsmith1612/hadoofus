@@ -16,6 +16,11 @@
 
 static void *			_namenode_recv_worker(void *);
 
+static struct hdfs_error	_namenode_auth_simple(struct hdfs_namenode *n);
+static struct hdfs_error	_namenode_auth_kerb(struct hdfs_namenode *n);
+static struct hdfs_error	_namenode_auth_sasl_loop(struct hdfs_namenode *n);
+static struct hdfs_error	_namenode_auth_sasl_send_resp(struct hdfs_namenode *n);
+
 static void	_namenode_pending_insert_unlocked(struct hdfs_namenode *n,
 		int64_t msgno, struct hdfs_rpc_response_future *future,
 		hdfs_object_slurper slurper);
@@ -49,12 +54,12 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	ASSERT(n->nn_state == HDFS_NN_ST_ZERO); // XXX reconsider --- this would require users to initialize nn to all zeros prior to this
 
 	n->nn_state = HDFS_NN_ST_INITED;
+	// Note: nn_sasl_state gets initialized in _namenode_auth_kerb() prior to being used
 
 	_mtx_init(&n->nn_lock);
 	_mtx_init(&n->nn_sendlock);
 	n->nn_sock = -1;
 	n->nn_dead = false;
-	n->nn_authed = false;
 	n->nn_msgno = 0;
 	n->nn_pending = NULL;
 	n->nn_pending_len = 0;
@@ -63,6 +68,9 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_kerb = kerb_prefs;
 	n->nn_sasl_ctx = NULL;
 	n->nn_sasl_ssf = 0;
+	n->nn_sasl_interactions = NULL;
+	n->nn_sasl_out = NULL;
+	n->nn_sasl_outlen = 0;
 
 	memset(&n->nn_recvbuf, 0, sizeof(n->nn_recvbuf));
 	memset(&n->nn_objbuf, 0, sizeof(n->nn_objbuf));
@@ -73,6 +81,7 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_error = 0;
 
 	memset(&n->nn_cctx, 0, sizeof(n->nn_cctx));
+	n->nn_authhdr = NULL;
 }
 
 EXPORT_SYM void
@@ -193,6 +202,31 @@ out:
 	return error;
 }
 
+EXPORT_SYM void
+hdfs_namenode_auth_nb_init(struct hdfs_namenode *n, const char *username)
+{
+	return hdfs_namenode_auth_nb_init_full(n, username, NULL);
+}
+
+EXPORT_SYM void
+hdfs_namenode_auth_nb_init_full(struct hdfs_namenode *n, const char *username,
+	const char *real_user)
+{
+	_lock(&n->nn_lock);
+	ASSERT(n->nn_proto == HDFS_NN_v1 || n->nn_proto == HDFS_NN_v2 || n->nn_proto == HDFS_NN_v2_2);
+	ASSERT(n->nn_state >= HDFS_NN_ST_INITED && n->nn_state < HDFS_NN_ST_AUTHPENDING);
+	ASSERT(!n->nn_authhdr);
+
+	// XXX why is this forced to HDFS_NO_KERB for v1?
+	n->nn_authhdr = hdfs_authheader_new_ext(n->nn_proto, username, real_user,
+	    n->nn_proto == HDFS_NN_v1 ? HDFS_NO_KERB : n->nn_kerb);
+
+	if (n->nn_proto == HDFS_NN_v2_2)
+		_authheader_set_clientid(n->nn_authhdr, n->nn_client_id);
+
+	_unlock(&n->nn_lock);
+}
+
 EXPORT_SYM struct hdfs_error
 hdfs_namenode_authenticate(struct hdfs_namenode *n, const char *username)
 {
@@ -205,185 +239,452 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 	const char *real_user)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	struct hdfs_object *header;
-	struct hdfs_heap_buf hbuf = { 0 };
-	char *inh = NULL, preamble[12];
-	size_t preamble_len;
 
-	_lock(&n->nn_lock);
-	ASSERT(!n->nn_authed);
-	ASSERT(n->nn_sock != -1);
+	// XXX TODO wrapper around nonblocking
 
-	memset(preamble, 0, sizeof(preamble));
-	if (n->nn_proto == HDFS_NN_v1) {
-		sprintf(preamble, "hrpc\x04%c",
-		    (n->nn_kerb == HDFS_NO_KERB)? 0x50 : 0x51);
+	return error;
+}
+
+// TODO move this below hdfs_namenode_authenticate_nb()
+// TODO change this to take a heapbuf and return void
+// Returns the number of bytes used in the buffer
+static size_t
+_namenode_compose_auth_preamble(char *buf, size_t buflen,
+	enum hdfs_namenode_proto proto, enum hdfs_kerb kerb)
+{
+	size_t preamble_len = 0;
+
+	ASSERT(buf);
+	ASSERT(buflen >= 7);
+	ASSERT(kerb == HDFS_NO_KERB || kerb == HDFS_TRY_KERB || kerb == HDFS_REQUIRE_KERB);
+
+	switch (proto) {
+	case HDFS_NN_v1:
+		sprintf(buf, "hrpc\x04%c",
+		    (kerb == HDFS_NO_KERB)? 0x50 : 0x51);
 		preamble_len = 6;
+		break;
 
-		header = hdfs_authheader_new_ext(n->nn_proto, username,
-		    real_user, HDFS_NO_KERB);
-	} else if (n->nn_proto == HDFS_NN_v2) {
+	case HDFS_NN_v2:
 		/* HDFSv2 has used both version 7 (2.0.0-2.0.2) and 8 (2.0.3+). */
-		sprintf(preamble, "hrpc%c%c", 8 /* XXX Configurable? */,
-		    (n->nn_kerb == HDFS_NO_KERB)? 0x50 : 0x51);
+		sprintf(buf, "hrpc%c%c", 8 /* XXX Configurable? */,
+		    (kerb == HDFS_NO_KERB)? 0x50 : 0x51);
 		/* There is a zero at the end: */
 		preamble_len = 7;
+		break;
 
-		header = hdfs_authheader_new_ext(n->nn_proto, username,
-		    real_user, n->nn_kerb);
-	} else if (n->nn_proto == HDFS_NN_v2_2) {
-		memcpy(preamble, "hrpc\x09", 5);
-		preamble[5] = 0;
-		preamble[6] = (n->nn_kerb == HDFS_NO_KERB)? 0 : -33;
+	case HDFS_NN_v2_2:
+		memcpy(buf, "hrpc\x09", 5);
+		buf[5] = 0;
+		buf[6] = (kerb == HDFS_NO_KERB)? 0 : -33;
 		preamble_len = 7;
+		break;
 
-		header = hdfs_authheader_new_ext(n->nn_proto, username,
-		    real_user, n->nn_kerb);
-		_authheader_set_clientid(header, n->nn_client_id);
-	} else {
+	default:
 		ASSERT(false);
 	}
 
-	// Serialize the connection header object (I am speaking ClientProtocol
-	// and this is my username)
-	hdfs_object_serialize(&hbuf, header);
-	hdfs_object_free(header);
+	return preamble_len;
+}
 
-	if (n->nn_kerb == HDFS_NO_KERB) {
-		// Prefix the header object with the protocol preamble
-		hbuf.buf = realloc(hbuf.buf, hbuf.size + preamble_len);
-		ASSERT(hbuf.buf);
-		memmove(hbuf.buf + preamble_len, hbuf.buf, hbuf.used);
-		memcpy(hbuf.buf, preamble, preamble_len);
-		hbuf.used += preamble_len;
-		hbuf.size += preamble_len;
-	} else {
-		/*
-		 * XXX This is probably totally wrong for HDFSv2+. They start
-		 * using protobufs at this point to wrap the SASL packets.
-		 *
-		 * To be fair, it's probably broken for HDFSv1 too :). I need
-		 * to find a kerberized HDFS to test against.
-		 */
-		int r;
-		sasl_interact_t *interactions = NULL;
-		const char *out, *mechusing;
-		unsigned outlen;
-		struct iovec iov[3];
-		uint32_t inlen;
-		const uint32_t SWITCH_TO_SIMPLE_AUTH = (uint32_t)-1;
+// XXX consider name
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_authenticate_nb(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
 
-		uint8_t in[4], zero[4] = { 0 };
+	ASSERT(n);
+
+	_lock(&n->nn_lock);
+	ASSERT(n->nn_state >= HDFS_NN_ST_CONNECTED && n->nn_state < HDFS_NN_ST_RPC);
+	ASSERT(n->nn_sock != -1);
+	ASSERT(n->nn_authhdr);
+
+	switch (n->nn_kerb) {
+	case HDFS_REQUIRE_KERB:
+	case HDFS_TRY_KERB:
+		error = _namenode_auth_kerb(n);
+		if (!hdfs_is_error(error)) // success
+			break;
+		else if (n->nn_kerb != HDFS_TRY_KERB || error.her_kind != he_hdfserr
+		    || error.her_num != HDFS_ERR_KERBEROS_DOWNGRADE)
+			goto out;
+		// HDFS_TRY_KERB and we got downgraded
+		// XXX TODO reset send and recv bufs?
+		n->nn_kerb = HDFS_NO_KERB;
+		n->nn_state = HDFS_NN_ST_CONNECTED;
+		// fall through
+	case HDFS_NO_KERB:
+		error = _namenode_auth_simple(n);
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		break;
+
+	default:
+		ASSERT(false);
+	}
+
+out:
+	_unlock(&n->nn_lock);
+	return error;
+}
+
+// XXX Assumes that nn_lock is held
+static struct hdfs_error
+_namenode_auth_simple(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	size_t preamble_len;
+	ssize_t wlen;
+
+	ASSERT(n);
+	ASSERT(n->nn_state >= HDFS_NN_ST_CONNECTED && n->nn_state < HDFS_NN_ST_RPC);
+	ASSERT(n->nn_authhdr);
+
+	switch (n->nn_state) {
+	case HDFS_NN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&n->nn_recvbuf) == 0);
+		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
+		// reserve enough space for the preamble
+		_hbuf_reserve(&n->nn_sendbuf, 12);
+		// add preamble to buf
+		preamble_len = _namenode_compose_auth_preamble(
+		    _hbuf_writeptr(&n->nn_sendbuf), 12, n->nn_proto, n->nn_kerb);
+		_hbuf_append(&n->nn_sendbuf, preamble_len);
+		// Serialize the connection header object (I am speaking ClientProtocol
+		// and this is my username)
+		hdfs_object_serialize(&n->nn_sendbuf, n->nn_authhdr);
+		n->nn_state = HDFS_NN_ST_AUTHPENDING;
+		// fall through
+	case HDFS_NN_ST_AUTHPENDING:
+		error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
+		if (wlen < 0) {
+			n->nn_state = HDFS_NN_ST_ERROR;
+			goto out;
+		}
+		_hbuf_consume(&n->nn_sendbuf, wlen);
+		if (hdfs_is_again(error))
+			goto out;
+		// Fully sent auth header
+		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
+		hdfs_object_free(n->nn_authhdr);
+		n->nn_authhdr = NULL;
+		n->nn_state = HDFS_NN_ST_RPC;
+		break;
+
+	case HDFS_NN_ST_ZERO:
+	case HDFS_NN_ST_INITED:
+	case HDFS_NN_ST_CONNPENDING:
+	case HDFS_NN_ST_RPC:
+	case HDFS_NN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+// XXX Assumes that nn_lock is held
+static struct hdfs_error
+_namenode_auth_kerb(struct hdfs_namenode *n)
+{
+	/*
+	 * XXX This is probably totally wrong for HDFSv2+. They start
+	 * using protobufs at this point to wrap the SASL packets.
+	 *
+	 * To be fair, it's probably broken for HDFSv1 too :). I need
+	 * to find a kerberized HDFS to test against.
+	 */
+	struct hdfs_error error = HDFS_SUCCESS;
+	int r;
+	const char *mechusing;
+	size_t preamble_len;
+
+	// XXX TODO review this entire function
+
+	ASSERT(n);
+	ASSERT(n->nn_state >= HDFS_NN_ST_CONNECTED && n->nn_state < HDFS_NN_ST_RPC);
+	ASSERT(n->nn_sasl_ctx);
+	ASSERT(n->nn_authhdr);
+
+	switch (n->nn_state) {
+	case HDFS_NN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&n->nn_recvbuf) == 0);
+		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
 
 		do {
 			r = sasl_client_start(n->nn_sasl_ctx, "GSSAPI",
-			    &interactions, &out, &outlen, &mechusing);
+			    &n->nn_sasl_interactions, &n->nn_sasl_out,
+			    &n->nn_sasl_outlen, &mechusing);
 
 			if (r == SASL_INTERACT)
-				_sasl_interacts(interactions);
+				_sasl_interacts(n->nn_sasl_interactions);
 		} while (r == SASL_INTERACT);
 
 		if (r != SASL_CONTINUE) {
+			n->nn_state = HDFS_NN_ST_ERROR;
+			// XXX consider also setting HDFS_NN_SASL_ST_ERROR
 			error = error_from_sasl(r);
 			goto out;
 		}
 
-		// Send prefix, first auth token
-		_be32enc(in, outlen);
-		iov[0].iov_base = preamble;
-		iov[0].iov_len = preamble_len;
-		iov[1].iov_base = in;
-		iov[1].iov_len = 4;
-		iov[2].iov_base = __DECONST(void *, out);
-		iov[2].iov_len = outlen;
-
-		error = _writev_all(n->nn_sock, iov, 3);
-		if (hdfs_is_error(error))
+		// reserve enough space for the preamble and the encoded length
+		_hbuf_reserve(&n->nn_sendbuf, 12/*preamble*/ + 4/*sasl_outlen*/);
+		// add preamble to buf
+		preamble_len = _namenode_compose_auth_preamble(
+		    _hbuf_writeptr(&n->nn_sendbuf), 12, n->nn_proto, n->nn_kerb);
+		_hbuf_append(&n->nn_sendbuf, preamble_len);
+		// add sasl_outlen to buf
+		_be32enc(_hbuf_writeptr(&n->nn_sendbuf), n->nn_sasl_outlen);
+		_hbuf_append(&n->nn_sendbuf, 4);
+		n->nn_sasl_state = HDFS_NN_SASL_ST_SEND;
+		n->nn_state = HDFS_NN_ST_AUTHPENDING;
+		// fall through
+	case HDFS_NN_ST_AUTHPENDING:
+		error = _namenode_auth_sasl_loop(n);
+		if (hdfs_is_again(error)) {
 			goto out;
+		} else if (hdfs_is_error(error)) {
+			n->nn_state = HDFS_NN_ST_ERROR;
+			goto out;
+		}
+		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
+		hdfs_object_free(n->nn_authhdr);
+		n->nn_authhdr = NULL;
+		n->nn_state = HDFS_NN_ST_RPC;
+		break;
 
-		do {
-			// read success / error status
-			error = _read_all(n->nn_sock, in, 4);
-			if (hdfs_is_error(error))
+	case HDFS_NN_ST_ZERO:
+	case HDFS_NN_ST_INITED:
+	case HDFS_NN_ST_CONNPENDING:
+	case HDFS_NN_ST_RPC:
+	case HDFS_NN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+// XXX Assumes that nn_lock is held
+static struct hdfs_error
+_namenode_auth_sasl_loop(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	int r, pre_rlen, post_rlen, authhdr_len, authhdr_offset;
+	uint32_t token_len;
+	const uint32_t SWITCH_TO_SIMPLE_AUTH = (uint32_t)-1;
+	uint8_t zero[4] = { 0 };
+	ssize_t wlen;
+
+	// XXX TODO review this entire function
+
+	ASSERT(n);
+	ASSERT(n->nn_state == HDFS_NN_ST_AUTHPENDING);
+
+	do {
+		switch (n->nn_sasl_state) {
+		case HDFS_NN_SASL_ST_SEND:
+			error = _namenode_auth_sasl_send_resp(n);
+			if (hdfs_is_again(error)) {
 				goto out;
+			} else if (hdfs_is_error(error)) {
+				n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+				goto out;
+			}
+			ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0 && n->nn_sasl_outlen == 0);
+			n->nn_sasl_state = HDFS_NN_SASL_ST_RECV;
+			// fall through
+		case HDFS_NN_SASL_ST_RECV:
+			// We don't skip past any input data until we have successfully
+			// received the entire message in order to simplify stateful
+			// parsing
 
-			if (memcmp(in, zero, 4)) {
-				// error. exception will be next on the wire,
-				// but let's skip it.
+			// 1. read success / error status
+			while (_hbuf_readlen(&n->nn_recvbuf) < 4) {
+				error =_read_to_hbuf(n->nn_sock, &n->nn_recvbuf);
+				if (hdfs_is_again(error)) {
+					goto out;
+				} else if (hdfs_is_error(error)) {
+					n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+					goto out;
+				}
+			}
+			if (memcmp(_hbuf_readptr(&n->nn_recvbuf), zero, 4)) {
+				// error. exception will be next on the wire, but let's skip it.
+				n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
 				error = error_from_hdfs(HDFS_ERR_KERBEROS_NEGOTIATION);
 				goto out;
 			}
 
-			// read token len
-			error = _read_all(n->nn_sock, in, 4);
-			if (hdfs_is_error(error))
-				goto out;
-			inlen = _be32dec(in);
-
-			if (inlen == SWITCH_TO_SIMPLE_AUTH) {
-				if (n->nn_kerb == HDFS_REQUIRE_KERB) {
-					error = error_from_hdfs(HDFS_ERR_KERBEROS_DOWNGRADE);
+			// 2. read token len
+			while (_hbuf_readlen(&n->nn_recvbuf) < 4/*status*/ + 4/*token len*/) {
+				error =_read_to_hbuf(n->nn_sock, &n->nn_recvbuf);
+				if (hdfs_is_again(error)) {
+					goto out;
+				} else if (hdfs_is_error(error)) {
+					n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
 					goto out;
 				}
-				goto send_header;
+			}
+			token_len = _be32dec(_hbuf_readptr(&n->nn_recvbuf) + 4/*skip status*/);
+			if (token_len == SWITCH_TO_SIMPLE_AUTH) {
+				error = error_from_hdfs(HDFS_ERR_KERBEROS_DOWNGRADE);
+				goto out;
 			}
 
-			// read token
-			if (inh)
-				free(inh);
-			inh = NULL;
-			if (inlen > 0) {
-				inh = malloc(inlen);
-				ASSERT(inh);
-				error = _read_all(n->nn_sock, inh, inlen);
-				if (hdfs_is_error(error))
+			// 3. read token
+			while ((uint32_t)_hbuf_readlen(&n->nn_recvbuf) < 4/*status*/ + 4/*token len*/ + token_len) {
+				error =_read_to_hbuf(n->nn_sock, &n->nn_recvbuf);
+				if (hdfs_is_again(error)) {
 					goto out;
+				} else if (hdfs_is_error(error)) {
+					n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+					goto out;
+				}
 			}
+			// At this point we cannot get HDFS_AGAIN for this token,
+			// so skip past the status and token len (the token itself
+			// still has to be passed to sasl)
+			_hbuf_consume(&n->nn_recvbuf, 4/*status*/ + 4/*token len*/);
 
-			out = NULL;
-			outlen = 0;
-			r = sasl_client_step(n->nn_sasl_ctx, inh,
-			    inlen, &interactions, &out, &outlen);
+			// 4. Proceed through SASL
+			n->nn_sasl_out = NULL;
+			n->nn_sasl_outlen = 0;
+			r = sasl_client_step(n->nn_sasl_ctx, _hbuf_readptr(&n->nn_recvbuf),
+			    token_len, &n->nn_sasl_interactions, &n->nn_sasl_out, &n->nn_sasl_outlen);
 
+			// XXX TODO review the interactions logic here, it seems like we may
+			// need to have a tight do {} while (r == SASL_INTERACT) around
+			// sasl_client_step() and this r == SASL_INTERACT block. Currently we
+			// would start looking for another status/token from the server before
+			// calling sasl_client_step() again after receiving SASL_INTERACT,
+			// which seems incorrect. If we do add a tight loop here, we may be
+			// able to remove the sasl_interact_t pointer from struct hdfs_namenode
+			// and have it be local to this function
 			if (r == SASL_INTERACT)
-				_sasl_interacts(interactions);
+				_sasl_interacts(n->nn_sasl_interactions);
 
-			if (r == SASL_CONTINUE ||
-			    (r == SASL_OK && out != NULL)) {
-				_be32enc(in, outlen);
-				iov[0].iov_base = in;
-				iov[0].iov_len = 4;
-				iov[1].iov_base = __DECONST(void *, out);
-				iov[1].iov_len = outlen;
-
-				error = _writev_all(n->nn_sock, iov, 2);
-				if (hdfs_is_error(error))
-					goto out;
+			// XXX TODO remove SASL_INTERACT condition here if tight do-while() added
+			// around sasl_client_step() above
+			if (r != SASL_INTERACT && r != SASL_CONTINUE && r != SASL_OK) {
+				n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+				error = error_from_sasl(r);
+				goto out;
 			}
-		} while (r == SASL_INTERACT || r == SASL_CONTINUE);
 
-		if (r != SASL_OK) {
-			error = error_from_sasl(r);
-			goto out;
+			// Skip past the token
+			_hbuf_consume(&n->nn_recvbuf, token_len);
+
+			if (r == SASL_CONTINUE || (r == SASL_OK && n->nn_sasl_out != NULL)) {
+				// encode sasl_outlen into sendbuf
+				_hbuf_reserve(&n->nn_sendbuf, 4);
+				_be32enc(_hbuf_writeptr(&n->nn_sendbuf), n->nn_sasl_outlen);
+				_hbuf_append(&n->nn_sendbuf, 4);
+			}
+
+			// XXX TODO remove SASL_INTERACT condition here if tight do-while() added
+			// around sasl_client_step() above
+			if (r == SASL_INTERACT || r == SASL_CONTINUE) {
+				n->nn_sasl_state = HDFS_NN_SASL_ST_SEND;
+				break; // continue with the loop
+			}
+
+			ASSERT(r == SASL_OK);
+			// sasl connection established
+			n->nn_sasl_ssf = _getssf(n->nn_sasl_ctx);
+
+			// for state simplicity, copy the final nn_sasl_out data into nn_sendbuf
+			if (n->nn_sasl_out && n->nn_sasl_outlen > 0) {
+				_hbuf_reserve(&n->nn_sendbuf, n->nn_sasl_outlen);
+				memcpy(_hbuf_writeptr(&n->nn_sendbuf), n->nn_sasl_out, n->nn_sasl_outlen);
+				_hbuf_append(&n->nn_sendbuf, n->nn_sasl_outlen);
+			}
+
+			// Serialize the connection header object (I am speaking ClientProtocol
+			// and this is my username)
+
+			// XXX HACK determine the offset of the beginning of this serialized authhdr
+			// for sasl encoding. Since hdfs_object_serialize() can lead to
+			// _hbuf_reserve() calls which may lead to memmove() calls, we cannot simply
+			// stash nn_sendbuf.used prior to serializing the authhdr, as that offset
+			// may no longer be valid after serialization. As a workaround, compare the
+			// _hbuf_readlen() values before and after serialization, and subtract the
+			// difference from nn_sendbuf.used.
+			pre_rlen = _hbuf_readlen(&n->nn_sendbuf);
+			hdfs_object_serialize(&n->nn_sendbuf, n->nn_authhdr);
+			post_rlen = _hbuf_readlen(&n->nn_sendbuf);
+			authhdr_len = post_rlen - pre_rlen;
+			authhdr_offset = n->nn_sendbuf.used - authhdr_len;
+			if (n->nn_sasl_ssf > 0) {
+				error = _sasl_encode_at_offset(n->nn_sasl_ctx, &n->nn_sendbuf, authhdr_offset);
+				if (hdfs_is_error(error)) {
+					n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+					goto out;
+				}
+			}
+
+			n->nn_sasl_state = HDFS_NN_SASL_ST_FINISHED;
+			// fall through
+		case HDFS_NN_SASL_ST_FINISHED:
+			error = _write(n->nn_sock, _hbuf_readptr(&n->nn_sendbuf), _hbuf_readlen(&n->nn_sendbuf), &wlen);
+			if (wlen < 0) {
+				n->nn_sasl_state = HDFS_NN_SASL_ST_ERROR;
+				goto out;
+			}
+			_hbuf_consume(&n->nn_sendbuf, wlen);
+			if (hdfs_is_again(error))
+				goto out;
+			// complete write;
+			break;
+
+		case HDFS_NN_SASL_ST_ERROR:
+		default:
+			ASSERT(false);
 		}
-
-		// sasl connection established
-		n->nn_sasl_ssf = _getssf(n->nn_sasl_ctx);
-send_header:
-		if (n->nn_sasl_ssf > 0)
-			_sasl_encode_inplace(n->nn_sasl_ctx, &hbuf);
-	}
-
-	// send auth header
-	error = _write_all(n->nn_sock, hbuf.buf, hbuf.used);
-	n->nn_authed = true;
+	} while (n->nn_sasl_state != HDFS_NN_SASL_ST_FINISHED);
 
 out:
-	if (inh)
-		free(inh);
-	_unlock(&n->nn_lock);
-	free(hbuf.buf);
+	return error;
+}
 
+// XXX Assumes nn_lock is held
+static struct hdfs_error
+_namenode_auth_sasl_send_resp(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct iovec iov[2], *iovp = iov;
+	int iovcnt = 1;
+	ssize_t wlen, wlen_buf, wlen_sasl;
+
+	ASSERT(_hbuf_readlen(&n->nn_sendbuf) > 0 || n->nn_sasl_outlen > 0);
+
+	iov[0].iov_base = _hbuf_readptr(&n->nn_sendbuf);
+	iov[0].iov_len = _hbuf_readlen(&n->nn_sendbuf);
+	iov[1].iov_base = __DECONST(void *, n->nn_sasl_out);
+	iov[1].iov_len = n->nn_sasl_outlen;
+
+	if (_hbuf_readlen(&n->nn_sendbuf) > 0 && n->nn_sasl_outlen > 0)
+		iovcnt = 2;
+	else if (_hbuf_readlen(&n->nn_sendbuf) <= 0)
+		iovp++;
+	// the only other possible case is sasl_outlen <= 0 and
+	// nn_sendbuf len > 0, with iovp = iov and iovcnt = 1 as is default
+
+	error = _writev(n->nn_sock, iovp, iovcnt, &wlen);
+	if (wlen < 0)
+		goto out;
+
+	wlen_buf = _min(wlen, _hbuf_readlen(&n->nn_sendbuf));
+	wlen_sasl = wlen - wlen_buf;
+
+	_hbuf_consume(&n->nn_sendbuf, wlen_buf);
+	n->nn_sasl_out += wlen_sasl;
+	n->nn_sasl_outlen -= wlen_sasl;
+
+out:
 	return error;
 }
 
@@ -599,6 +900,8 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 		free(n->nn_sendbuf.buf);
 	if (n->nn_sasl_ctx)
 		sasl_dispose(&n->nn_sasl_ctx);
+	if (n->nn_authhdr)
+		hdfs_object_free(n->nn_authhdr);
 
 	hdfs_conn_ctx_free(&n->nn_cctx);
 

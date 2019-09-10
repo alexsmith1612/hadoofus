@@ -32,6 +32,15 @@ enum hdfs_namenode_state {
 	HDFS_NN_ST_INITED,
 	HDFS_NN_ST_CONNPENDING,
 	HDFS_NN_ST_CONNECTED,
+	HDFS_NN_ST_AUTHPENDING,
+	HDFS_NN_ST_RPC
+};
+
+enum hdfs_namenode_sasl_state {
+	HDFS_NN_SASL_ST_ERROR = -1,
+	HDFS_NN_SASL_ST_SEND = 0,
+	HDFS_NN_SASL_ST_RECV,
+	HDFS_NN_SASL_ST_FINISHED
 };
 
 // Do not directly access this struct
@@ -47,6 +56,7 @@ struct hdfs_conn_ctx {
 // struct to use int64_t instead of int
 struct hdfs_namenode {
 	enum hdfs_namenode_state nn_state;
+	enum hdfs_namenode_sasl_state nn_sasl_state;
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
 	struct hdfs_heap_buf nn_recvbuf;
@@ -54,15 +64,18 @@ struct hdfs_namenode {
 	struct hdfs_heap_buf nn_sendbuf;
 	struct _hdfs_pending *nn_pending;
 	sasl_conn_t *nn_sasl_ctx;
+	sasl_interact_t *nn_sasl_interactions;
+	const char *nn_sasl_out;
 	int nn_sock,
 	    nn_pending_len,
 	    nn_sasl_ssf;
+	unsigned nn_sasl_outlen;
 	enum hdfs_kerb nn_kerb;
 	bool nn_dead/*user-killed*/,
-	     nn_authed,
 	     nn_recver_started;
 	pthread_mutex_t nn_sendlock;
 	struct hdfs_conn_ctx nn_cctx;
+	struct hdfs_object *nn_authhdr;
 
 	pthread_t nn_recv_thr;
 	int nn_recv_sigpipe[2];
