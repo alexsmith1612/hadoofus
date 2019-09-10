@@ -70,6 +70,8 @@ hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 	n->nn_proto = HDFS_NN_v1;
 	memset(n->nn_client_id, 0, sizeof(n->nn_client_id));
 	n->nn_error = 0;
+
+	memset(&n->nn_cctx, 0, sizeof(n->nn_cctx));
 }
 
 EXPORT_SYM void
@@ -101,6 +103,8 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 
+	// XXX TODO replace with wrapper around non-blocking implementation
+
 	_lock(&n->nn_lock);
 	ASSERT(n->nn_sock == -1);
 
@@ -116,6 +120,72 @@ hdfs_namenode_connect(struct hdfs_namenode *n, const char *host, const char *por
 	error = _connect(&n->nn_sock, host, port);
 	if (hdfs_is_error(error))
 		goto out;
+
+out:
+	_unlock(&n->nn_lock);
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_connect_init(struct hdfs_namenode *n, const char *host, const char *port,
+	bool numerichost)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(n);
+	ASSERT(host);
+	ASSERT(port);
+
+	_lock(&n->nn_lock);
+	ASSERT(n->nn_state == HDFS_NN_ST_INITED);
+	ASSERT(n->nn_sock == -1);
+
+	// XXX the second argument of sasl_client_new() is described as
+	// serverFQDN, which sounds like it may not like an IP address. look into
+	// this and see if we need an optional serverFQDN argument that can be
+	// used for sasl while keeping the host an IP to avoid dns lookups by
+	// getaddrinfo()
+	if (n->nn_kerb == HDFS_TRY_KERB || n->nn_kerb == HDFS_REQUIRE_KERB) {
+		int r = sasl_client_new("hdfs", host, NULL/*localip*/,
+		    NULL/*remoteip*/, NULL/*CBs*/, 0/*sec flags*/, &n->nn_sasl_ctx);
+		if (r != SASL_OK) {
+			error = error_from_sasl(r);
+			n->nn_state = HDFS_NN_ST_ERROR;
+			goto out;
+		}
+	}
+
+	error = _connect_init(&n->nn_sock, host, port, &n->nn_cctx, numerichost);
+	if (!hdfs_is_error(error))
+		n->nn_state = HDFS_NN_ST_CONNECTED;
+	else if (hdfs_is_again(error))
+		n->nn_state = HDFS_NN_ST_CONNPENDING;
+	else
+		n->nn_state = HDFS_NN_ST_ERROR;
+
+out:
+	_unlock(&n->nn_lock);
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_namenode_connect_finalize(struct hdfs_namenode *n)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(n);
+
+	_lock(&n->nn_lock);
+	ASSERT(n->nn_sock >= 0);
+	if (n->nn_state == HDFS_NN_ST_CONNECTED)
+		goto out;
+	ASSERT(n->nn_state == HDFS_NN_ST_CONNPENDING);
+
+	error = _connect_finalize(&n->nn_sock, &n->nn_cctx);
+	if (!hdfs_is_error(error))
+		n->nn_state = HDFS_NN_ST_CONNECTED;
+	else if (!hdfs_is_again(error))
+		n->nn_state = HDFS_NN_ST_ERROR;
 
 out:
 	_unlock(&n->nn_lock);
@@ -526,9 +596,13 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 		free(n->nn_objbuf.buf);
 	if (n->nn_sasl_ctx)
 		sasl_dispose(&n->nn_sasl_ctx);
+
+	hdfs_conn_ctx_free(&n->nn_cctx);
+
 	_mtx_destroy(&n->nn_lock);
 	_mtx_destroy(&n->nn_sendlock);
 	memset(n, 0, sizeof *n);
+	// XXX Consider: set nn_sock = -1?
 }
 
 static void *
