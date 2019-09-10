@@ -45,6 +45,11 @@ hdfs_namenode_allocate(void)
 EXPORT_SYM void
 hdfs_namenode_init(struct hdfs_namenode *n, enum hdfs_kerb kerb_prefs)
 {
+	ASSERT(n);
+	ASSERT(n->nn_state == HDFS_NN_ST_ZERO); // XXX reconsider --- this would require users to initialize nn to all zeros prior to this
+
+	n->nn_state = HDFS_NN_ST_INITED;
+
 	_mtx_init(&n->nn_lock);
 	_mtx_init(&n->nn_sendlock);
 	n->nn_sock = -1;

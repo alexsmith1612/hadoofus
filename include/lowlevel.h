@@ -25,11 +25,19 @@ struct hdfs_namenode;
 struct _hdfs_pending;
 struct hdfs_rpc_response_future;
 
+// XXX TODO reconsider these states
+enum hdfs_namenode_state {
+	HDFS_NN_ST_ERROR = -1,
+	HDFS_NN_ST_ZERO = 0,
+	HDFS_NN_ST_INITED,
+};
+
 // XXX heapbufs use int for size/used but prior to changing nn_recvbuf/nn_objbuf
 // from raw char *'s they used size_t for size/used, if we anticipate this being
 // an issue/the buffers needing more than 2GB, then we should change the heapbuf
 // struct to use int64_t instead of int
 struct hdfs_namenode {
+	enum hdfs_namenode_state nn_state;
 	pthread_mutex_t nn_lock;
 	int64_t nn_msgno;
 	struct hdfs_heap_buf nn_recvbuf;
