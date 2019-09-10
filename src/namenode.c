@@ -354,8 +354,22 @@ hdfs_namenode_authenticate_full(struct hdfs_namenode *n, const char *username,
 	const char *real_user)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
+	struct pollfd pfd;
 
-	// XXX TODO wrapper around nonblocking
+	// XXX consider locking scheme
+
+	hdfs_namenode_auth_nb_init_full(n, username, real_user);
+
+	while (true) {
+		error = hdfs_namenode_authenticate_nb(n);
+		if (!hdfs_is_again(error))
+			break;
+		error = hdfs_namenode_get_eventfd(n, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			break;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
 
 	return error;
 }
