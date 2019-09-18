@@ -66,6 +66,12 @@ hdfs_exception_get_type(struct hdfs_object *o)
 }
 
 static inline const char *
+hdfs_exception_get_type_str(struct hdfs_object *o)
+{
+	return hdfs_etype_to_string(hdfs_exception_get_type(o));
+}
+
+static inline const char *
 hdfs_exception_get_message(struct hdfs_object *o)
 {
 	assert(o);
