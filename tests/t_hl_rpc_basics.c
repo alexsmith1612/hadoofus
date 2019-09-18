@@ -19,36 +19,16 @@ format_error(struct hdfs_error error)
 }
 
 static void
-_setup(enum hdfs_namenode_proto vers)
+setup(void)
 {
 	struct hdfs_error error;
 
-	h = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
-	    vers, &error);
+	h = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
+	    H_VER, &error);
 	ck_assert_msg((intptr_t)h,
-	    "Could not connect to %s=%s @ %s=%s (port 8020): %s",
-	    HDFS_T_USER, H_USER, HDFS_T_ENV, H_ADDR, format_error(error));
-}
-
-static void
-setup(void)
-{
-
-	_setup(HDFS_NN_v1);
-}
-
-static void
-setup2(void)
-{
-
-	_setup(HDFS_NN_v2);
-}
-
-static void
-setup22(void)
-{
-
-	_setup(HDFS_NN_v2_2);
+	    "Could not connect to %s=%s @ %s=%s (%s=%s): %s",
+	    HDFS_T_USER, H_USER, HDFS_T_ADDR, H_ADDR,
+	    HDFS_T_PORT, H_PORT, format_error(error));
 }
 
 static void
@@ -64,7 +44,7 @@ START_TEST(test_getProtocolVersion)
 	int64_t pv =
 	    hdfs_getProtocolVersion(h, HADOOFUS_CLIENT_PROTOCOL_STR, 61L, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(pv == 61L);
 }
 END_TEST
@@ -74,49 +54,58 @@ START_TEST(test_getBlockLocations)
 	struct hdfs_object *e = NULL, *bls;
 	bls = hdfs_getBlockLocations(h, "/", 0L, 1000L, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert_msg(hdfs_object_is_null(bls));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(!bls || hdfs_object_is_null(bls));
 	ck_assert_msg(hdfs_null_type(bls) == H_LOCATED_BLOCKS);
 }
 END_TEST
 
 START_TEST(test_getBlockLocations2)
 {
-	struct hdfs_object *e = NULL, *e2 = NULL, *bls;
+	struct hdfs_object *e = NULL, *e2 = NULL, *bls, *fs;
 	const char *tf = "/HADOOFUS_TEST_GET_BLOCK_LOCATIONS2",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	bls = hdfs_getBlockLocations(h, tf, 0L, 1000L, &e);
 	hdfs_delete(h, tf, false/*recurse*/, &e2);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (e2)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e2));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e2), hdfs_exception_get_message(e2));
 
 	ck_assert_msg(bls->ob_type == H_LOCATED_BLOCKS);
+	hdfs_object_free(bls);
 }
 END_TEST
 
 START_TEST(test_create)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_CREATE",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -124,33 +113,52 @@ END_TEST
 START_TEST(test_append)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *lb;
+	struct hdfs_object *e = NULL, *lb, *fs, *bl = NULL;
 	const char *tf = "/HADOOFUS_TEST_APPEND",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	s = hdfs_complete(h, tf, client, NULL, 0, &e);
+	s = hdfs_complete(h, tf, client, NULL, 0/*fileid?*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "complete returned false");
 
 	// Open for appending
 	lb = hdfs_append(h, tf, client, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	hdfs_object_free(lb);
+	// XXX hdfs_append returns NULL (at least for v2.7.7---It seems like it
+	// should be the case for all versions) when there is no located block,
+	// i.e. when the file is empty, which it is here due to the
+	// overwrite. Consider a ck_assert_msg()?
+	if (lb) {
+		ck_assert_msg(lb->ob_type == H_LOCATED_BLOCK);
+		bl = hdfs_block_from_located_block(lb);
+		hdfs_object_free(lb);
+	}
+
+	s = hdfs_complete(h, tf, client, bl, 0/*fileid?*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "complete returned false");
+
+	if (bl)
+		hdfs_object_free(bl);
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -158,25 +166,29 @@ END_TEST
 START_TEST(test_setReplication)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_SETREPLICATION",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	s = hdfs_setReplication(h, tf, 2, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "setReplication returned false");
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -184,24 +196,28 @@ END_TEST
 START_TEST(test_setPermission)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_SETPERMISSION",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	hdfs_setPermission(h, tf, 0600, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -209,24 +225,28 @@ END_TEST
 START_TEST(test_setOwner)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_SETOWNER",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	hdfs_setOwner(h, tf, "daemon", "wheel", &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -234,23 +254,26 @@ END_TEST
 START_TEST(test_abandonBlock)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *lb, *bl;
+	struct hdfs_object *e = NULL, *lb, *bl, *fs;
 	const char *tf = "/HADOOFUS_TEST_ABANDONBLOCK",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	mark_point();
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid?*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(!hdfs_object_is_null(lb));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(lb && !hdfs_object_is_null(lb));
 
 	mark_point();
 
@@ -261,7 +284,7 @@ START_TEST(test_abandonBlock)
 
 	hdfs_abandonBlock(h, bl, tf, client, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	hdfs_object_free(bl);
 	mark_point();
@@ -269,7 +292,7 @@ START_TEST(test_abandonBlock)
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -277,23 +300,26 @@ END_TEST
 START_TEST(test_addBlock)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *lb;
+	struct hdfs_object *e = NULL, *lb, *fs;
 	const char *tf = "/HADOOFUS_TEST_ADDBLOCK",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	mark_point();
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid?*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(!hdfs_object_is_null(lb));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(lb && !hdfs_object_is_null(lb));
 
 	hdfs_object_free(lb);
 	mark_point();
@@ -301,7 +327,7 @@ START_TEST(test_addBlock)
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -309,26 +335,29 @@ END_TEST
 START_TEST(test_complete)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_COMPLETE",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	s = hdfs_complete(h, tf, client, NULL, 0, &e);
+	s = hdfs_complete(h, tf, client, NULL, 0/*fileid*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "complete returned false");
 
 	// Cleanup
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -336,26 +365,30 @@ END_TEST
 START_TEST(test_rename)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_RENAME",
 	      *tf2 = "/HADOOFUS_TEST_RENAMED",
 	      *client = "HADOOFUS_CLIENT";
 
 	// Create the file first
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	s = hdfs_rename(h, tf, tf2, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "rename returned false");
 
 	// Cleanup
 	s = hdfs_delete(h, tf2, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -363,18 +396,22 @@ END_TEST
 START_TEST(test_delete)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_DELETE",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -387,12 +424,12 @@ START_TEST(test_mkdirs)
 
 	s = hdfs_mkdirs(h, tf, 0755, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "mkdirs returned false");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -403,8 +440,8 @@ START_TEST(test_getListing)
 
 	listing = hdfs_getListing(h, "/", NULL, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(!hdfs_object_is_null(listing));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(listing && !hdfs_object_is_null(listing));
 
 	hdfs_object_free(listing);
 }
@@ -416,7 +453,7 @@ START_TEST(test_renewLease)
 
 	hdfs_renewLease(h, "HADOOFUS_CLIENT", &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 }
 END_TEST
 
@@ -426,7 +463,7 @@ START_TEST(test_getStats)
 
 	stats = hdfs_getStats(h, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	hdfs_object_free(stats);
 }
@@ -435,22 +472,26 @@ END_TEST
 START_TEST(test_getPreferredBlockSize)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_GETPREFERREDBLOCKSIZE",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	/*bs = */hdfs_getPreferredBlockSize(h, tf, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -461,8 +502,8 @@ START_TEST(test_getFileInfo)
 
 	fs = hdfs_getFileInfo(h, "/", &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(!hdfs_object_is_null(fs));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(fs && !hdfs_object_is_null(fs));
 
 	hdfs_object_free(fs);
 }
@@ -476,19 +517,19 @@ START_TEST(test_getContentSummary)
 
 	s = hdfs_mkdirs(h, tf, 0755, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "mkdirs returned false");
 
 	cs = hdfs_getContentSummary(h, tf, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(!hdfs_object_is_null(cs));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(cs && !hdfs_object_is_null(cs));
 
 	hdfs_object_free(cs);
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -501,16 +542,16 @@ START_TEST(test_setQuota)
 
 	s = hdfs_mkdirs(h, tf, 0755, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "mkdirs returned false");
 
 	hdfs_setQuota(h, tf, -1, -1, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -518,22 +559,26 @@ END_TEST
 START_TEST(test_fsync)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_FSYNC",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	hdfs_fsync(h, tf, client, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -541,22 +586,26 @@ END_TEST
 START_TEST(test_setTimes)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *fs;
 	const char *tf = "/HADOOFUS_TEST_SETTIMES",
 	      *client = "HADOOFUS_CLIENT";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	hdfs_setTimes(h, tf, -1, -1, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -564,24 +613,40 @@ END_TEST
 START_TEST(test_recoverLease)
 {
 	bool s;
-	struct hdfs_object *e = NULL;
+	struct hdfs_object *e = NULL, *bls, *fs;
 	const char *tf = "/HADOOFUS_TEST_RECOVERLEASE",
 	      *client = "HADOOFUS_CLIENT",
 	      *client2 = "HADOOFUS_CLIENT_2";
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
+
+	// At least on 2.7.7 the write lease doesn't actually get acquired until
+	// you try to add a block
+	bls = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	hdfs_object_free(bls);
 
 	s = hdfs_recoverLease(h, tf, client2, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(!s, "recoverLease returned true");
+
+	bls = hdfs_addBlock(h, tf, client2, NULL, NULL, 0/*fileid*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	hdfs_object_free(bls);
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -599,7 +664,7 @@ START_TEST(test_delegationTokens)
 		 * authentication"
 		 */
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 		e = NULL;
@@ -611,7 +676,7 @@ START_TEST(test_delegationTokens)
 	if (e) {
 		/* Similar error. */
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 		e = NULL;
@@ -622,7 +687,7 @@ START_TEST(test_delegationTokens)
 	if (e) {
 		/* Similar error. */
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 		e = NULL;
@@ -641,15 +706,15 @@ START_TEST(test_setSafeMode)
 	e = NULL;
 	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_GET, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_ENTER, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	b = hdfs_setSafeMode(h, HDFS_SAFEMODE_LEAVE, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	(void)b;
 }
@@ -663,19 +728,19 @@ START_TEST(test_getDatanodeReport)
 
 	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_ALL, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	else
 		hdfs_object_free(dns);
 
 	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_LIVE, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	else
 		hdfs_object_free(dns);
 
 	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_DEAD, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	else
 		hdfs_object_free(dns);
 }
@@ -695,7 +760,7 @@ START_TEST(test_reportBadBlocks)
 
 	hdfs_reportBadBlocks(h, alb, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	hdfs_object_free(alb);
 }
@@ -709,12 +774,12 @@ START_TEST(test_distributedUpgradeProgress)
 
 	us = hdfs_distributedUpgradeProgress(h, HDFS_UPGRADEACTION_STATUS, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	hdfs_object_free(us);
 
 	us = hdfs_distributedUpgradeProgress(h, HDFS_UPGRADEACTION_DETAILED, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	hdfs_object_free(us);
 
 #if 0
@@ -731,7 +796,7 @@ START_TEST(test_admin_functions)
 	hdfs_finalizeUpgrade(h, &e);
 	if (e)
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 #endif
@@ -739,7 +804,7 @@ START_TEST(test_admin_functions)
 	hdfs_refreshNodes(h, &e);
 	if (e)
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 #endif
@@ -747,7 +812,7 @@ START_TEST(test_admin_functions)
 	hdfs_saveNamespace(h, &e);
 	if (e)
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 #endif
@@ -765,7 +830,7 @@ START_TEST(test_admin_functions2)
 		hdfs_object_free(e2);
 	if (e)
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 #endif
@@ -777,7 +842,7 @@ START_TEST(test_admin_functions2)
 	hdfs_setBalancerBandwidth(h, 100000000, &e);
 	if (e)
 #if 0
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 #else
 		hdfs_object_free(e);
 #endif
@@ -790,7 +855,7 @@ START_TEST(test_getServerDefaults)
 
 	object = hdfs2_getServerDefaults(h, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	hdfs_object_free(object);
 }
@@ -821,18 +886,18 @@ START_TEST(test_symlinks)
 err:
 	hdfs_delete(h, tl, false, &e2);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (e2)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 }
 END_TEST
 
-Suite *
-t_hl_rpc_basics_suite()
+static Suite *
+t_hl_rpc1_basics_suite()
 {
-	Suite *s = suite_create("rpcs");
+	Suite *s = suite_create("rpcs1");
 
-	TCase *tc = tcase_create("basic");
+	TCase *tc = tcase_create("basic1");
 	tcase_add_checked_fixture(tc, setup, teardown);
 
 	tcase_add_test(tc, test_getProtocolVersion);
@@ -865,7 +930,7 @@ t_hl_rpc_basics_suite()
 
 	suite_add_tcase(s, tc);
 
-	tc = tcase_create("slow");
+	tc = tcase_create("slow1");
 	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
@@ -875,22 +940,23 @@ t_hl_rpc_basics_suite()
 	suite_add_tcase(s, tc);
 
 	/* My implementation of HDFS doesn't support this RPC. */
-	tc = tcase_create("broken");
+	(void)test_reportBadBlocks;
+#if 0
+	tc = tcase_create("broken1");
 	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_add_test(tc, test_reportBadBlocks);
-#if 0
 	suite_add_tcase(s, tc);
 #endif
 	return s;
 }
 
-Suite *
+static Suite *
 t_hl_rpc2_basics_suite()
 {
 	Suite *s = suite_create("rpcs2");
 
 	TCase *tc = tcase_create("basic2");
-	tcase_add_checked_fixture(tc, setup2, teardown);
+	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_add_test(tc, test_getServerDefaults);
 	tcase_add_test(tc, test_getBlockLocations2);
 	tcase_add_test(tc, test_create);
@@ -912,53 +978,16 @@ t_hl_rpc2_basics_suite()
 	suite_add_tcase(s, tc);
 
 	/* My implementation of HDFS doesn't support this RPC. */
+	(void)test_symlinks;
+#if 0
 	tc = tcase_create("broken2");
-	tcase_add_checked_fixture(tc, setup2, teardown);
+	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_add_test(tc, test_symlinks);
-#if 0
-	suite_add_tcase(s, tc);
-#endif
-
-	tc = tcase_create("basic22");
-	tcase_add_checked_fixture(tc, setup22, teardown);
-	tcase_add_test(tc, test_getServerDefaults);
-	tcase_add_test(tc, test_getBlockLocations2);
-	tcase_add_test(tc, test_create);
-	tcase_add_test(tc, test_append);
-	tcase_add_test(tc, test_setReplication);
-	tcase_add_test(tc, test_setPermission);
-	tcase_add_test(tc, test_setOwner);
-	tcase_add_test(tc, test_complete);
-	tcase_add_test(tc, test_rename);
-	tcase_add_test(tc, test_delete);
-	tcase_add_test(tc, test_mkdirs);
-	tcase_add_test(tc, test_getListing);
-	tcase_add_test(tc, test_renewLease);
-	tcase_add_test(tc, test_getFileInfo);
-	tcase_add_test(tc, test_setQuota);
-	tcase_add_test(tc, test_fsync);
-	tcase_add_test(tc, test_setTimes);
-	tcase_add_test(tc, test_recoverLease);
-	suite_add_tcase(s, tc);
-
-	/* My implementation of HDFS doesn't support this RPC. */
-	tc = tcase_create("broken22");
-	tcase_add_checked_fixture(tc, setup22, teardown);
-	tcase_add_test(tc, test_symlinks);
-#if 0
 	suite_add_tcase(s, tc);
 #endif
 
 	tc = tcase_create("slow2");
-	tcase_add_checked_fixture(tc, setup2, teardown);
-	tcase_set_timeout(tc, 30./*seconds*/);
-	tcase_add_test(tc, test_abandonBlock);
-	tcase_add_test(tc, test_addBlock);
-	tcase_add_test(tc, test_getContentSummary);
-	suite_add_tcase(s, tc);
-
-	tc = tcase_create("slow22");
-	tcase_add_checked_fixture(tc, setup22, teardown);
+	tcase_add_checked_fixture(tc, setup, teardown);
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
@@ -966,4 +995,66 @@ t_hl_rpc2_basics_suite()
 	suite_add_tcase(s, tc);
 
 	return s;
+}
+
+static Suite *
+t_hl_rpc22_basics_suite()
+{
+	Suite *s = suite_create("rpcs22");
+
+	TCase *tc = tcase_create("basic22");
+	tcase_add_checked_fixture(tc, setup, teardown);
+	tcase_add_test(tc, test_getServerDefaults);
+	tcase_add_test(tc, test_getBlockLocations2);
+	tcase_add_test(tc, test_create);
+	tcase_add_test(tc, test_append);
+	tcase_add_test(tc, test_setReplication);
+	tcase_add_test(tc, test_setPermission);
+	tcase_add_test(tc, test_setOwner);
+	tcase_add_test(tc, test_complete);
+	tcase_add_test(tc, test_rename);
+	tcase_add_test(tc, test_delete);
+	tcase_add_test(tc, test_mkdirs);
+	tcase_add_test(tc, test_getListing);
+	tcase_add_test(tc, test_renewLease);
+	tcase_add_test(tc, test_getFileInfo);
+	tcase_add_test(tc, test_setQuota);
+	tcase_add_test(tc, test_fsync);
+	tcase_add_test(tc, test_setTimes);
+	tcase_add_test(tc, test_recoverLease);
+	suite_add_tcase(s, tc);
+
+	/* My implementation of HDFS doesn't support this RPC. */
+	(void)test_symlinks;
+#if 0
+	tc = tcase_create("broken22");
+	tcase_add_checked_fixture(tc, setup, teardown);
+	tcase_add_test(tc, test_symlinks);
+	suite_add_tcase(s, tc);
+#endif
+
+	tc = tcase_create("slow22");
+	tcase_add_checked_fixture(tc, setup, teardown);
+	tcase_set_timeout(tc, 30./*seconds*/);
+	tcase_add_test(tc, test_abandonBlock);
+	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_getContentSummary);
+	suite_add_tcase(s, tc);
+
+	return s;
+}
+
+Suite *
+t_hl_rpc_basics_suite()
+{
+	switch (H_VER) {
+	case HDFS_NN_v1:
+		return t_hl_rpc1_basics_suite();
+	case HDFS_NN_v2:
+		return t_hl_rpc2_basics_suite();
+	case HDFS_NN_v2_2:
+		return t_hl_rpc22_basics_suite();
+	default:
+		assert(false);
+	}
 }

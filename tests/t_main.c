@@ -14,7 +14,9 @@
 
 #include "t_main.h"
 
-const char *H_ADDR, *H_USER = "root";
+const char *H_ADDR, *H_USER = "root", *H_PORT = "8020";
+enum hdfs_namenode_proto H_VER = _HDFS_NN_vLATEST; // XXX consider default version
+enum hdfs_kerb H_KERB = HDFS_NO_KERB;
 
 static const char *
 format_error(struct hdfs_error error)
@@ -27,46 +29,84 @@ format_error(struct hdfs_error error)
 }
 
 int
-main(int argc, char **argv)
+main()
 {
-	int64_t proto_ver;
 	struct hdfs_error error;
 	struct hdfs_namenode *nn;
-	struct hdfs_object *exception = NULL;
+	char *ver, *kerb;
 	bool success = true;
-	Suite *(*suites[])(void) = {
-		t_hl_rpc_basics_suite,
-		t_hl_rpc2_basics_suite,
-		t_datanode_basics_suite,
-		t_datanode2_basics_suite,
+	Suite *(* suites[])(void) = {
 		t_unit,
+		t_hl_rpc_basics_suite,
+		t_datanode_basics_suite
 	};
 	int rc;
 
-	if (!getenv(HDFS_T_ENV))
+#if 0
+	int64_t proto_ver;
+	struct hdfs_object *exception = NULL;
+#endif
+
+	if (!getenv(HDFS_T_ADDR))
 		errx(EXIT_FAILURE,
 		    "Please set %s to an HDFS host before running tests!",
-		    HDFS_T_ENV);
+		    HDFS_T_ADDR);
 
-	rc = sasl_client_init(NULL);
-	assert(rc == SASL_OK);
-
-	H_ADDR = strdup(getenv(HDFS_T_ENV));
+	H_ADDR = strdup(getenv(HDFS_T_ADDR));
 	assert(H_ADDR);
+
+	if (getenv(HDFS_T_PORT)) {
+		H_PORT = strdup(getenv(HDFS_T_PORT));
+		assert(H_PORT);
+	}
 
 	if (getenv(HDFS_T_USER)) {
 		H_USER = strdup(getenv(HDFS_T_USER));
 		assert(H_USER);
 	}
 
+	if ((ver = getenv(HDFS_T_VER)) != NULL) {
+		if (!strcmp(ver, "1")) {
+			H_VER = HDFS_NN_v1;
+		} else if (!strcmp(ver, "2")) {
+			H_VER = HDFS_NN_v2;
+		} else if (!strcmp(ver, "2.2")){
+			H_VER = HDFS_NN_v2_2;
+		} else { // XXX consider just using default on unrecognized
+			errx(EXIT_FAILURE, "HDFS version '%s' unsupported for testing", ver);
+		}
+	}
+
+	if ((kerb = getenv(HDFS_T_KERB)) != NULL) {
+		if (!strcmp(kerb, "try")) {
+			H_KERB = HDFS_TRY_KERB;
+		} else if (!strcmp(kerb, "require")) {
+			H_KERB = HDFS_REQUIRE_KERB;
+		} else if (!strcmp(kerb, "simple") || !strcmp(kerb, "none")
+		    || !strcmp(kerb, "no") || !strcmp(kerb, "")) {
+			H_KERB = HDFS_NO_KERB;
+		} else { // XXX consider just using default on unrecognized
+			errx(EXIT_FAILURE, "Kerberos setting '%s' unsupported for testing", kerb);
+		}
+	}
+
+	if (H_KERB != HDFS_NO_KERB) {
+		rc = sasl_client_init(NULL);
+		assert(rc == SASL_OK);
+	}
+
 	// Test basic connectivity
-	nn = hdfs_namenode_new_version(H_ADDR, "8020", "root", HDFS_NO_KERB,
-	    HDFS_NN_v1, &error);
+	nn = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
+	    H_VER, &error);
 	if (!nn)
 		errx(EXIT_FAILURE,
-		    "Could not connect to namenode %s: %s",
-		    H_ADDR, format_error(error));
+		    "Could not connect to %s=%s @ %s=%s (%s=%s): %s",
+		    HDFS_T_USER, H_USER, HDFS_T_ADDR, H_ADDR,
+		    HDFS_T_PORT, H_PORT, format_error(error));
 
+	// XXX this only works for v1. TODO remove, have a version switch, or do
+	// something version agnostic (getStats once it's implemented for v2+?)
+#if 0
 	// And verify liveness at a protocol level
 	proto_ver = hdfs_getProtocolVersion(nn, HADOOFUS_CLIENT_PROTOCOL_STR,
 	    61L, &exception);
@@ -77,21 +117,35 @@ main(int argc, char **argv)
 	if (proto_ver != 61L)
 		errx(EXIT_FAILURE,
 		    "Got unexpected protocol version: %ld", proto_ver);
+#endif
 
 	hdfs_namenode_delete(nn);
 
+	fprintf(stderr, "\n");
 	// Find and run all tests
 	for (size_t i = 0; i < nelem(suites); i++) {
 		Suite *s = suites[i]();
 		SRunner *sr = srunner_create(s);
 
-		srunner_run_all(sr, CK_NORMAL);
+		srunner_run_all(sr, CK_ENV);
+		fprintf(stderr, "\n");
 
 		if (srunner_ntests_failed(sr) > 0)
 			success = false;
 
 		srunner_free(sr);
 	}
+
+	if (H_KERB != HDFS_NO_KERB) {
+		rc = sasl_client_done();
+		assert(rc == SASL_OK);
+	}
+
+	free((char *)H_ADDR);
+	if (getenv(HDFS_T_PORT))
+		free((char *)H_PORT);
+	if (getenv(HDFS_T_USER))
+		free((char *)H_USER);
 
 	if (success)
 		return EXIT_SUCCESS;

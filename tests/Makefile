@@ -5,13 +5,13 @@ HEADERS = \
 
 TEST_SRCS = \
 			t_main.c \
-			t_datanode_basics.c \
-			t_hl_rpc_basics.c \
 			t_unit.c \
+			t_hl_rpc_basics.c \
+			t_datanode_basics.c
 
 PRIV_OBJS = \
 			../src/heapbuf.o \
-			../src/util.o \
+			../src/util.o
 
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)

@@ -14,15 +14,24 @@
 
 #include "t_main.h"
 
-const int towrite = 70*1024*1024,
-      blocksz = 64*1024*1024;
+static const int TOWRITE = 70*1024*1024,
+      BLOCKSZ = 64*1024*1024;
 static struct hdfs_namenode *h;
+static int dn_proto;
 char *buf, *rbuf;
 int fd, ofd;
 const char *localtf = "/tmp/HADOOFUS_TEST_WRITES",
       *localtf2 = "/tmp/HADOOFUS_TEST_WRITES.r";
 
 static bool	filecmp(int fd1, int fd2, off_t len);
+
+static inline off_t
+_min(off_t a, off_t b)
+{
+	if (a < b)
+		return a;
+	return b;
+}
 
 static uint64_t _now(void)
 {
@@ -44,45 +53,38 @@ format_error(struct hdfs_error error)
 }
 
 static void
-_setup_buf(enum hdfs_namenode_proto proto)
+setup_buf(void)
 {
 	struct hdfs_error err;
 
-	buf = malloc(towrite);
+	switch (H_VER) {
+	case HDFS_NN_v1:
+		dn_proto = HDFS_DATANODE_AP_1_0;
+		break;
+	case HDFS_NN_v2:
+	case HDFS_NN_v2_2:
+		dn_proto = HDFS_DATANODE_AP_2_0;
+		break;
+	default:
+		ck_abort_msg("Invalid namenode version (%d)", H_VER);
+	}
+
+	buf = malloc(TOWRITE);
 	ck_assert((intptr_t)buf);
-	rbuf = malloc(towrite);
+	rbuf = malloc(TOWRITE);
 	ck_assert((intptr_t)rbuf);
 
-	for (int i = 0; i < towrite; i++) {
+	for (int i = 0; i < TOWRITE; i++) {
 		buf[i] = '0' + (i%10);
 		rbuf[i] = 0;
 	}
 
-	h = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
-	    proto, &err);
-	ck_assert_msg((intptr_t)h, "Could not connect to %s=%s (port 8020): %s",
-	    HDFS_T_ENV, H_ADDR, format_error(err));
-}
-
-static void
-setup_buf(void)
-{
-
-	_setup_buf(HDFS_NN_v1);
-}
-
-static void
-setup_buf2(void)
-{
-
-	_setup_buf(HDFS_NN_v2);
-}
-
-static void
-setup_buf22(void)
-{
-
-	_setup_buf(HDFS_NN_v2_2);
+	h = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
+	    H_VER, &err);
+	ck_assert_msg((intptr_t)h,
+	    "Could not connect to %s=%s @ %s=%s (%s=%s): %s",
+	    HDFS_T_USER, H_USER, HDFS_T_ADDR, H_ADDR,
+	    HDFS_T_PORT, H_PORT, format_error(err));
 }
 
 static void
@@ -99,43 +101,22 @@ teardown_buf(void)
 
 
 static void
-_setup_file(enum hdfs_namenode_proto pr)
+setup_file(void)
 {
 	int rc, written = 0;
 
-	_setup_buf(pr);
+	setup_buf();
 
 	fd = open(localtf, O_RDWR|O_CREAT, 0600);
 	ck_assert_msg(fd != -1, "open failed: %s", strerror(errno));
 	ofd = open(localtf2, O_RDWR|O_CREAT, 0600);
 	ck_assert_msg(fd != -1, "open failed: %s", strerror(errno));
 
-	while (written < towrite) {
-		rc = write(fd, buf + written, towrite - written);
+	while (written < TOWRITE) {
+		rc = write(fd, buf + written, TOWRITE - written);
 		ck_assert_msg(rc > 0, "write failed: %s", strerror(errno));
 		written += rc;
 	}
-}
-
-static void
-setup_file(void)
-{
-
-	_setup_file(HDFS_NN_v1);
-}
-
-static void
-setup_file2(void)
-{
-
-	_setup_file(HDFS_NN_v2);
-}
-
-static void
-setup_file22(void)
-{
-
-	_setup_file(HDFS_NN_v2_2);
 }
 
 static void
@@ -158,87 +139,100 @@ START_TEST(test_dn_write_buf)
 
 	struct hdfs_error err;
 	struct hdfs_datanode *dn;
-	struct hdfs_object *e = NULL, *bl, *fs, *bls;
+	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
 	uint64_t begin, end;
+	int replication = 1, wblk, wtot = 0;
 
-	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (H_VER > HDFS_NN_v1) {
+		fsd = hdfs2_getServerDefaults(h, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		replication = fsd->ob_val._server_defaults._replication;
+		// XXX TODO blocksize?
+		hdfs_object_free(fsd);
+	}
+
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		// XXX TODO fileid?
+		hdfs_object_free(fs);
+	}
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
-	    false/*createparent*/, 1/*replication*/, blocksz, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-
+	// Write to the new file
 	begin = _now();
+	do {
+		wblk = _min(TOWRITE - wtot, BLOCKSZ);
 
-	// write first block (full)
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
-	    format_error(err),
-	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._hostname,
-	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-	hdfs_object_free(bl);
+		err = hdfs_datanode_write(dn, buf + wtot, wblk);
+		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
 
-	err = hdfs_datanode_write(dn, buf, blocksz, _i/*crcs*/);
-	fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		hdfs_datanode_delete(dn);
 
-	hdfs_datanode_delete(dn);
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(bl);
+		prev->ob_val._block._length += wblk;
+		// XXX _generation?
+		hdfs_object_free(bl);
 
-	// write second block (partial)
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		wtot += wblk;
+	} while (wtot < TOWRITE);
 
-	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
 
-	hdfs_object_free(bl);
-
-	err = hdfs_datanode_write(dn, buf+blocksz, towrite-blocksz, _i/*crcs*/);
-	fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
-
-	hdfs_datanode_delete(dn);
+	hdfs_object_free(prev);
 
 	end = _now();
 	fprintf(stderr, "Wrote %d MB from buf in %ld ms%s, %02g MB/s\n",
-	    towrite/1024/1024, end - begin, _i? " (with crcs)":"",
-	    (double)towrite/(end-begin)/1024*1000/1024);
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == towrite);
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(fs->ob_val._file_status._size == TOWRITE);
 	hdfs_object_free(fs);
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	s = hdfs_complete(h, tf, client, NULL, 0, &e);
+	// Read the file back
+	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-	ck_assert_msg(s, "did not complete");
-
-	bls = hdfs_getBlockLocations(h, tf, 0, towrite, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
-		dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
-		    bl->ob_val._located_block._len,
-		    rbuf + i*blocksz,
-		    _i/*crcs*/);
+		    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ);
 
 		hdfs_datanode_delete(dn);
 
@@ -249,13 +243,11 @@ START_TEST(test_dn_write_buf)
 
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
-			dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
+			dn = hdfs_datanode_new(bl, client, dn_proto, 0/*crcs*/, &err);
 			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
-			    bl->ob_val._located_block._len,
-			    rbuf + i*blocksz,
-			    false/*crcs*/);
+			    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ);
 
 			hdfs_datanode_delete(dn);
 		}
@@ -263,16 +255,223 @@ START_TEST(test_dn_write_buf)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n",
-	    towrite/1024/1024, end - begin, _i? " (with crcs)":"",
-	    (double)towrite/(end-begin)/1024*1000/1024);
+	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(buf, rbuf, towrite), "read differed from write");
+	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
+START_TEST(test_dn_append_buf)
+{
+	const char *tf = "/HADOOFUS_TEST_APPEND",
+	      *client = "HADOOFUS_CLIENT";
+	bool s;
+
+	struct hdfs_error err;
+	struct hdfs_datanode *dn;
+	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
+	uint64_t begin, end;
+	int replication = 1, wblk, wtot = 0, towrite_first, towrite_append;
+	bool first = true;
+
+	if (H_VER > HDFS_NN_v1) {
+		fsd = hdfs2_getServerDefaults(h, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		replication = fsd->ob_val._server_defaults._replication;
+		hdfs_object_free(fsd);
+	}
+
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
+
+	towrite_first = (TOWRITE / 3 - 1357) | 0x1;
+	if (towrite_first % BLOCKSZ == 0)
+		towrite_first -= BLOCKSZ / 3;
+	towrite_append = TOWRITE - towrite_first;
+	ck_assert_int_gt(towrite_first,  0);
+	ck_assert_int_gt(towrite_append,  0);
+
+	// Write the first amount
+	begin = _now();
+	do {
+		wblk = _min(towrite_first - wtot, BLOCKSZ);
+
+		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+		err = hdfs_datanode_write(dn, buf + wtot, wblk);
+		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+
+		hdfs_datanode_delete(dn);
+
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(bl);
+		prev->ob_val._block._length += wblk;
+		// XXX _generation?
+		hdfs_object_free(bl);
+
+		wtot += wblk;
+	} while (wtot < towrite_first);
+
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
+
+	hdfs_object_free(prev);
+
+	end = _now();
+	fprintf(stderr, "Wrote initial %d MB from buf in %ld ms%s, %02g MB/s\n",
+	    towrite_first/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)towrite_first/(end-begin)/1024*1000/1024);
+
+	fs = hdfs_getFileInfo(h, tf, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(fs->ob_val._file_status._size == towrite_first);
+	hdfs_object_free(fs);
+
+	// Append the rest of the data
+	begin = _now();
+	do {
+		if (first) { // Only write up to a complete block
+			first = false;
+			prev = NULL;
+			wblk = _min(TOWRITE - wtot, BLOCKSZ - (wtot % BLOCKSZ));
+			bl = hdfs_append(h, tf, client, &e);
+		} else  {
+			wblk = _min(TOWRITE - wtot, BLOCKSZ);
+			bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		}
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+		err = hdfs_datanode_write(dn, buf + wtot, wblk);
+		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+
+		hdfs_datanode_delete(dn);
+
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(bl);
+		prev->ob_val._block._length += wblk;
+		// XXX _generation?
+		hdfs_object_free(bl);
+
+		wtot += wblk;
+	} while (wtot < TOWRITE);
+
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
+
+	hdfs_object_free(prev);
+
+	end = _now();
+	fprintf(stderr, "Appended %d MB from buf in %ld ms%s, %02g MB/s\n",
+	    towrite_append/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)towrite_append/(end-begin)/1024*1000/1024);
+
+	fs = hdfs_getFileInfo(h, tf, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(fs->ob_val._file_status._size == TOWRITE);
+	hdfs_object_free(fs);
+
+	// Read the file back
+	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	begin = _now();
+	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
+		struct hdfs_object *bl =
+		    bls->ob_val._located_blocks._blocks[i];
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
+		    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ);
+
+		hdfs_datanode_delete(dn);
+
+		if (err.her_kind == he_hdfserr && err.her_num == HDFS_ERR_DATANODE_NO_CRCS) {
+			fprintf(stderr, "Warning: test server doesn't support "
+			    "CRCs, skipping validation.\n");
+			_i = 0;
+
+			// reconnect, try again without validating CRCs (for
+			// isi_hdfs_d)
+			dn = hdfs_datanode_new(bl, client, dn_proto, 0/*crcs*/, &err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
+			    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ);
+
+			hdfs_datanode_delete(dn);
+		}
+
+		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+	}
+	end = _now();
+	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
+
+	hdfs_object_free(bls);
+	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -285,84 +484,101 @@ START_TEST(test_dn_write_file)
 
 	struct hdfs_error err;
 	struct hdfs_datanode *dn;
-	struct hdfs_object *e = NULL, *bl, *fs, *bls;
+	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
 	uint64_t begin, end;
+	int replication = 1, wblk, wtot = 0;
 
-	s = hdfs_delete(h, tf, false/*recurse*/, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+	if (H_VER > HDFS_NN_v1) {
+		fsd = hdfs2_getServerDefaults(h, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		replication = fsd->ob_val._server_defaults._replication;
+		hdfs_object_free(fsd);
+	}
 
-	hdfs_create(h, tf, 0644, client, true/*overwrite*/,
-	    false/*createparent*/, 1/*replication*/, blocksz, &e);
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
 
 	begin = _now();
 
-	// write first block (full)
-	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+	// Write to the new file
+	do {
+		wblk = _min(TOWRITE - wtot, BLOCKSZ);
 
-	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	hdfs_object_free(bl);
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-	err = hdfs_datanode_write_file(dn, fd, blocksz, 0, _i/*crcs*/);
-	fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		err = hdfs_datanode_write_file(dn, fd, wblk/*len*/, wtot/*offset*/);
+		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
 
-	hdfs_datanode_delete(dn);
+		hdfs_datanode_delete(dn);
 
-	// write second block (partial)
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(bl);
+		prev->ob_val._block._length += wblk;
+		// XXX _generation?
+		hdfs_object_free(bl);
 
-	dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
-	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+		wtot += wblk;
+	} while (wtot < TOWRITE);
 
-	hdfs_object_free(bl);
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
 
-	err = hdfs_datanode_write_file(dn, fd, towrite-blocksz, blocksz, _i/*crcs*/);
-	fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
-
-	hdfs_datanode_delete(dn);
+	hdfs_object_free(prev);
 
 	end = _now();
 	fprintf(stderr, "Wrote %d MB from file in %ld ms%s, %02g MB/s\n",
-	    towrite/1024/1024, end - begin, _i? " (with crcs)":"",
-	    (double)towrite/(end-begin)/1024*1000/1024);
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == towrite);
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(fs->ob_val._file_status._size == TOWRITE);
 	hdfs_object_free(fs);
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	s = hdfs_complete(h, tf, client, NULL, 0, &e);
+	// Read the file back
+	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-	ck_assert_msg(s, "did not complete");
-
-	bls = hdfs_getBlockLocations(h, tf, 0, towrite, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
-		dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, _i/*crcs*/, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 		err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
 		    bl->ob_val._located_block._len,
 		    ofd,
-		    i*blocksz/*fd offset*/,
-		    _i/*crcs*/);
+		    i*BLOCKSZ/*fd offset*/);
 
 		hdfs_datanode_delete(dn);
 
@@ -373,14 +589,13 @@ START_TEST(test_dn_write_file)
 
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
-			dn = hdfs_datanode_new(bl, client, HDFS_DATANODE_AP_1_0, &err);
+			dn = hdfs_datanode_new(bl, client, dn_proto, 0/*crcs*/, &err);
 			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 			err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
 			    bl->ob_val._located_block._len,
 			    ofd,
-			    i*blocksz,
-			    false/*crcs*/);
+			    i*BLOCKSZ);
 
 			hdfs_datanode_delete(dn);
 		}
@@ -388,16 +603,16 @@ START_TEST(test_dn_write_file)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to file in %ld ms%s, %02g MB/s\n",
-	    towrite/1024/1024, end - begin, _i? " (with crcs)":"",
-	    (double)towrite/(end-begin)/1024*1000/1024);
+	fprintf(stderr, "Read %d MB to file in %ld ms%s, %02g MB/s\n\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(filecmp(fd, ofd, towrite), "read differed from write");
+	fail_if(filecmp(fd, ofd, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -417,23 +632,23 @@ START_TEST(test_short_read)
 	e = NULL;
 	dn = NULL;
 
-	nn = hdfs_namenode_new_version(H_ADDR, "8020", H_USER, HDFS_NO_KERB,
-	    HDFS_NN_v2, &errs);
+	nn = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
+	    H_VER, &errs);
 	ck_assert_msg(nn != NULL, "nn_new: %s", format_error(errs));
 
 	bls = hdfs_getBlockLocations(nn, "/README.txt", 0, 10*1024, &e);
 	if (e)
-		ck_abort_msg("exception: %s", hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	if (bls->ob_type == H_NULL ||
+	if (!bls || bls->ob_type == H_NULL ||
 	    bls->ob_val._located_blocks._num_blocks == 0)
 		goto out;
 
 	bl = bls->ob_val._located_blocks._blocks[0];
-	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", dn_proto, 0/*crcs*/, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
 
-	errs = hdfs_datanode_read(dn, 0, 1032, abuf, false/*verifycrcs*/);
+	errs = hdfs_datanode_read(dn, 0, 1032, abuf);
 	ck_assert_msg(!hdfs_is_error(errs), "dn_read: %s", format_error(errs));
 
 #if 0
@@ -451,7 +666,7 @@ START_TEST(test_short_write)
 	const char *tf = "/HADOOFUS_TEST2_WRITE_SHORT",
 	      *client = "HADOOFUS_CLIENT";
 	struct hdfs_datanode *dn;
-	struct hdfs_object *e, *bl, *fs;
+	struct hdfs_object *e, *bl, *fs, *last;
 	struct hdfs_error errs;
 
 	e = NULL;
@@ -459,58 +674,66 @@ START_TEST(test_short_write)
 
 	hdfs_delete(h, tf, false, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	hdfs_create(h, tf, 0644, client, true, false, 1, blocksz, &e);
+	hdfs_create(h, tf, 0644, client, true, false, 1, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
 	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, 0/*crcs*/, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
 
-	errs = hdfs_datanode_write(dn, buf, 33128, false);
+	errs = hdfs_datanode_write(dn, buf, 33128);
 	ck_assert_msg(!hdfs_is_error(errs), "dn_read: %s", format_error(errs));
 
 	hdfs_datanode_delete(dn);
+
+	last = hdfs_block_from_located_block(bl);
+	last->ob_val._block._length += 33128;
 	hdfs_object_free(bl);
+
+	hdfs_complete(h, tf, client, last, 0/*fileid?*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert(fs->ob_val._file_status._size == 33128);
 	hdfs_object_free(fs);
 
-	// XXX this must be updated to cover v2.0+ (last_block/fileid)
-	hdfs_complete(h, tf, client, NULL, 0, &e);
-	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
-
 	hdfs_delete(h, tf, false, &e);
 	if (e)
-		fail("exception: %s", hdfs_exception_get_message(e));
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 }
 END_TEST
 
-Suite *
-t_datanode_basics_suite()
+static Suite *
+t_datanode1_basics_suite()
 {
-	Suite *s = suite_create("datanode");
+	Suite *s = suite_create("datanode1");
 
-	TCase *tc = tcase_create("buf"), *tc2;
-	tcase_add_unchecked_fixture(tc, setup_buf, teardown_buf);
+	// The test fixtures here must be checked, not unchecked, (i.e. they
+	// must be run within the forked address spaces) or we must run the
+	// suites in No Fork mode since otherwise RPC msgnos end up getting
+	// reused between unit tests within the test case for the same namenode
+	// connection, leading to test failure (hdfs raises exceptions)
+
+	TCase *tc = tcase_create("buf1"), *tc2;
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_buf, 0, 2);
+	tcase_add_loop_test(tc, test_dn_append_buf, 0, 2);
 
 	suite_add_tcase(s, tc);
 
-	tc2 = tcase_create("file");
-	tcase_add_unchecked_fixture(tc2, setup_file, teardown_file);
+	tc2 = tcase_create("file1");
+	tcase_add_checked_fixture(tc2, setup_file, teardown_file);
 	tcase_set_timeout(tc2, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc2, test_dn_write_file, 0, 2);
@@ -520,49 +743,40 @@ t_datanode_basics_suite()
 	return s;
 }
 
-Suite *
+static Suite *
 t_datanode2_basics_suite()
 {
 	Suite *s;
 	TCase *tc;
 
+	// The test fixtures here must be checked, not unchecked, (i.e. they
+	// must be run within the forked address spaces) or we must run the
+	// suites in No Fork mode since otherwise RPC msgnos end up getting
+	// reused between unit tests within the test case for the same namenode
+	// connection, leading to test failure (hdfs raises exceptions)
+
 	s = suite_create("datanode2");
 
 	tc = tcase_create("dn2_short");
-	tcase_add_unchecked_fixture(tc, setup_buf2, teardown_buf);
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_add_test(tc, test_short_read);
 	tcase_add_test(tc, test_short_write);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("buf2");
-	tcase_add_unchecked_fixture(tc, setup_buf2, teardown_buf);
+	/* tcase_add_unchecked_fixture(tc, setup_buf, teardown_buf); */
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
-
-	suite_add_tcase(s, tc);
-
-	tc = tcase_create("buf22");
-	tcase_add_unchecked_fixture(tc, setup_buf22, teardown_buf);
-	tcase_set_timeout(tc, 2*60/*2 minutes*/);
-	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
+	tcase_add_loop_test(tc, test_dn_append_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
 
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("file2");
-	tcase_add_unchecked_fixture(tc, setup_file2, teardown_file);
-	tcase_set_timeout(tc, 2*60/*2 minutes*/);
-	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
-	    HDFS_CSUM_CRC32C + 1);
-
-	suite_add_tcase(s, tc);
-
-	tc = tcase_create("file22");
-	tcase_add_unchecked_fixture(tc, setup_file22, teardown_file);
+	tcase_add_checked_fixture(tc, setup_file, teardown_file);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
@@ -571,6 +785,58 @@ t_datanode2_basics_suite()
 	suite_add_tcase(s, tc);
 
 	return s;
+}
+
+static Suite *
+t_datanode22_basics_suite()
+{
+	Suite *s;
+	TCase *tc;
+
+	// The test fixtures here must be checked, not unchecked, (i.e. they
+	// must be run within the forked address spaces) or we must run the
+	// suites in No Fork mode since otherwise RPC msgnos end up getting
+	// reused between unit tests within the test case for the same namenode
+	// connection, leading to test failure (hdfs raises exceptions)
+
+	s = suite_create("datanode22");
+
+	tc = tcase_create("buf22");
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+	tcase_add_loop_test(tc, test_dn_append_buf, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("file22");
+	tcase_add_checked_fixture(tc, setup_file, teardown_file);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	return s;
+}
+
+Suite *
+t_datanode_basics_suite()
+{
+	switch (H_VER) {
+	case HDFS_NN_v1:
+		return t_datanode1_basics_suite();
+	case HDFS_NN_v2:
+		return t_datanode2_basics_suite();
+	case HDFS_NN_v2_2:
+		return t_datanode22_basics_suite();
+	default:
+		assert(false);
+	}
 }
 
 bool
