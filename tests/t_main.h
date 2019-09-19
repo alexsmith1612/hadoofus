@@ -14,6 +14,7 @@
 Suite *		t_hl_rpc_basics_suite(void);
 Suite *		t_datanode_basics_suite(void);
 Suite *		t_unit(void);
+Suite *		t_namenode_nb_suite(void);
 
 extern const char *H_ADDR, *H_USER, *H_PORT;
 extern enum hdfs_namenode_proto H_VER;

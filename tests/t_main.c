@@ -38,6 +38,7 @@ main()
 	Suite *(* suites[])(void) = {
 		t_unit,
 		t_hl_rpc_basics_suite,
+		t_namenode_nb_suite,
 		t_datanode_basics_suite
 	};
 	int rc;
