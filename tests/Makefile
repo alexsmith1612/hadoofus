@@ -7,6 +7,7 @@ TEST_SRCS = \
 			t_main.c \
 			t_unit.c \
 			t_hl_rpc_basics.c \
+			t_namenode_nb.c \
 			t_datanode_basics.c
 
 PRIV_OBJS = \
