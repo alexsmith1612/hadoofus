@@ -8,7 +8,8 @@ TEST_SRCS = \
 			t_unit.c \
 			t_hl_rpc_basics.c \
 			t_namenode_nb.c \
-			t_datanode_basics.c
+			t_datanode_basics.c \
+			t_datanode_nb.c
 
 PRIV_OBJS = \
 			../src/heapbuf.o \
