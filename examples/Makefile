@@ -6,7 +6,6 @@ FLAGS = -Wall -Wextra -Werror $(CFLAGS) -g -I../include -I/usr/local/include
 BIN = \
 	  helloworld \
 	  hl-hello \
-	  mt-hello \
 	  kerb \
 
 LIB = ../src/libhadoofus.so
@@ -14,9 +13,6 @@ LIB = ../src/libhadoofus.so
 all: $(BIN)
 
 helloworld: helloworld.c $(LIB)
-	$(CC) $(FLAGS) $< -o $@ $(LIBS)
-
-mt-hello: mt-hello.c $(LIB)
 	$(CC) $(FLAGS) $< -o $@ $(LIBS)
 
 hl-hello: hl-hello.c $(LIB)
