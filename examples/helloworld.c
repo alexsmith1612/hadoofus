@@ -1,3 +1,5 @@
+#include <assert.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +18,8 @@ main(int argc, char **argv)
 	struct hdfs_error err;
 
 	struct hdfs_object *rpc;
-	struct hdfs_rpc_response_future *future;
 	struct hdfs_object *object;
+	int64_t msgno_invoke, msgno_recv;
 
 	if (argc > 1) {
 		if (strcmp(argv[1], "-h") == 0) {
@@ -41,21 +43,37 @@ main(int argc, char **argv)
 		goto out;
 
 	// Call getProtocolVersion(61)
-	future = hdfs_rpc_response_future_alloc();
-	hdfs_rpc_response_future_init(future);
 	rpc = hdfs_rpc_invocation_new(
 	    "getProtocolVersion",
 	    hdfs_string_new(HADOOFUS_CLIENT_PROTOCOL_STR),
 	    hdfs_long_new(61),
 	    NULL);
-	err = hdfs_namenode_invoke(&namenode, rpc, future);
+	err = hdfs_namenode_invoke(&namenode, rpc, &msgno_invoke, NULL);
 	hdfs_object_free(rpc);
+	while (hdfs_is_again(err)) {
+		err = hdfs_namenode_invoke_continue(&namenode);
+	}
 	if (hdfs_is_error(err))
 		goto out;
 
 	// Get the response (should be long(61))
-	hdfs_future_get(future, &object);
-	hdfs_rpc_response_future_free(&future);
+	do {
+		err = hdfs_namenode_recv(&namenode, &object, &msgno_recv, NULL);
+		if (hdfs_is_again(err)) {
+			struct hdfs_error ret;
+			struct pollfd pfd;
+
+			ret = hdfs_namenode_get_eventfd(&namenode, &pfd.fd, &pfd.events);
+			if (hdfs_is_error(ret)) {
+				err = ret;
+				goto out;
+			}
+			/* RC */poll(&pfd, 1, -1);
+		}
+	} while (hdfs_is_again(err));
+	if (hdfs_is_error(err))
+		goto out;
+	assert(msgno_recv == msgno_invoke);
 
 	if (object->ob_type == H_LONG &&
 	    object->ob_val._long._val == 61L)
