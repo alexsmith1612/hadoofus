@@ -305,8 +305,10 @@ struct hdfs_datanode_info {
 	char *_location/* rack */;
 	char *_ipaddr,
 	     *_hostname,
-	     *_port;
-	uint16_t _namenodeport;
+	     *_port,
+	     *_uuid;
+	uint16_t _namenodeport,
+		 _infoport;
 	/* "name" is hostname:port, "hostname" is just hostname */
 };
 
@@ -479,7 +481,7 @@ struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
 struct hdfs_object *	hdfs_located_directory_listing_new(void);
 struct hdfs_object *	hdfs_datanode_info_new(const char *ipaddr, const char *host, const char *port,
-			const char *rack, uint16_t namenodeport);
+			const char *rack, const char *uuid, uint16_t namenodeport, uint16_t infoport);
 struct hdfs_object *	hdfs_datanode_info_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_datanode_info_new(void);
 struct hdfs_object *	hdfs_array_datanode_info_copy(struct hdfs_object *);

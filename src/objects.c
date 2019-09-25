@@ -541,18 +541,20 @@ _hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *list)
 
 EXPORT_SYM struct hdfs_object *
 hdfs_datanode_info_new(const char *ipaddr, const char *host, const char *port, const char *rack,
-	uint16_t namenodeport) // "/default-rack"
+	const char *uuid, uint16_t namenodeport, uint16_t infoport)
 {
 	char *rack_copy = strdup(rack),
 	     *ipaddr_copy = strdup(ipaddr),
 	     *host_copy = strdup(host),
-	     *port_copy = strdup(port);
+	     *port_copy = strdup(port),
+	     *uuid_copy = strdup(uuid);
 	struct hdfs_object *r = _objmalloc();
 
 	ASSERT(rack_copy);
 	ASSERT(ipaddr_copy);
 	ASSERT(host_copy);
 	ASSERT(port_copy);
+	ASSERT(uuid_copy);
 
 	r->ob_type = H_DATANODE_INFO;
 	r->ob_val._datanode_info = (struct hdfs_datanode_info) {
@@ -560,7 +562,9 @@ hdfs_datanode_info_new(const char *ipaddr, const char *host, const char *port, c
 		._ipaddr = ipaddr_copy,
 		._hostname = host_copy,
 		._port = port_copy,
+		._uuid = uuid_copy,
 		._namenodeport = namenodeport,
+		._infoport = infoport,
 	};
 	return r;
 }
@@ -574,7 +578,7 @@ _hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *pr)
 
 	return hdfs_datanode_info_new(pr->id->ipaddr, pr->id->hostname,
 	    dn_port_str, pr->location ? pr->location : "",
-	    pr->id->ipcport);
+	    pr->id->datanodeuuid, pr->id->ipcport, pr->id->infoport);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -584,8 +588,10 @@ hdfs_datanode_info_copy(struct hdfs_object *src)
 	char *rack_copy,
 	     *ipaddr_copy,
 	     *host_copy,
-	     *port_copy;
-	uint16_t namenodeport;
+	     *port_copy,
+	     *uuid_copy;
+	uint16_t namenodeport,
+		 infoport;
 
 	ASSERT(src);
 	ASSERT(src->ob_type == H_DATANODE_INFO);
@@ -594,12 +600,15 @@ hdfs_datanode_info_copy(struct hdfs_object *src)
 	ipaddr_copy = strdup(src->ob_val._datanode_info._ipaddr);
 	host_copy = strdup(src->ob_val._datanode_info._hostname);
 	port_copy = strdup(src->ob_val._datanode_info._port);
+	uuid_copy = strdup(src->ob_val._datanode_info._uuid);
 	namenodeport = src->ob_val._datanode_info._namenodeport;
+	infoport = src->ob_val._datanode_info._infoport;
 
 	ASSERT(rack_copy);
 	ASSERT(ipaddr_copy);
 	ASSERT(host_copy);
 	ASSERT(port_copy);
+	ASSERT(uuid_copy);
 
 	r->ob_type = H_DATANODE_INFO;
 	r->ob_val._datanode_info = (struct hdfs_datanode_info) {
@@ -607,7 +616,9 @@ hdfs_datanode_info_copy(struct hdfs_object *src)
 		._ipaddr = ipaddr_copy,
 		._hostname = host_copy,
 		._port = port_copy,
+		._uuid = uuid_copy,
 		._namenodeport = namenodeport,
+		._infoport = infoport,
 	};
 	return r;
 }
@@ -1411,6 +1422,7 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._datanode_info._ipaddr);
 		free(obj->ob_val._datanode_info._hostname);
 		free(obj->ob_val._datanode_info._port);
+		free(obj->ob_val._datanode_info._uuid);
 		break;
 	case H_ARRAY_DATANODE_INFO:
 		FREE_H_ARRAY(obj->ob_val._array_datanode_info._values,

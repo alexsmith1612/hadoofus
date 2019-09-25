@@ -785,7 +785,8 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		Hadoop__Hdfs__ChecksumProto csum = HADOOP__HDFS__CHECKSUM_PROTO__INIT;
 		Hadoop__Hdfs__OpWriteBlockProto op = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__INIT;
 
-		// TODO add DatanodeInfoProto targets for proper pipeline creation
+		Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+		Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
 
 		struct hdfs_token *h_token;
 		size_t sz;
@@ -820,6 +821,42 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 
 		op.header = &hdr;
 
+		// Tell this datanode about the others in the pipeline
+		if (d->dn_nlocs > 1) {
+			// TODO try to avoid these local malloc()s
+			op.n_targets = d->dn_nlocs - 1;
+			op.targets = malloc(op.n_targets * sizeof(*op.targets));
+			ASSERT(op.targets);
+			dinfo_arr = malloc(op.n_targets * sizeof(*dinfo_arr));
+			ASSERT(dinfo_arr);
+			did_arr = malloc(op.n_targets * sizeof(*did_arr));
+			ASSERT(did_arr);
+
+			for (unsigned i = 0; i < op.n_targets; i++) {
+				struct hdfs_datanode_info *h_dinfo = &d->dn_locs[i + 1]->ob_val._datanode_info;
+				Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+				Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+				hadoop__hdfs__datanode_info_proto__init(dinfo);
+				hadoop__hdfs__datanode_idproto__init(did);
+
+				did->ipaddr = h_dinfo->_ipaddr;
+				did->hostname = h_dinfo->_hostname;
+				did->datanodeuuid = h_dinfo->_uuid;
+				did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+				did->infoport = h_dinfo->_infoport;
+				did->ipcport = h_dinfo->_namenodeport;
+
+				dinfo->id = did;
+				if (h_dinfo->_location[0] != '\0')
+					dinfo->location = h_dinfo->_location;
+				// All of the other fields are listed as optional. It's unclear
+				// what's actually necessary to include here
+
+				op.targets[i] = dinfo;
+			}
+		}
+
 		// XXX TODO add support for recovery stages. Need to look into this more,
 		// but there likely needs to be a way for the user to specify the offset
 		// into the block at which they will begin writing (since they would start
@@ -836,7 +873,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
 
 		/* Not sure about any of this: */
-		op.pipelinesize = 1; // XXX TODO update when adding proper pipeline creation
+		op.pipelinesize = d->dn_nlocs;
 		op.minbytesrcvd = d->dn_size;
 		op.maxbytesrcvd = d->dn_size;
 		op.latestgenerationstamp = d->dn_gen;
@@ -847,6 +884,12 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		_hbuf_reserve(h, sz);
 		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
 		_hbuf_append(h, sz);
+
+		if (d->dn_nlocs > 1) {
+			free(dinfo_arr);
+			free(did_arr);
+			free(op.targets);
+		}
 	} else {
 		// TODO pipelining/datanode targets?
 		_bappend_s64(h, d->dn_blkid);
@@ -1139,6 +1182,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		d->dn_pstate.recvbuf = &d->dn_recvbuf;
 		d->dn_pstate.proto = d->dn_proto;
 		d->dn_pstate.offset = d->dn_size;
+		d->dn_pstate.pipelinesize = d->dn_nlocs;
 		d->dn_state = HDFS_DN_ST_PKT;
 		// fall through
 	case HDFS_DN_ST_PKT:
@@ -2018,7 +2062,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ASSERT(obuf.used >= 0); // should not be able to fail
 
 		// We only connect to one datanode, we should only get one ack:
-		if (nacks != 1) { // XXX TODO update when proper pipelining implemented
+		if (nacks != 1) { // XXX TODO update when proper pipelining implemented for v1
 			error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 			goto out;
 		}
@@ -2038,7 +2082,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ps->unacked.ua_num--;
 	} else {
 		error = error_from_datanode(ack);
-		*err_idx = 0; // XXX TODO change this when implementing full pipelining
+		*err_idx = 0; // XXX TODO change this when implementing full pipelining for v1
 	}
 
 	// Skip the recv buffer past the ack
@@ -2124,8 +2168,9 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		goto out;
 	}
 
-	// We only connect to one datanode, we should only get one ack:
-	if (ack->n_reply != 1) { // XXX TODO update when proper pipelining implemented
+	// First check that we don't have too many replies, but still check the statuses
+	// if there are too few in order to report err_idx
+	if (ack->n_reply > ps->pipelinesize) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 		goto out;
 	}
@@ -2136,6 +2181,13 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 			*err_idx = i;
 			goto out;
 		}
+	}
+
+	// Now that we've confirmed all of the replies are success, ensure that we got the
+	// correct number of replies
+	if (ack->n_reply != ps->pipelinesize) {
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
+		goto out;
 	}
 
 	// Pop the length of this acked packet off of the list

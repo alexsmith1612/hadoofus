@@ -276,7 +276,7 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 	     *location = NULL,
 	     *hostname = NULL,
 	     *adminstate = NULL;
-	uint16_t rpcport;
+	uint16_t rpcport, infoport;
 
 	/* datanodeId {{{ */
 	name = _bslurp_string(b);
@@ -285,7 +285,7 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 	sid = _bslurp_string(b);
 	if (b->used < 0)
 		goto out;
-	/*infoport = (uint16_t)*/_bslurp_s16(b);
+	infoport = (uint16_t)_bslurp_s16(b);
 	if (b->used < 0)
 		goto out;
 	/* }}} */
@@ -332,7 +332,8 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 	port++;
 	// For simplicity, use hostname for ipaddr (in the v1 implementation hadoofus
 	// was originally tested with, the hostname was an ipaddr anyways)
-	res = hdfs_datanode_info_new(hostname/*ipaddr*/, hostname, port, location, rpcport);
+	res = hdfs_datanode_info_new(hostname/*ipaddr*/, hostname, port, location,
+	     ""/*uuid*/, rpcport, infoport);
 
 out:
 	if (name)

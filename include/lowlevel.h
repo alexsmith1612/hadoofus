@@ -101,6 +101,7 @@ struct hdfs_packet_state {
 	int sock,
 	    proto,
 	    fd;
+	unsigned pipelinesize;
 	bool sendcrcs;
 	struct hdfs_unacked_packets unacked;
 };
