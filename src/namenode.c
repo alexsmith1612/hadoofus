@@ -302,13 +302,7 @@ hdfs_namenode_auth_nb_init_full(struct hdfs_namenode *n, const char *username,
 	ASSERT(n->nn_state >= HDFS_NN_ST_INITED && n->nn_state < HDFS_NN_ST_AUTHPENDING);
 	ASSERT(!n->nn_authhdr);
 
-	// XXX why is this forced to HDFS_NO_KERB for v1?
-	n->nn_authhdr = hdfs_authheader_new_ext(n->nn_proto, username, real_user,
-	    n->nn_proto == HDFS_NN_v1 ? HDFS_NO_KERB : n->nn_kerb);
-
-	if (n->nn_proto == HDFS_NN_v2_2)
-		_authheader_set_clientid(n->nn_authhdr, n->nn_client_id);
-
+	n->nn_authhdr = hdfs_authheader_new_ext(username, real_user);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -444,7 +438,8 @@ _namenode_auth_simple(struct hdfs_namenode *n)
 		_hbuf_append(&n->nn_sendbuf, preamble_len);
 		// Serialize the connection header object (I am speaking ClientProtocol
 		// and this is my username)
-		hdfs_object_serialize(&n->nn_sendbuf, n->nn_authhdr);
+		_hdfs_serialize_authheader(&n->nn_sendbuf, n->nn_authhdr, n->nn_proto,
+		    n->nn_kerb, n->nn_client_id);
 		n->nn_state = HDFS_NN_ST_AUTHPENDING;
 		// fall through
 	case HDFS_NN_ST_AUTHPENDING:
@@ -458,7 +453,7 @@ _namenode_auth_simple(struct hdfs_namenode *n)
 			goto out;
 		// Fully sent auth header
 		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
-		hdfs_object_free(n->nn_authhdr);
+		hdfs_authheader_free(n->nn_authhdr);
 		n->nn_authhdr = NULL;
 		n->nn_state = HDFS_NN_ST_RPC;
 		break;
@@ -540,7 +535,7 @@ _namenode_auth_kerb(struct hdfs_namenode *n)
 			goto out;
 		}
 		ASSERT(_hbuf_readlen(&n->nn_sendbuf) == 0);
-		hdfs_object_free(n->nn_authhdr);
+		hdfs_authheader_free(n->nn_authhdr);
 		n->nn_authhdr = NULL;
 		n->nn_state = HDFS_NN_ST_RPC;
 		break;
@@ -696,14 +691,15 @@ _namenode_auth_sasl_loop(struct hdfs_namenode *n)
 			// and this is my username)
 
 			// XXX HACK determine the offset of the beginning of this serialized authhdr
-			// for sasl encoding. Since hdfs_object_serialize() can lead to
+			// for sasl encoding. Since _hdfs_serialize_authheader() can lead to
 			// _hbuf_reserve() calls which may lead to memmove() calls, we cannot simply
 			// stash nn_sendbuf.used prior to serializing the authhdr, as that offset
 			// may no longer be valid after serialization. As a workaround, compare the
 			// _hbuf_readlen() values before and after serialization, and subtract the
 			// difference from nn_sendbuf.used.
 			pre_rlen = _hbuf_readlen(&n->nn_sendbuf);
-			hdfs_object_serialize(&n->nn_sendbuf, n->nn_authhdr);
+			_hdfs_serialize_authheader(&n->nn_sendbuf, n->nn_authhdr, n->nn_proto,
+			    n->nn_kerb, n->nn_client_id);
 			post_rlen = _hbuf_readlen(&n->nn_sendbuf);
 			authhdr_len = post_rlen - pre_rlen;
 			authhdr_offset = n->nn_sendbuf.used - authhdr_len;
@@ -907,7 +903,7 @@ hdfs_namenode_destroy(struct hdfs_namenode *n)
 	if (n->nn_sasl_ctx)
 		sasl_dispose(&n->nn_sasl_ctx);
 	if (n->nn_authhdr)
-		hdfs_object_free(n->nn_authhdr);
+		hdfs_authheader_free(n->nn_authhdr);
 
 	hdfs_conn_ctx_free(&n->nn_cctx);
 

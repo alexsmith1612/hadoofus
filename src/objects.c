@@ -67,7 +67,6 @@ static struct {
 		.slurper = _oslurp_block, },
 	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false,
 		.slurper = /*_oslurp_array_byte*/NULL, },
-	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
 	[H_TOKEN - _H_START] = { .type = TOKEN_TYPE, .objtype = true,
 		.slurper = /*_oslurp_token*/NULL, },
 	[H_STRING - _H_START] = { .type = STRING_TYPE, .objtype = false },
@@ -954,46 +953,45 @@ hdfs_rpc_invocation_free(struct hdfs_rpc_invocation *r)
 	free(r);
 }
 
-void
-_authheader_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
-{
-	ASSERT(rpc);
-	ASSERT(rpc->ob_type == H_AUTHHEADER);
-
-	rpc->ob_val._authheader._client_id = cid;
-}
-
-EXPORT_SYM struct hdfs_object *
-hdfs_authheader_new_ext(enum hdfs_namenode_proto pr, const char *user,
-	const char *real_user, enum hdfs_kerb kerb)
+// XXX These authheader functions don't really need to be user-accessible.
+EXPORT_SYM struct hdfs_authheader *
+hdfs_authheader_new_ext(const char *user, const char *real_user)
 {
 	char *user_copy, *real_user_copy;
-	struct hdfs_object *r = _objmalloc();
+	struct hdfs_authheader *auth = malloc(sizeof*auth);
+
+	ASSERT(auth);
+	memset(auth, 0, sizeof(*auth));
 
 	user_copy = strdup(user);
 	ASSERT(user_copy);
 
 	ASSERT(real_user == NULL /* TODO Issue #27 */);
-	real_user_copy = real_user? strdup(real_user) : NULL;
+	real_user_copy = real_user ? strdup(real_user) : NULL;
 	if (real_user)
 		ASSERT(real_user_copy);
 
-	r->ob_type = H_AUTHHEADER;
-	r->ob_val._authheader = (struct hdfs_authheader) {
-		._username = user_copy,
-		._real_username = real_user_copy,
-		._proto = pr,
-		._kerberized = kerb,
-	};
-	return r;
+	auth->_username = user_copy;
+	auth->_real_username = real_user_copy;
+
+	return auth;
 }
 
-EXPORT_SYM struct hdfs_object *
+EXPORT_SYM struct hdfs_authheader *
 hdfs_authheader_new(const char *user)
 {
+	return hdfs_authheader_new_ext(user, NULL);
+}
 
-	return hdfs_authheader_new_ext(HDFS_NN_v1, user, NULL,
-	    HDFS_NO_KERB/* doesn't affect serializaton for v1 anyway */);
+EXPORT_SYM void
+hdfs_authheader_free(struct hdfs_authheader *auth)
+{
+	ASSERT(auth);
+
+	free(auth->_username);
+	free(auth->_real_username);
+
+	free(auth);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -1415,10 +1413,6 @@ hdfs_object_free(struct hdfs_object *obj)
 		if (obj->ob_val._array_byte._bytes)
 			free(obj->ob_val._array_byte._bytes);
 		break;
-	case H_AUTHHEADER:
-		free(obj->ob_val._authheader._username);
-		free(obj->ob_val._authheader._real_username);
-		break;
 	case H_TOKEN:
 		for (unsigned i = 0; i < nelem(obj->ob_val._token._strings); i++)
 			free(obj->ob_val._token._strings[i]);
@@ -1674,22 +1668,21 @@ _hdfs_serialize_rpc(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
 	}
 }
 
-// XXX TODO consider removing struct hdfs_authheader from struct hdfs_object,
-// and directly call this function from namenode.c (instead of indirectly
-// through hdfs_object_serialize())
-static void
-_serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
+void
+_hdfs_serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth,
+	enum hdfs_namenode_proto pr, enum hdfs_kerb kerb, const uint8_t *client_id)
 {
 	struct hdfs_heap_buf abuf = { 0 };
-	enum hdfs_namenode_proto pr;
 	size_t cc_sz;
 
+	// XXX TODO refactor this into separate functions by namenode proto, with this
+	// function purely being a proto switch
+	// XXX TODO consider moving this to namenode.c and making it static
 	// XXX TODO try to refactor this to avoid using any local heapbufs
 	// XXX TODO ensure that this appends to dest and doesn't just write to the beginning
 
 	// XXX should this assertion be removed since issue #27 has been closed for a while?
 	ASSERT(auth->_real_username == NULL);	// Issue #27
-	pr = auth->_proto;
 
 	if (pr == HDFS_NN_v1) {
 		_bappend_text(&abuf, CLIENT_PROTOCOL);
@@ -1711,7 +1704,7 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 	// this and HDFS_TRY_KERB if we fall back to simple auth (does v2.2 even
 	// allow for fallback to simple auth?)
 	/* 2.2 doesn't send any header for SASL connections */
-	if (pr == HDFS_NN_v2_2 && auth->_kerberized != HDFS_NO_KERB)
+	if (pr == HDFS_NN_v2_2 && kerb != HDFS_NO_KERB)
 		goto out;
 
 	Hadoop__Common__UserInformationProto ui = HADOOP__COMMON__USER_INFORMATION_PROTO__INIT;
@@ -1757,8 +1750,8 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 		    HADOOP__COMMON__RPC_REQUEST_HEADER_PROTO__OPERATION_PROTO__RPC_FINAL_PACKET;
 		header.callid = -3 /* Magic */;
 		header.clientid.len = _HDFS_CLIENT_ID_LEN;
-		ASSERT(auth->_client_id);
-		header.clientid.data = auth->_client_id;
+		ASSERT(client_id);
+		header.clientid.data = __DECONST(uint8_t *, client_id);
 		header.has_retrycount = true;
 		header.retrycount = -1 /* Magic */;
 
@@ -1961,9 +1954,6 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s64(dest, -1);
 		_bappend_s64(dest, obj->ob_val._content_summary._length);
 		_bappend_s64(dest, obj->ob_val._content_summary._quota);
-		break;
-	case H_AUTHHEADER:
-		_serialize_authheader(dest, &obj->ob_val._authheader);
 		break;
 	case H_UPGRADE_ACTION:
 		/* FALLTHROUGH */

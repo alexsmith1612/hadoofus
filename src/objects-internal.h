@@ -67,7 +67,8 @@ struct _hdfs_pending {
 	void *pd_userdata;
 };
 
-void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
+void			_hdfs_serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth,
+			enum hdfs_namenode_proto pr, enum hdfs_kerb kerb, const uint8_t *client_id);
 
 void			_hdfs_serialize_rpc(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
 			enum hdfs_namenode_proto proto, int64_t msgno, const uint8_t *client_id);

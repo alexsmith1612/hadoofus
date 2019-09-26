@@ -186,7 +186,6 @@ enum hdfs_object_type {
 	H_UPGRADE_STATUS_REPORT,
 	H_BLOCK,
 	H_ARRAY_BYTE,
-	H_AUTHHEADER,
 	H_TOKEN,
 	H_STRING,
 	H_FSPERMS,
@@ -360,19 +359,17 @@ struct hdfs_rpc_invocation {
 	int _nargs;
 };
 
+// XXX this doesn't really need to exist as a separate struct outside of hdfs_namenode
 struct hdfs_authheader {
 	/*
 	 * Username is used for authentication. It is sometimes referred to as
 	 * "effective user" in Hadoop docs.
 	 *
 	 * "Real user" is used for FS access authorization, iff present AND
-	 * "effective uesr" is allowed to impersonate "real user."
+	 * "effective user" is allowed to impersonate "real user."
 	 */
 	char *_username,
 	     *_real_username;
-	enum hdfs_namenode_proto _proto;
-	enum hdfs_kerb _kerberized;
-	uint8_t *_client_id;
 };
 
 struct hdfs_token {
@@ -442,7 +439,6 @@ struct hdfs_object {
 		struct hdfs_content_summary _content_summary;
 		struct hdfs_block _block;
 		struct hdfs_array_byte _array_byte;
-		struct hdfs_authheader _authheader;
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
 		struct hdfs_string _string;
@@ -489,10 +485,6 @@ struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_string_new(int32_t len, const char **strings); /* copies */
 void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
-struct hdfs_object *	hdfs_authheader_new(const char *user);
-struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
-			const char * /*user*/, const char * /*real user*/,
-			enum hdfs_kerb);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_exception_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
@@ -542,6 +534,10 @@ struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
+
+struct hdfs_authheader *	hdfs_authheader_new(const char *user);
+struct hdfs_authheader *	hdfs_authheader_new_ext(const char *user, const char *real_user);
+void				hdfs_authheader_free(struct hdfs_authheader *auth);
 
 struct hdfs_rpc_invocation *	hdfs_rpc_invocation_new(const char *name, ...);
 void				hdfs_rpc_invocation_free(struct hdfs_rpc_invocation *rpc);

@@ -74,7 +74,7 @@ struct hdfs_namenode {
 	unsigned nn_sasl_outlen;
 	enum hdfs_kerb nn_kerb;
 	struct hdfs_conn_ctx nn_cctx;
-	struct hdfs_object *nn_authhdr;
+	struct hdfs_authheader *nn_authhdr;
 
 	enum hdfs_namenode_proto nn_proto;
 	uint8_t nn_client_id[_HDFS_CLIENT_ID_LEN];
