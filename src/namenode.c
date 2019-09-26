@@ -794,7 +794,7 @@ hdfs_namenode_get_msgno(struct hdfs_namenode *n)
 //         uint64_t u64;
 // };
 EXPORT_SYM struct hdfs_error
-hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
+hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_rpc_invocation *rpc,
 	int64_t *msgno, void *userdata)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
@@ -802,7 +802,6 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 	ssize_t wlen;
 
 	ASSERT(rpc);
-	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
 	ASSERT(n->nn_state != HDFS_NN_ST_ERROR);
 
 	// XXX consider getting rid of these error codes and just asserting that
@@ -816,26 +815,19 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 		goto out;
 	}
 
-	// Take a number
-	*msgno = n->nn_msgno;
-	n->nn_msgno++;
-
 	// XXX consider interaction with recv and any user locking implications
-	_namenode_pending_insert(n, *msgno, _rpc2_slurper_for_rpc(rpc), userdata);
+	_namenode_pending_insert(n, n->nn_msgno, _rpc2_slurper_for_rpc(rpc), userdata);
 
 	// Serialize rpc and transmit
-	_rpc_invocation_set_msgno(rpc, *msgno);
-	_rpc_invocation_set_proto(rpc, n->nn_proto);
-	_rpc_invocation_set_clientid(rpc, n->nn_client_id);
 
 	// XXX HACK determine the offset of the beginning of this serialized rpc for sasl
-	// encoding. Since hdfs_object_serialize() can lead to _hbuf_reserve() calls which
+	// encoding. Since _hdfs_serialize_rpc() can lead to _hbuf_reserve() calls which
 	// may lead to memmove() calls, we cannot simply stash nn_sendbuf.used prior to
 	// serializeing the RPC, as that offset may no longer be valid after
 	// serialization. As a workaround, compare the _hbuf_readlen() values before and
 	// after serialization, and subtract the difference from nn_sendbuf.used.
 	pre_rlen = _hbuf_readlen(&n->nn_sendbuf);
-	hdfs_object_serialize(&n->nn_sendbuf, rpc);
+	_hdfs_serialize_rpc(&n->nn_sendbuf, rpc, n->nn_proto, n->nn_msgno, n->nn_client_id);
 	post_rlen = _hbuf_readlen(&n->nn_sendbuf);
 	rpc_len = post_rlen - pre_rlen;
 	offset = n->nn_sendbuf.used - rpc_len;
@@ -855,6 +847,9 @@ hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
 		goto out;
 	}
 	_hbuf_consume(&n->nn_sendbuf, wlen);
+
+	*msgno = n->nn_msgno;
+	n->nn_msgno++;
 
 out:
 	return error;

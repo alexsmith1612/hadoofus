@@ -104,7 +104,7 @@ hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, int64_t *msgno, void *user
 #define _HDFS_RPC_NB_BODY(v1_case, v2_case, v2_2_case) \
 { \
 	struct hdfs_error error; \
-	struct hdfs_object *rpc = NULL; \
+	struct hdfs_rpc_invocation *rpc = NULL; \
 \
 	switch (h->nn_proto) { \
 	case HDFS_NN_v1: \
@@ -119,7 +119,7 @@ hdfs_ ## name ## _nb(struct hdfs_namenode *h, ##args, int64_t *msgno, void *user
 	ASSERT(rpc); \
 \
 	error = hdfs_namenode_invoke(h, rpc, msgno, userdata); \
-	hdfs_object_free(rpc); \
+	hdfs_rpc_invocation_free(rpc); \
 	return error; \
 }
 

@@ -67,12 +67,10 @@ struct _hdfs_pending {
 	void *pd_userdata;
 };
 
-void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
-void			_rpc_invocation_set_proto(struct hdfs_object *,
-			enum hdfs_namenode_proto pr);
-void			_rpc_invocation_set_clientid(struct hdfs_object *, uint8_t *);
-
 void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
+
+void			_hdfs_serialize_rpc(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
+			enum hdfs_namenode_proto proto, int64_t msgno, const uint8_t *client_id);
 
 // Returns HDFS_SUCCESS and populates *res on success.
 // Returns HDFS_AGAIN if we can't decode a response from the available buffer.

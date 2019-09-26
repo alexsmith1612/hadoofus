@@ -17,7 +17,7 @@ main(int argc, char **argv)
 	struct hdfs_namenode namenode;
 	struct hdfs_error err;
 
-	struct hdfs_object *rpc;
+	struct hdfs_rpc_invocation *rpc;
 	struct hdfs_object *object;
 	int64_t msgno_invoke, msgno_recv;
 
@@ -49,7 +49,7 @@ main(int argc, char **argv)
 	    hdfs_long_new(61),
 	    NULL);
 	err = hdfs_namenode_invoke(&namenode, rpc, &msgno_invoke, NULL);
-	hdfs_object_free(rpc);
+	hdfs_rpc_invocation_free(rpc);
 	while (hdfs_is_again(err)) {
 		err = hdfs_namenode_invoke_continue(&namenode);
 	}

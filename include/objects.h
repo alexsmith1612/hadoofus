@@ -186,7 +186,6 @@ enum hdfs_object_type {
 	H_UPGRADE_STATUS_REPORT,
 	H_BLOCK,
 	H_ARRAY_BYTE,
-	H_RPC_INVOCATION,
 	H_AUTHHEADER,
 	H_TOKEN,
 	H_STRING,
@@ -358,11 +357,7 @@ struct hdfs_array_byte {
 struct hdfs_rpc_invocation {
 	struct hdfs_object *_args[8];
 	char *_method;
-	int _nargs,
-	    _msgno;
-
-	enum hdfs_namenode_proto _proto;
-	uint8_t *_client_id;
+	int _nargs;
 };
 
 struct hdfs_authheader {
@@ -447,7 +442,6 @@ struct hdfs_object {
 		struct hdfs_content_summary _content_summary;
 		struct hdfs_block _block;
 		struct hdfs_array_byte _array_byte;
-		struct hdfs_rpc_invocation _rpc_invocation;
 		struct hdfs_authheader _authheader;
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
@@ -495,7 +489,6 @@ struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_string_new(int32_t len, const char **strings); /* copies */
 void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
-struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
 			const char * /*user*/, const char * /*real user*/,
@@ -549,5 +542,8 @@ struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
+
+struct hdfs_rpc_invocation *	hdfs_rpc_invocation_new(const char *name, ...);
+void				hdfs_rpc_invocation_free(struct hdfs_rpc_invocation *rpc);
 
 #endif

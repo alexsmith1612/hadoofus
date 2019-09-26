@@ -67,7 +67,6 @@ static struct {
 		.slurper = _oslurp_block, },
 	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false,
 		.slurper = /*_oslurp_array_byte*/NULL, },
-	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
 	[H_TOKEN - _H_START] = { .type = TOKEN_TYPE, .objtype = true,
 		.slurper = /*_oslurp_token*/NULL, },
@@ -909,21 +908,21 @@ hdfs_array_byte_copy(struct hdfs_object *src)
 	return r;
 }
 
-EXPORT_SYM struct hdfs_object *
+EXPORT_SYM struct hdfs_rpc_invocation *
 hdfs_rpc_invocation_new(const char *name, ...)
 {
 	unsigned i;
 	char *meth_copy = strdup(name);
-	struct hdfs_object *r = _objmalloc();
+	struct hdfs_rpc_invocation *r = malloc(sizeof(*r));
 	va_list ap;
 	struct hdfs_object *arg;
 
 	ASSERT(meth_copy);
+	ASSERT(r);
 
-	r->ob_type = H_RPC_INVOCATION;
-	r->ob_val._rpc_invocation = (struct hdfs_rpc_invocation) {
-		._method = meth_copy,
-	};
+	memset(r, 0, sizeof(*r));
+
+	r->_method = meth_copy;
 
 	va_start(ap, name);
 	i = 0;
@@ -931,42 +930,28 @@ hdfs_rpc_invocation_new(const char *name, ...)
 		arg = va_arg(ap, struct hdfs_object *);
 		if (!arg)
 			break;
-		r->ob_val._rpc_invocation._args[i] = arg;
+		r->_args[i] = arg;
 		i++;
 
-		ASSERT(i < nelem(r->ob_val._rpc_invocation._args));
+		ASSERT(i < nelem(r->_args));
 	}
-	r->ob_val._rpc_invocation._nargs = i;
+	r->_nargs = i;
 	va_end(ap);
 
 	return r;
 }
 
-void
-_rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
+EXPORT_SYM void
+hdfs_rpc_invocation_free(struct hdfs_rpc_invocation *r)
 {
-	ASSERT(rpc);
-	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
+	ASSERT(r);
 
-	rpc->ob_val._rpc_invocation._msgno = msgno;
-}
+	free(r->_method);
+	for (int i = 0; i < r->_nargs; i++) {
+		hdfs_object_free(r->_args[i]);
+	}
 
-void
-_rpc_invocation_set_proto(struct hdfs_object *rpc, enum hdfs_namenode_proto pr)
-{
-	ASSERT(rpc);
-	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
-
-	rpc->ob_val._rpc_invocation._proto = pr;
-}
-
-void
-_rpc_invocation_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
-{
-	ASSERT(rpc);
-	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
-
-	rpc->ob_val._rpc_invocation._client_id = cid;
+	free(r);
 }
 
 void
@@ -1430,11 +1415,6 @@ hdfs_object_free(struct hdfs_object *obj)
 		if (obj->ob_val._array_byte._bytes)
 			free(obj->ob_val._array_byte._bytes);
 		break;
-	case H_RPC_INVOCATION:
-		free(obj->ob_val._rpc_invocation._method);
-		FREE_H_ARRAY_ELMS(obj->ob_val._rpc_invocation._args,
-		    obj->ob_val._rpc_invocation._nargs);
-		break;
 	case H_AUTHHEADER:
 		free(obj->ob_val._authheader._username);
 		free(obj->ob_val._authheader._real_username);
@@ -1504,13 +1484,14 @@ _is_type_objtype(enum hdfs_object_type t)
 }
 
 static void
-_serialize_rpc_v1(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
+_serialize_rpc_v1(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
+	int64_t msgno)
 {
 	struct hdfs_heap_buf rbuf = { 0 };
 
 	// XXX TODO try to refactor to avoid using local heapbufs
 
-	_bappend_s32(&rbuf, rpc->_msgno);
+	_bappend_s32(&rbuf, msgno);
 	_bappend_string(&rbuf, rpc->_method);
 	_bappend_s32(&rbuf, rpc->_nargs);
 	for (int i = 0; i < rpc->_nargs; i++) {
@@ -1530,7 +1511,8 @@ _serialize_rpc_v1(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 }
 
 static void
-_serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
+_serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
+	int64_t msgno)
 {
 	/*
 	 * v2 is (stupid) complicated. RPCs look like:
@@ -1580,7 +1562,7 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	header.rpckind = RPC_KIND_PROTO__RPC_PROTOCOL_BUFFER;
 	header.has_rpcop = true;
 	header.rpcop = RPC_PAYLOAD_OPERATION_PROTO__RPC_FINAL_PAYLOAD;
-	header.callid = rpc->_msgno;
+	header.callid = msgno;
 	header_sz = rpc_payload_header_proto__get_packed_size(&header);
 
 	_bappend_vlint(&header_buf, header_sz);
@@ -1599,7 +1581,8 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 }
 
 static void
-_serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
+_serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
+	int64_t msgno, const uint8_t *client_id)
 {
 	/*
 	 * v2.2 is similar to v2, but uses different .proto classes. Unlike v2,
@@ -1643,9 +1626,9 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	header.has_rpcop = true;
 	header.rpcop =
 	    HADOOP__COMMON__RPC_REQUEST_HEADER_PROTO__OPERATION_PROTO__RPC_FINAL_PACKET;
-	header.callid = rpc->_msgno;
+	header.callid = msgno;
 	header.clientid.len = _HDFS_CLIENT_ID_LEN;
-	header.clientid.data = rpc->_client_id;
+	header.clientid.data = __DECONST(uint8_t *, client_id);
 	header.has_retrycount = true;
 	header.retrycount = 0;
 
@@ -1673,6 +1656,22 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	// method
 	_bappend_vlint(dest, method_sz);
 	_rpc2_request_serialize(dest, rpc);
+}
+
+void
+_hdfs_serialize_rpc(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc,
+	 enum hdfs_namenode_proto proto, int64_t msgno, const uint8_t *client_id)
+{
+	switch (proto) {
+	case HDFS_NN_v1:
+		return _serialize_rpc_v1(dest, rpc, msgno);
+	case HDFS_NN_v2:
+		return _serialize_rpc_v2(dest, rpc, msgno);
+	case HDFS_NN_v2_2:
+		return _serialize_rpc_v2_2(dest, rpc, msgno, client_id);
+	default:
+		ASSERT(false);
+	}
 }
 
 // XXX TODO consider removing struct hdfs_authheader from struct hdfs_object,
@@ -1962,16 +1961,6 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s64(dest, -1);
 		_bappend_s64(dest, obj->ob_val._content_summary._length);
 		_bappend_s64(dest, obj->ob_val._content_summary._quota);
-		break;
-	case H_RPC_INVOCATION:
-		if (obj->ob_val._rpc_invocation._proto == HDFS_NN_v1)
-			_serialize_rpc_v1(dest, &obj->ob_val._rpc_invocation);
-		else if (obj->ob_val._rpc_invocation._proto == HDFS_NN_v2)
-			_serialize_rpc_v2(dest, &obj->ob_val._rpc_invocation);
-		else if (obj->ob_val._rpc_invocation._proto == HDFS_NN_v2_2)
-			_serialize_rpc_v2_2(dest, &obj->ob_val._rpc_invocation);
-		else
-			ASSERT(false);
 		break;
 	case H_AUTHHEADER:
 		_serialize_authheader(dest, &obj->ob_val._authheader);

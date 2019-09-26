@@ -601,15 +601,13 @@ static struct _rpc2_dec_lut {
 };
 
 hdfs_object_slurper
-_rpc2_slurper_for_rpc(struct hdfs_object *rpc)
+_rpc2_slurper_for_rpc(struct hdfs_rpc_invocation *rpc)
 {
 	/* XXXPERF s.a. */
 	unsigned i;
 
-	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
-
 	for (i = 0; rpc2_decoders[i].rd_method; i++)
-		if (streq(rpc->ob_val._rpc_invocation._method,
+		if (streq(rpc->_method,
 		    rpc2_decoders[i].rd_method))
 			return rpc2_decoders[i].rd_decoder;
 

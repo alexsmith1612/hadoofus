@@ -12,6 +12,6 @@ void	_rpc2_request_serialize(struct hdfs_heap_buf *,
 size_t	_rpc2_request_get_size(struct hdfs_rpc_invocation *);
 
 
-hdfs_object_slurper	_rpc2_slurper_for_rpc(struct hdfs_object *);
+hdfs_object_slurper	_rpc2_slurper_for_rpc(struct hdfs_rpc_invocation *);
 
 #endif // _HADOOFUS_RPC2_H

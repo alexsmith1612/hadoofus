@@ -339,8 +339,8 @@ int64_t			hdfs_namenode_get_msgno(struct hdfs_namenode *);
 // order to continue sending the serialized RPC data. Alternatively,
 // hdfs_namenode_invoke() may be called to serialize another RPC and attempt to send
 // all serialized RPC data that remains to be sent.
-struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *n, struct hdfs_object *rpc,
-			int64_t *msgno, void *userdata);
+struct hdfs_error	hdfs_namenode_invoke(struct hdfs_namenode *n,
+			struct hdfs_rpc_invocation *rpc, int64_t *msgno, void *userdata);
 
 // Attempt to send (non-blocking) any serialized RPC data that has not yet been sent
 // to the namenode.
