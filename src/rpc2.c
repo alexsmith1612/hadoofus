@@ -617,6 +617,27 @@ ENCODE_POSTSCRIPT_EX(get_additional_datanode,
 	}
 )
 
+ENCODE_PREAMBLE(updateBlockForPipeline, UpdateBlockForPipeline, UPDATE_BLOCK_FOR_PIPELINE)
+	Hadoop__Hdfs__ExtendedBlockProto eb = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+{
+	struct hdfs_block *hb;
+
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	hb = &rpc->_args[0]->ob_val._block;
+	eb.poolid = hb->_pool_id;
+	eb.blockid = hb->_blkid;
+	eb.generationstamp = hb->_generation;
+	eb.has_numbytes = true;
+	eb.numbytes = hb->_length;
+	req.block = &eb;
+
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(update_block_for_pipeline)
+
 typedef size_t (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -649,6 +670,7 @@ static struct _rpc2_enc_lut {
 	_RENC(getLinkTarget),
 	_RENC(getDatanodeReport),
 	_RENC(getAdditionalDatanode),
+	_RENC(updateBlockForPipeline),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -779,6 +801,7 @@ DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
 	result = hdfs_string_new(resp->targetpath))
 DECODE_PB_ARRAY(getDatanodeReport, GetDatanodeReport, get_datanode_report, array_datanode_info, di)
 DECODE_PB(getAdditionalDatanode, GetAdditionalDatanode, get_additional_datanode, located_block, block)
+DECODE_PB(updateBlockForPipeline, UpdateBlockForPipeline, update_block_for_pipeline, located_block, block)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -811,6 +834,7 @@ static struct _rpc2_dec_lut {
 	_RDEC(getLinkTarget),
 	_RDEC(getDatanodeReport),
 	_RDEC(getAdditionalDatanode),
+	_RDEC(updateBlockForPipeline),
 	{ NULL, NULL, },
 #undef _RDEC
 };

@@ -1173,3 +1173,22 @@ _HDFS2_OBJ_RPC_BODY(getAdditionalDatanode,
 	existing_storage_uuids,
 	fileid
 )
+
+_HDFS2_RPC_NB_DECL(updateBlockForPipeline,
+	struct hdfs_object *block, const char *client)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(updateBlockForPipeline,
+		hdfs_block_copy(block),
+		hdfs_string_new(client)
+	)
+)
+
+_HDFS2_OBJ_RPC_DECL(updateBlockForPipeline,
+	struct hdfs_object *block, const char *client)
+_HDFS2_OBJ_RPC_BODY(updateBlockForPipeline,
+	H_LOCATED_BLOCK,
+	block,
+	client
+)

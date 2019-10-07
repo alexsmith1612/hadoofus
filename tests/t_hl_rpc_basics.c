@@ -1039,6 +1039,48 @@ START_TEST(test_getAdditionalDatanode)
 }
 END_TEST
 
+START_TEST(test_updateBlockForPipeline)
+{
+	bool s;
+	struct hdfs_object *e = NULL, *fs, *lb, *bl, *lb2;
+	const char *tf = "/HADOOFUS_TEST_UPDATEBLOCKFORPIPELINE",
+	      *client = "HADOOFUS_CLIENT";
+
+	// Create the file first
+	fs = hdfs_create(h, tf, 0664, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
+
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid?*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(lb && !hdfs_object_is_null(lb));
+
+	bl = hdfs_block_from_located_block(lb);
+
+	lb2 = hdfs2_updateBlockForPipeline(h, bl, client, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(lb2 && !hdfs_object_is_null(lb2));
+	hdfs_located_block_update_from_update_block_for_pipeline(lb, lb2);
+	hdfs_object_free(lb2);
+
+	hdfs_object_free(bl);
+	hdfs_object_free(lb);
+
+	// Cleanup
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
 static Suite *
 t_hl_rpc1_basics_suite()
 {
@@ -1143,6 +1185,7 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
 	tcase_add_test(tc, test_getAdditionalDatanode);
+	tcase_add_test(tc, test_updateBlockForPipeline);
 	suite_add_tcase(s, tc);
 
 	return s;
@@ -1193,6 +1236,7 @@ t_hl_rpc22_basics_suite()
 	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
 	tcase_add_test(tc, test_getAdditionalDatanode);
+	tcase_add_test(tc, test_updateBlockForPipeline);
 	suite_add_tcase(s, tc);
 
 	return s;

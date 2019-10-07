@@ -642,4 +642,12 @@ struct hdfs_error	hdfs_get_transfer_data(struct hdfs_object *located_block,
 // hdfs_get_transfer_data()
 void	hdfs_transfer_targets_free(struct hdfs_transfer_targets *trg);
 
+// Update a H_LOCATED_BLOCK object with the relevant fields form the located
+// block returned by updateBlockForPipeline. Not all of the located block fields
+// are meaningfully populated in the response to updateBlockForPipeline, so
+// instead of directly using said returned located block, this function should
+// be used to update an existing located block.
+void	hdfs_located_block_update_from_update_block_for_pipeline(struct hdfs_object *dst,
+	struct hdfs_object *ubfp_res);
+
 #endif

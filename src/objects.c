@@ -1641,6 +1641,20 @@ out:
 	return error;
 }
 
+EXPORT_SYM void
+hdfs_located_block_update_from_update_block_for_pipeline(struct hdfs_object *dst, struct hdfs_object *ubfp_res)
+{
+
+	ASSERT(dst);
+	ASSERT(dst->ob_type == H_LOCATED_BLOCK);
+	ASSERT(ubfp_res);
+	ASSERT(ubfp_res->ob_type == H_LOCATED_BLOCK);
+
+	hdfs_object_free(dst->ob_val._located_block._token);
+	dst->ob_val._located_block._token = hdfs_token_copy(ubfp_res->ob_val._located_block._token);
+	dst->ob_val._located_block._generation = ubfp_res->ob_val._located_block._generation;
+}
+
 #define FREE_H_ARRAY_ELMS(array, array_len) do { \
 	for (int32_t i = 0; i < array_len; i++) { \
 		hdfs_object_free(array[i]); \

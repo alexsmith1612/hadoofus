@@ -433,6 +433,12 @@ struct hdfs_object *	hdfs2_getAdditionalDatanode(struct hdfs_namenode *, const c
 			struct hdfs_object *existing_storage_uuids, int64_t fileid,
 			struct hdfs_object **exception_out);
 
+struct hdfs_error	hdfs2_updateBlockForPipeline_nb(struct hdfs_namenode *, struct hdfs_object *block,
+			const char *client, int64_t *msgno, void *userdata);
+
+struct hdfs_object *	hdfs2_updateBlockForPipeline(struct hdfs_namenode *, struct hdfs_object *block,
+			const char *client, struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
