@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <hadoofus/lowlevel.h>
 #include <hadoofus/objects.h>
@@ -28,7 +29,8 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	 * structure go here.
 	 */
 
-#define ENCODE_POSTSCRIPT(lower_case)							\
+// Consider an approach that avoids local mallocs/frees if possible
+#define ENCODE_POSTSCRIPT_EX(lower_case, destructor_ex)					\
 	sz = hadoop__hdfs__ ## lower_case ## _request_proto__get_packed_size(&req);	\
 	if (dest) {									\
 		_hbuf_reserve(dest, sz);						\
@@ -36,8 +38,11 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 		    (void *)_hbuf_writeptr(dest));					\
 		_hbuf_append(dest, sz);							\
 	}										\
+	destructor_ex;									\
 	return sz;									\
 }
+
+#define ENCODE_POSTSCRIPT(lower_case) ENCODE_POSTSCRIPT_EX(lower_case, )
 
 /* New in v2 methods */
 ENCODE_PREAMBLE(getServerDefaults, GetServerDefaults, GET_SERVER_DEFAULTS)
@@ -225,6 +230,8 @@ ENCODE_POSTSCRIPT(abandon_block)
 
 ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 	Hadoop__Hdfs__ExtendedBlockProto previous = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+	Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
 {
 	// XXX keeping the arg order as is to keep some compatibility with the v1 RPC
 	ASSERT(rpc->_nargs >= 3 || rpc->_nargs <= 5);
@@ -256,11 +263,43 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 		req.previous = NULL;
 	}
 
-	if (rpc->_args[2]->ob_type != H_NULL) {
-		/* XXX not yet implemented, but it could be */
-		ASSERT(rpc->_args[2]->ob_val._array_datanode_info._len == 0);
-	}
 	req.n_excludenodes = 0;
+	if (rpc->_args[2]->ob_type != H_NULL
+	    || rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
+		req.n_excludenodes = rpc->_args[2]->ob_val._array_datanode_info._len;
+		req.excludenodes = malloc(req.n_excludenodes * sizeof(*req.excludenodes));
+		ASSERT(req.excludenodes);
+
+		dinfo_arr = malloc(req.n_excludenodes * sizeof(*dinfo_arr));
+		ASSERT(dinfo_arr);
+		did_arr = malloc(req.n_excludenodes * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < req.n_excludenodes; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[2]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			req.excludenodes[i] = dinfo;
+		}
+	}
 
 	if (rpc->_nargs >= 5) {
 		struct hdfs_object *fobj = rpc->_args[4];
@@ -273,7 +312,13 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 
 	req.n_favorednodes = 0;
 }
-ENCODE_POSTSCRIPT(add_block)
+ENCODE_POSTSCRIPT_EX(add_block,
+	if (req.n_excludenodes > 0) {
+		free(req.excludenodes);
+		free(dinfo_arr);
+		free(did_arr);
+	}
+)
 
 ENCODE_PREAMBLE(rename, Rename, RENAME)
 {

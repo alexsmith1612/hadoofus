@@ -332,6 +332,64 @@ START_TEST(test_addBlock)
 }
 END_TEST
 
+START_TEST(test_addBlock_exclude)
+{
+	bool s;
+	struct hdfs_object *e = NULL, *lb, *fs, *dns, *exclude;
+	const char *tf = "/HADOOFUS_TEST_ADDBLOCK_EXCLUDE",
+	      *client = "HADOOFUS_CLIENT";
+	struct hdfs_array_datanode_info *adi;
+	struct hdfs_datanode_info *di1, *di2;
+
+	// Create the file first
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, 1/*replication*/, 64*1024*1024, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
+
+	dns = hdfs_getDatanodeReport(h, HDFS_DNREPORT_LIVE, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(dns->ob_type, H_ARRAY_DATANODE_INFO);
+	adi = &dns->ob_val._array_datanode_info;
+	ck_assert_int_gt(adi->_len, 0);
+
+	exclude = hdfs_array_datanode_info_new();
+	// exclude all but the last datanode listed
+	for (int i = 0; i < adi->_len - 1; i++) {
+		hdfs_array_datanode_info_append_datanode_info(exclude,
+		    hdfs_datanode_info_copy(adi->_values[i]));
+	}
+
+	lb = hdfs_addBlock(h, tf, client, exclude, NULL, 0/*fileid?*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(lb->ob_type, H_LOCATED_BLOCK);
+	ck_assert_int_gt(lb->ob_val._located_block._num_locs, 0);
+
+	di1 = &adi->_values[adi->_len - 1]->ob_val._datanode_info;
+	di2 = &lb->ob_val._located_block._locs[0]->ob_val._datanode_info;
+	ck_assert_str_eq(di1->_hostname, di2->_hostname);
+	ck_assert_str_eq(di1->_ipaddr, di2->_ipaddr);
+	ck_assert_str_eq(di1->_port, di2->_port);
+	ck_assert_str_eq(di1->_uuid, di2->_uuid);
+
+	hdfs_object_free(dns);
+	hdfs_object_free(exclude);
+	hdfs_object_free(lb);
+
+	// Cleanup
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
 START_TEST(test_complete)
 {
 	bool s;
@@ -935,6 +993,7 @@ t_hl_rpc1_basics_suite()
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
 
 	suite_add_tcase(s, tc);
@@ -992,6 +1051,7 @@ t_hl_rpc2_basics_suite()
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
 	suite_add_tcase(s, tc);
 
@@ -1040,6 +1100,7 @@ t_hl_rpc22_basics_suite()
 	tcase_set_timeout(tc, 30./*seconds*/);
 	tcase_add_test(tc, test_abandonBlock);
 	tcase_add_test(tc, test_addBlock);
+	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
 	suite_add_tcase(s, tc);
 
