@@ -243,29 +243,37 @@ hdfs_long_new(int64_t val)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_token_new_nulsafe(const char *id, size_t idlen, const char *pw,
+hdfs_token_new_nulsafe(const uint8_t *id, size_t idlen, const uint8_t *pw,
     size_t pwlen, const char *kind, const char *service)
 {
 	struct hdfs_object *r = _objmalloc();
-	char *copy_strs[4];
+	uint8_t *id_copy, *pw_copy;
+	char *kind_copy, *service_copy;
 
-	copy_strs[0] = malloc(idlen);
-	copy_strs[1] = malloc(pwlen);
-	copy_strs[2] = strdup(kind);
-	copy_strs[3] = strdup(service);
+	id_copy = malloc(idlen + 1);
+	pw_copy = malloc(pwlen + 1);
+	kind_copy = strdup(kind);
+	service_copy = strdup(service);
 
-	ASSERT(copy_strs[0]);
-	ASSERT(copy_strs[1]);
-	memcpy(copy_strs[0], id, idlen);
-	memcpy(copy_strs[1], pw, pwlen);
+	ASSERT(id_copy);
+	ASSERT(pw_copy);
+	ASSERT(kind_copy);
+	ASSERT(service_copy);
+
+	memcpy(id_copy, id, idlen);
+	id_copy[idlen] = '\0'; // null-terminate for safety
+	memcpy(pw_copy, pw, pwlen);
+	pw_copy[pwlen] = '\0';
 
 	r->ob_type = H_TOKEN;
-	r->ob_val._token._lens[0] = idlen;
-	r->ob_val._token._lens[1] = pwlen;
-	for (unsigned i = 0; i < nelem(copy_strs); i++) {
-		ASSERT(copy_strs[i]);
-		r->ob_val._token._strings[i] = copy_strs[i];
-	}
+	r->ob_val._token = (struct hdfs_token) {
+		._id = id_copy,
+		._id_len = idlen,
+		._pw = pw_copy,
+		._pw_len = pwlen,
+		._kind = kind_copy,
+		._service = service_copy
+	};
 	return r;
 }
 
@@ -273,23 +281,36 @@ EXPORT_SYM struct hdfs_object *
 hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 {
 
-	return hdfs_token_new_nulsafe(s1, strlen(s1), s2, strlen(s2), s3, s4);
+	return hdfs_token_new_nulsafe((const uint8_t *)s1, strlen(s1),
+	    (const uint8_t *)s2, strlen(s2), s3, s4);
 }
 
 EXPORT_SYM struct hdfs_object *
 hdfs_token_new_empty()
 {
 	struct hdfs_object *r = _objmalloc();
+	uint8_t *id_empty, *pw_empty;
+	char *kind_empty, *service_empty;
+
+	id_empty = (uint8_t *)strdup("");
+	pw_empty = (uint8_t *)strdup("");
+	kind_empty = strdup("");
+	service_empty = strdup("");
+
+	ASSERT(id_empty);
+	ASSERT(pw_empty);
+	ASSERT(kind_empty);
+	ASSERT(service_empty);
 
 	r->ob_type = H_TOKEN;
-	for (int i = 0; i < 4; i++) {
-		char *s = strdup("");
-		ASSERT(s);
-		r->ob_val._token._strings[i] = s;
-	}
-	for (unsigned i = 0; i < 2; i++)
-		r->ob_val._token._lens[i] = 0;
-
+	r->ob_val._token = (struct hdfs_token) {
+		._id = id_empty, // XXX consider NULL
+		._id_len = 0,
+		._pw = pw_empty, // XXX consider NULL
+		._pw_len = 0,
+		._kind = kind_empty,
+		._service = service_empty,
+	};
 	return r;
 }
 
@@ -305,28 +326,16 @@ _hdfs_token_new_proto(Hadoop__Common__TokenProto *pr)
 EXPORT_SYM struct hdfs_object *
 hdfs_token_copy(struct hdfs_object *src)
 {
-	struct hdfs_object *r = _objmalloc();
 
 	ASSERT(src);
 	ASSERT(src->ob_type == H_TOKEN);
 
-	r->ob_type = H_TOKEN;
-	for (int i = 0; i < 2; i++) {
-		int32_t len = src->ob_val._token._lens[i];
-		char *s = malloc(len);
-
-		ASSERT(s);
-		memcpy(s, src->ob_val._token._strings[i], len);
-		r->ob_val._token._strings[i] = s;
-		r->ob_val._token._lens[i] = len;
-	}
-	for (int i = 2; i < 4; i++) {
-		char *s = strdup(src->ob_val._token._strings[i]);
-		ASSERT(s);
-		r->ob_val._token._strings[i] = s;
-	}
-
-	return r;
+	return hdfs_token_new_nulsafe(src->ob_val._token._id,
+	    src->ob_val._token._id_len,
+	    src->ob_val._token._pw,
+	    src->ob_val._token._pw_len,
+	    src->ob_val._token._kind,
+	    src->ob_val._token._service);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -1414,8 +1423,10 @@ hdfs_object_free(struct hdfs_object *obj)
 			free(obj->ob_val._array_byte._bytes);
 		break;
 	case H_TOKEN:
-		for (unsigned i = 0; i < nelem(obj->ob_val._token._strings); i++)
-			free(obj->ob_val._token._strings[i]);
+		free(obj->ob_val._token._id);
+		free(obj->ob_val._token._pw);
+		free(obj->ob_val._token._kind);
+		free(obj->ob_val._token._service);
 		break;
 	case H_PROTOCOL_EXCEPTION:
 		free(obj->ob_val._exception._msg);
@@ -1973,13 +1984,14 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_bappend_s64(dest, obj->ob_val._block._generation);
 		break;
 	case H_TOKEN:
-		for (int i = 0; i < 2; i++) {
-			_bappend_vlint(dest, obj->ob_val._token._lens[i]);
-			_bappend_mem(dest, obj->ob_val._token._lens[i],
-			    obj->ob_val._token._strings[i]);
-		}
-		for (int i = 2; i < 4; i++)
-			_bappend_text(dest, obj->ob_val._token._strings[i]);
+		_bappend_vlint(dest, obj->ob_val._token._id_len);
+		_bappend_mem(dest, obj->ob_val._token._id_len,
+		    obj->ob_val._token._id);
+		_bappend_vlint(dest, obj->ob_val._token._pw_len);
+		_bappend_mem(dest, obj->ob_val._token._pw_len,
+		    obj->ob_val._token._pw);
+		_bappend_text(dest, obj->ob_val._token._kind);
+		_bappend_text(dest, obj->ob_val._token._service);
 		break;
 	case H_ARRAY_STRING:
 		{

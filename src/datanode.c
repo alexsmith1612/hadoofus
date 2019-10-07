@@ -670,12 +670,12 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 		ebp.blockid = d->dn_blkid;
 		ebp.generationstamp = d->dn_gen;
 
-		token.identifier.len = h_token->_lens[0];
-		token.identifier.data = (void *)h_token->_strings[0];
-		token.password.len = h_token->_lens[1];
-		token.password.data = (void *)h_token->_strings[1];
-		token.kind = h_token->_strings[2];
-		token.service = h_token->_strings[3];
+		token.identifier.len = h_token->_id_len;
+		token.identifier.data = (void *)h_token->_id;
+		token.password.len = h_token->_pw_len;
+		token.password.data = (void *)h_token->_pw;
+		token.kind = h_token->_kind;
+		token.service = h_token->_service;
 
 		bhdr.block = &ebp;
 		bhdr.token = &token;
@@ -768,12 +768,12 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		ebp.blockid = d->dn_blkid;
 		ebp.generationstamp = d->dn_gen;
 
-		token.identifier.len = h_token->_lens[0];
-		token.identifier.data = (void *)h_token->_strings[0];
-		token.password.len = h_token->_lens[1];
-		token.password.data = (void *)h_token->_strings[1];
-		token.kind = h_token->_strings[2];
-		token.service = h_token->_strings[3];
+		token.identifier.len = h_token->_id_len;
+		token.identifier.data = (void *)h_token->_id;
+		token.password.len = h_token->_pw_len;
+		token.password.data = (void *)h_token->_pw;
+		token.kind = h_token->_kind;
+		token.service = h_token->_service;
 
 		bhdr.block = &ebp;
 		bhdr.token = &token;

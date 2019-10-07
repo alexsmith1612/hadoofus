@@ -127,31 +127,43 @@ out:
 struct hdfs_object *
 _oslurp_token(struct hdfs_heap_buf *b)
 {
-	char *s[4] = { 0 };
-	int32_t lens[2];
+	char *id = NULL, *pw = NULL, *kind = NULL, *service = NULL;
+	int32_t idlen, pwlen;
+
 	struct hdfs_object *res = NULL;
-	unsigned i;
 
-	for (i = 0; i < 2; i++) {
-		lens[i] = _bslurp_vlint(b);
-		if (b->used < 0)
-			goto out;
-		ASSERT(lens[i] >= 0);
-		_bslurp_mem1(b, lens[i], &s[i]);
-		if (b->used < 0)
-			goto out;
-	}
-	for (i = 2; i < 4; i++) {
-		s[i] = _bslurp_text(b);
-		if (b->used < 0)
-			goto out;
-	}
+	idlen = _bslurp_vlint(b);
+	if (b->used < 0)
+		goto out;
+	ASSERT(idlen >= 0); // TODO return error code
+	_bslurp_mem1(b, idlen, &id);
+	if (b->used < 0)
+		goto out;
 
-	res = hdfs_token_new_nulsafe(s[0], lens[0], s[1], lens[1], s[2], s[3]);
+	pwlen = _bslurp_vlint(b);
+	if (b->used < 0)
+		goto out;
+	ASSERT(pwlen >= 0); // TODO return error code
+	_bslurp_mem1(b, pwlen, &pw);
+	if (b->used < 0)
+		goto out;
+
+	kind = _bslurp_text(b);
+	if (b->used < 0)
+		goto out;
+
+	service = _bslurp_text(b);
+	if (b->used < 0)
+		goto out;
+
+	res = hdfs_token_new_nulsafe((uint8_t *)id, idlen, (uint8_t *)pw, pwlen, kind, service);
 
 out:
-	for (i = 0; i < nelem(s); i++)
-		free(s[i]);
+	free(id);
+	free(pw);
+	free(kind);
+	free(service);
+
 	return res;
 }
 

@@ -373,16 +373,12 @@ struct hdfs_authheader {
 };
 
 struct hdfs_token {
-	/*
-	 * Token is really:
-	 *     (Representation:)   (Logical member:)
-	 *   - len[0], strings[0]: id (byte[])
-	 *   - len[1], strings[1]: password (byte[])
-	 *   - strings[2]:         kind (Text)
-	 *   - strings[3]:         service (Text)
-	 */
-	char *_strings[4];
-	int32_t _lens[2];
+	uint8_t *_id;
+	uint32_t _id_len;
+	uint8_t *_pw;
+	uint32_t _pw_len;
+	char *_kind;
+	char *_service;
 };
 
 struct hdfs_string {
@@ -488,8 +484,8 @@ struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_exception_type, const char *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
-struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,
-			const char *pw, size_t pwlen, const char *kind,
+struct hdfs_object *	hdfs_token_new_nulsafe(const uint8_t *id, size_t idlen,
+			const uint8_t *pw, size_t pwlen, const char *kind,
 			const char *service);
 struct hdfs_object *	hdfs_token_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_string_new(const char *);
