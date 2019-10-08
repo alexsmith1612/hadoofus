@@ -412,6 +412,15 @@ ENCODE_PREAMBLE(getLinkTarget, GetLinkTarget, GET_LINK_TARGET)
 }
 ENCODE_POSTSCRIPT(get_link_target)
 
+ENCODE_PREAMBLE(getDatanodeReport, GetDatanodeReport, GET_DATANODE_REPORT)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_DNREPORTTYPE);
+
+	req.type = _hdfs_datanode_report_type_to_proto(rpc->_args[0]->ob_val._dnreporttype._type);
+}
+ENCODE_POSTSCRIPT(get_datanode_report)
+
 typedef size_t (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -442,6 +451,7 @@ static struct _rpc2_enc_lut {
 	_RENC(getFileLinkInfo),
 	_RENC(createSymlink),
 	_RENC(getLinkTarget),
+	_RENC(getDatanodeReport),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -515,6 +525,10 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)					\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,				\
 	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield))
 
+#define DECODE_PB_ARRAY(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,					\
+	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield, resp->n_ ## respfield))
+
 #define _DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield, nullctor)	\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,					\
 		if (resp->respfield != NULL) {						\
@@ -566,6 +580,7 @@ DECODE_PB_NULLABLE(getFileLinkInfo, GetFileLinkInfo, get_file_link_info, file_st
 DECODE_PB_VOID(createSymlink, CreateSymlink, create_symlink)
 DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
 	result = hdfs_string_new(resp->targetpath))
+DECODE_PB_ARRAY(getDatanodeReport, GetDatanodeReport, get_datanode_report, array_datanode_info, di)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -596,6 +611,7 @@ static struct _rpc2_dec_lut {
 	_RDEC(getFileLinkInfo),
 	_RDEC(createSymlink),
 	_RDEC(getLinkTarget),
+	_RDEC(getDatanodeReport),
 	{ NULL, NULL, },
 #undef _RDEC
 };

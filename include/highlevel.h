@@ -342,13 +342,10 @@ struct hdfs_error	hdfs_setSafeMode_nb(struct hdfs_namenode *, const char *safemo
 bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 			struct hdfs_object **exception_out);
 
-#define			HDFS_DNREPORT_ALL	"ALL"
-#define			HDFS_DNREPORT_LIVE	"LIVE"
-#define			HDFS_DNREPORT_DEAD	"DEAD"
-struct hdfs_error	hdfs_getDatanodeReport_nb(struct hdfs_namenode *, const char *dnreporttype,
+struct hdfs_error	hdfs_getDatanodeReport_nb(struct hdfs_namenode *, enum hdfs_datanode_report_type type,
 			int64_t *msgno, void *userdata);
 
-struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *dnreporttype,
+struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, enum hdfs_datanode_report_type type,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_reportBadBlocks_nb(struct hdfs_namenode *, struct hdfs_object *blocks,

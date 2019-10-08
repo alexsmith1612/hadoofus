@@ -878,22 +878,21 @@ _HDFS_PRIM_RPC_BODY(setSafeMode,
 	mode
 )
 
-// XXX TODO implement for v2
 _HDFS_RPC_NB_DECL(getDatanodeReport,
-	const char *mode)
+	enum hdfs_datanode_report_type type)
 _HDFS_RPC_NB_BODY(
 	/*fall through to v2*/,
 	/*fall through to v2.2*/,
 	_HDFS_RPC_CASE(getDatanodeReport,
-		hdfs_dnreporttype_new(mode)
+		hdfs_dnreporttype_new(type)
 	)
 )
 
 _HDFS_OBJ_RPC_DECL(getDatanodeReport,
-	const char *mode)
+	enum hdfs_datanode_report_type type)
 _HDFS_OBJ_RPC_BODY(getDatanodeReport,
 	H_ARRAY_DATANODE_INFO,
-	mode
+	type
 )
 
 // XXX TODO implement for v2

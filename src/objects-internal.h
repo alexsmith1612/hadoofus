@@ -5,6 +5,7 @@
 
 #include <hadoofus/objects.h>
 
+#include "ClientNamenodeProtocol.pb-c.h"
 #include "hdfs.pb-c.h"
 
 #define NULL_TYPE1 "org.apache.hadoop.io.Writable"
@@ -100,6 +101,7 @@ struct hdfs_object *	_hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockPro
 struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
 struct hdfs_object *	_hdfs_token_new_proto(Hadoop__Common__TokenProto *);
 struct hdfs_object *	_hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *);
+struct hdfs_object *	_hdfs_array_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto **, size_t);
 struct hdfs_object *	_hdfs_content_summary_new_proto(Hadoop__Hdfs__ContentSummaryProto *);
 
 // HDFSv2+ proto-buf-to-hadoofus enum conversion assertions and functions to
@@ -165,6 +167,24 @@ _hdfs_storage_type_ptr_to_proto(enum hdfs_storage_type *ptr)
 	} cast = { .our_ptr = ptr };
 
 	return cast.pr_ptr;
+}
+
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__ALL == HDFS_DNREPORT_ALL,
+    "Protobufs ALL datanode report type enum does not match our ALL datanode report type enum");
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__LIVE == HDFS_DNREPORT_LIVE,
+    "Protobufs LIVE datanode report type enum does not match our LIVE datanode report type enum");
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__DEAD == HDFS_DNREPORT_DEAD,
+    "Protobufs DEAD datanode report type enum does not match our DEAD datanode report type enum");
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__DECOMMISSIONING == HDFS_DNREPORT_DECOMMISSIONING,
+    "Protobufs DECOMMISSIONING datanode report type enum does not match our DECOMMISSIONING datanode report type enum");
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__ENTERING_MAINTENANCE == HDFS_DNREPORT_ENTERING_MAINTENANCE,
+    "Protobufs ENTERING_MAINTENANCE datanode report type enum does not match our ENTERING_MAINTENANCE datanode report type enum");
+_Static_assert((unsigned)HADOOP__HDFS__DATANODE_REPORT_TYPE_PROTO__IN_MAINTENANCE == HDFS_DNREPORT_IN_MAINTENANCE,
+    "Protobufs IN_MAINTENANCE datanode report type enum does not match our IN_MAINTENANCE datanode report type enum");
+static inline Hadoop__Hdfs__DatanodeReportTypeProto
+_hdfs_datanode_report_type_to_proto(enum hdfs_datanode_report_type dnr)
+{
+	return (unsigned)dnr;
 }
 
 #endif

@@ -185,6 +185,17 @@ enum hdfs_storage_type {
 	HDFS_STORAGE_PROVIDED = 5,
 };
 
+enum hdfs_datanode_report_type {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_DNREPORT_ALL = 1,
+	HDFS_DNREPORT_LIVE = 2,
+	HDFS_DNREPORT_DEAD = 3,
+	HDFS_DNREPORT_DECOMMISSIONING = 4,
+	HDFS_DNREPORT_ENTERING_MAINTENANCE = 5,
+	HDFS_DNREPORT_IN_MAINTENANCE = 6,
+};
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -428,6 +439,10 @@ struct hdfs_array_string {
 	char **_val;
 };
 
+struct hdfs_dnreporttype {
+	enum hdfs_datanode_report_type _type;
+};
+
 struct hdfs_fsperms {
 	int16_t _perms;
 };
@@ -478,6 +493,7 @@ struct hdfs_object {
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
 		struct hdfs_string _string;
+		struct hdfs_dnreporttype _dnreporttype;
 		struct hdfs_fsperms _fsperms;
 		struct hdfs_array_string _array_string;
 		struct hdfs_upgrade_status_report _upgrade_status;
@@ -537,7 +553,7 @@ struct hdfs_object *	hdfs_string_new(const char *);
 struct hdfs_object *	hdfs_text_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
 struct hdfs_object *	hdfs_safemodeaction_new(const char *);
-struct hdfs_object *	hdfs_dnreporttype_new(const char *);
+struct hdfs_object *	hdfs_dnreporttype_new(enum hdfs_datanode_report_type type);
 struct hdfs_object *	hdfs_array_locatedblock_new(void);
 struct hdfs_object *	hdfs_array_locatedblock_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_upgradeaction_new(const char *);

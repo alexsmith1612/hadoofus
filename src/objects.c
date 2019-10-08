@@ -175,6 +175,25 @@ _timespec_to_ms(struct timespec ts)
 	    (((int64_t)ts.tv_nsec / 1000000ULL) % 1000UL);
 }
 
+static const char *
+_dnreporttype_to_v1_str(enum hdfs_datanode_report_type type)
+{
+	switch (type) {
+	case HDFS_DNREPORT_ALL:
+		return "ALL";
+	case HDFS_DNREPORT_LIVE:
+		return "LIVE";
+	case HDFS_DNREPORT_DEAD:
+		return "DEAD";
+
+	case HDFS_DNREPORT_DECOMMISSIONING:
+	case HDFS_DNREPORT_ENTERING_MAINTENANCE:
+	case HDFS_DNREPORT_IN_MAINTENANCE:
+	default:
+		ASSERT(false);
+	};
+}
+
 static void *
 _objmalloc(void)
 {
@@ -668,6 +687,19 @@ hdfs_array_datanode_info_new()
 	return r;
 }
 
+struct hdfs_object *
+_hdfs_array_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto **pr, size_t n_pr)
+{
+	struct hdfs_object *r = hdfs_array_datanode_info_new();
+
+	for (size_t i = 0; i < n_pr; i++) {
+		hdfs_array_datanode_info_append_datanode_info(r,
+		    _hdfs_datanode_info_new_proto(pr[i]));
+	}
+
+	return r;
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_array_datanode_info_copy(struct hdfs_object *src)
 {
@@ -1141,17 +1173,12 @@ hdfs_safemodeaction_new(const char *mode)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_dnreporttype_new(const char *mode)
+hdfs_dnreporttype_new(enum hdfs_datanode_report_type type)
 {
-	struct hdfs_object *r;
+	struct hdfs_object *r = _objmalloc();;
 
-	ASSERT(mode);
-	ASSERT(streq(mode, HDFS_DNREPORT_ALL) ||
-	    streq(mode, HDFS_DNREPORT_LIVE) ||
-	    streq(mode, HDFS_DNREPORT_DEAD));
-
-	r = hdfs_string_new(mode);
 	r->ob_type = H_DNREPORTTYPE;
+	r->ob_val._dnreporttype._type = type;
 	return r;
 }
 
@@ -1421,6 +1448,7 @@ hdfs_object_free(struct hdfs_object *obj)
 	case H_NULL: break;
 	case H_BOOLEAN: break;
 	case H_SHORT: break;
+	case H_DNREPORTTYPE: break;
 	case H_FSPERMS: break;
 	case H_INT: break;
 	case H_LONG: break;
@@ -1500,8 +1528,6 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._exception._msg);
 		break;
 	case H_UPGRADE_ACTION:
-		/* FALLTHROUGH */
-	case H_DNREPORTTYPE:
 		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
 		/* FALLTHROUGH */
@@ -2029,9 +2055,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_AUTHHEADER:
 		_serialize_authheader(dest, &obj->ob_val._authheader);
 		break;
-	case H_UPGRADE_ACTION:
-		/* FALLTHROUGH */
 	case H_DNREPORTTYPE:
+		_bappend_string(dest, _dnreporttype_to_v1_str(obj->ob_val._dnreporttype._type));
+		break;
+	case H_UPGRADE_ACTION:
 		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
 		/* FALLTHROUGH */

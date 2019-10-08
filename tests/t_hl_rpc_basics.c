@@ -975,6 +975,7 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
+	tcase_add_test(tc, test_getDatanodeReport);
 	suite_add_tcase(s, tc);
 
 	/* My implementation of HDFS doesn't support this RPC. */
@@ -1022,6 +1023,7 @@ t_hl_rpc22_basics_suite()
 	tcase_add_test(tc, test_fsync);
 	tcase_add_test(tc, test_setTimes);
 	tcase_add_test(tc, test_recoverLease);
+	tcase_add_test(tc, test_getDatanodeReport);
 	suite_add_tcase(s, tc);
 
 	/* My implementation of HDFS doesn't support this RPC. */
