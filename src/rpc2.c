@@ -638,6 +638,92 @@ ENCODE_PREAMBLE(updateBlockForPipeline, UpdateBlockForPipeline, UPDATE_BLOCK_FOR
 }
 ENCODE_POSTSCRIPT(update_block_for_pipeline)
 
+ENCODE_PREAMBLE(updatePipeline, UpdatePipeline, UPDATE_PIPELINE)
+	Hadoop__Hdfs__ExtendedBlockProto oldblock = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__ExtendedBlockProto newblock = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
+{
+	struct hdfs_block *hb;
+
+	ASSERT(rpc->_nargs == 5);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[2]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[3]->ob_type == H_ARRAY_DATANODE_INFO ||
+	    (rpc->_args[3]->ob_type == H_NULL &&
+	     rpc->_args[3]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+	ASSERT(rpc->_args[4]->ob_type == H_ARRAY_STRING ||
+	    (rpc->_args[4]->ob_type == H_NULL &&
+	     rpc->_args[4]->ob_val._null._type == H_ARRAY_STRING));
+
+	req.clientname = rpc->_args[0]->ob_val._string._val;
+
+	hb = &rpc->_args[1]->ob_val._block;
+	oldblock.poolid = hb->_pool_id;
+	oldblock.blockid = hb->_blkid;
+	oldblock.generationstamp = hb->_generation;
+	oldblock.has_numbytes = true;
+	oldblock.numbytes = hb->_length;
+	req.oldblock = &oldblock;
+
+	hb = &rpc->_args[2]->ob_val._block;
+	newblock.poolid = hb->_pool_id;
+	newblock.blockid = hb->_blkid;
+	newblock.generationstamp = hb->_generation;
+	newblock.has_numbytes = true;
+	newblock.numbytes = hb->_length;
+	req.newblock = &newblock;
+
+	req.n_newnodes = 0;
+	if (rpc->_args[3]->ob_type != H_NULL
+	    || rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
+		req.n_newnodes = rpc->_args[3]->ob_val._array_datanode_info._len;
+		req.newnodes = malloc(req.n_newnodes * sizeof(*req.newnodes));
+		ASSERT(req.newnodes);
+
+		did_arr = malloc(req.n_newnodes * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < req.n_newnodes; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[3]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			req.newnodes[i] = did;
+		}
+	}
+
+	req.n_storageids = 0;
+	if (rpc->_args[4]->ob_type != H_NULL
+	    || rpc->_args[4]->ob_val._array_string._len > 0) {
+		req.n_storageids = rpc->_args[4]->ob_val._array_string._len;
+		req.storageids = malloc(req.n_storageids * sizeof(*req.storageids));
+		ASSERT(req.storageids);
+
+		for (unsigned i = 0; i < req.n_storageids; i++) {
+			req.storageids[i] = rpc->_args[4]->ob_val._array_string._val[i];
+		}
+	}
+}
+ENCODE_POSTSCRIPT_EX(update_pipeline,
+	if (req.n_newnodes > 0) {
+		free(req.newnodes);
+		free(did_arr);
+	}
+	if (req.n_storageids > 0) {
+		free(req.storageids);
+	}
+)
+
 typedef size_t (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -671,6 +757,7 @@ static struct _rpc2_enc_lut {
 	_RENC(getDatanodeReport),
 	_RENC(getAdditionalDatanode),
 	_RENC(updateBlockForPipeline),
+	_RENC(updatePipeline),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -802,6 +889,7 @@ DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
 DECODE_PB_ARRAY(getDatanodeReport, GetDatanodeReport, get_datanode_report, array_datanode_info, di)
 DECODE_PB(getAdditionalDatanode, GetAdditionalDatanode, get_additional_datanode, located_block, block)
 DECODE_PB(updateBlockForPipeline, UpdateBlockForPipeline, update_block_for_pipeline, located_block, block)
+DECODE_PB_VOID(updatePipeline, UpdatePipeline, update_pipeline)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -835,6 +923,7 @@ static struct _rpc2_dec_lut {
 	_RDEC(getDatanodeReport),
 	_RDEC(getAdditionalDatanode),
 	_RDEC(updateBlockForPipeline),
+	_RDEC(updatePipeline),
 	{ NULL, NULL, },
 #undef _RDEC
 };

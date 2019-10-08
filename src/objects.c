@@ -755,6 +755,26 @@ hdfs_array_datanode_info_copy(struct hdfs_object *src)
 }
 
 EXPORT_SYM struct hdfs_object *
+hdfs_array_datanode_info_from_located_block(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+	struct hdfs_located_block *lb;
+
+	ASSERT(src);
+	ASSERT(src->ob_type = H_LOCATED_BLOCK);
+
+	r = hdfs_array_datanode_info_new();
+	lb = &src->ob_val._located_block;
+
+	for (int i = 0; i < lb->_num_locs; i++) {
+		hdfs_array_datanode_info_append_datanode_info(r,
+		    hdfs_datanode_info_copy(lb->_locs[i]));
+	}
+
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
 hdfs_file_status_new(const char *logical_name, const struct stat *sb,
     const char *owner, const char *group)
 {
@@ -1174,6 +1194,27 @@ hdfs_array_string_new(int32_t len, const char **strings)
 
 	for (int32_t i = 0; i < len; i++)
 		hdfs_array_string_add(r, strings[i]);
+
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_storage_ids_array_string_from_located_block(struct hdfs_object *src)
+{
+	struct hdfs_object *r;
+	struct hdfs_located_block *lb;
+
+	ASSERT(src);
+	ASSERT(src->ob_type = H_LOCATED_BLOCK);
+
+	lb = &src->ob_val._located_block;
+
+	// cannot implicitly convert from char ** to const char ** to
+	// use hdfs_array_string_new()
+	r = hdfs_array_string_new(0, NULL);
+	for (int i = 0; i < lb->_num_storage_ids; i++) {
+		hdfs_array_string_add(r, lb->_storage_ids[i]);
+	}
 
 	return r;
 }

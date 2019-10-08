@@ -1192,3 +1192,35 @@ _HDFS2_OBJ_RPC_BODY(updateBlockForPipeline,
 	block,
 	client
 )
+
+_HDFS2_RPC_NB_DECL(updatePipeline,
+	const char *client, struct hdfs_object *oldblock,
+	struct hdfs_object *newblock, struct hdfs_object *newnodes,
+	struct hdfs_object *storageids)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(updatePipeline,
+		hdfs_string_new(client),
+		hdfs_block_copy(oldblock),
+		hdfs_block_copy(newblock),
+		hdfs_array_datanode_info_copy(newnodes),
+		(storageids ? hdfs_array_string_copy(storageids) : hdfs_array_string_new(0, NULL))
+	)
+)
+
+_HDFS2_PRIM_RPC_DECL(void, updatePipeline,
+	const char *client, struct hdfs_object *oldblock,
+	struct hdfs_object *newblock, struct hdfs_object *newnodes,
+	struct hdfs_object *storageids)
+_HDFS2_PRIM_RPC_BODY(updatePipeline,
+	H_VOID,
+	,
+	,
+	,
+	client,
+	oldblock,
+	newblock,
+	newnodes,
+	storageids
+)

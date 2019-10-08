@@ -439,6 +439,16 @@ struct hdfs_error	hdfs2_updateBlockForPipeline_nb(struct hdfs_namenode *, struct
 struct hdfs_object *	hdfs2_updateBlockForPipeline(struct hdfs_namenode *, struct hdfs_object *block,
 			const char *client, struct hdfs_object **exception_out);
 
+struct hdfs_error	hdfs2_updatePipeline_nb(struct hdfs_namenode *, const char *client,
+			struct hdfs_object *oldblock, struct hdfs_object *newblock,
+			struct hdfs_object *newnodes, struct hdfs_object *storageids,
+			int64_t *msgno, void *userdata);
+
+void			hdfs2_updatePipeline(struct hdfs_namenode *, const char *client,
+			struct hdfs_object *oldblock, struct hdfs_object *newblock,
+			struct hdfs_object *newnodes, struct hdfs_object *storageids,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

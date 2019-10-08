@@ -528,6 +528,7 @@ struct hdfs_object *	hdfs_datanode_info_new(const char *ipaddr, const char *host
 struct hdfs_object *	hdfs_datanode_info_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_datanode_info_new(void);
 struct hdfs_object *	hdfs_array_datanode_info_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_array_datanode_info_from_located_block(struct hdfs_object *lb);
 struct hdfs_object *	hdfs_file_status_new(const char *logical_name, const struct stat *st,
 			const char *owner, const char *group);
 struct hdfs_object *	hdfs_file_status_new_ex(const char *logical_name, int64_t size,
@@ -540,6 +541,7 @@ struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_string_new(int32_t len, const char **strings); /* copies */
 void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_storage_ids_array_string_from_located_block(struct hdfs_object *lb);
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
