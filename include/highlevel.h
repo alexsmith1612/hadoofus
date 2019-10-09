@@ -421,6 +421,18 @@ struct hdfs_error	hdfs2_getLinkTarget_nb(struct hdfs_namenode *, const char *,
 struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
+struct hdfs_error	hdfs2_getAdditionalDatanode_nb(struct hdfs_namenode *, const char *path,
+			struct hdfs_object *block, struct hdfs_object *existings,
+			struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+			struct hdfs_object *existing_storage_uuids, int64_t fileid,
+			int64_t *msgno, void *userdata);
+
+struct hdfs_object *	hdfs2_getAdditionalDatanode(struct hdfs_namenode *, const char *path,
+			struct hdfs_object *block, struct hdfs_object *existings,
+			struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+			struct hdfs_object *existing_storage_uuids, int64_t fileid,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //

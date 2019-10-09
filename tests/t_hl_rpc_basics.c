@@ -950,6 +950,95 @@ err:
 }
 END_TEST
 
+START_TEST(test_getAdditionalDatanode)
+{
+	bool s;
+	struct hdfs_object *e = NULL, *dnr, *fs, *lb, *bl, *exclude, *existing, *lb2, *existing_sids;
+	const char *tf = "/HADOOFUS_TEST_GETADDITIONALDATANODE",
+	      *client = "HADOOFUS_CLIENT";
+	struct hdfs_array_datanode_info *dnrs;
+
+	// This test requires at least 2 datanodes to run
+	dnr = hdfs_getDatanodeReport(h, HDFS_DNREPORT_LIVE, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(dnr->ob_type, H_ARRAY_DATANODE_INFO);
+	dnrs = &dnr->ob_val._array_datanode_info;
+	if (dnrs->_len < 2) {
+		fprintf(stderr, "%s: Test requires cluster with at least 2 live data nodes (%d live currently). Skipping test.\n",
+		    __func__, dnrs->_len);
+		return;
+	}
+
+	// Create the file first
+	fs = hdfs_create(h, tf, 0664, client, true/*overwrite*/,
+	    false/*createparent*/, 2/*replication*/, 64*1024*1024, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		hdfs_object_free(fs);
+	}
+
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid?*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert(lb && !hdfs_object_is_null(lb));
+	ck_assert_int_eq(lb->ob_type, H_LOCATED_BLOCK);
+	ck_assert_int_gt(lb->ob_val._located_block._num_locs, 0);
+
+	// exclude the first datanode
+	exclude = hdfs_array_datanode_info_new();
+	hdfs_array_datanode_info_append_datanode_info(exclude,
+	    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[0]));
+
+	// mark all of the other listed datanodes (if any) as existing
+	existing = hdfs_array_datanode_info_new();
+	for (int i = 1; i < lb->ob_val._located_block._num_locs; i++) {
+		hdfs_array_datanode_info_append_datanode_info(existing,
+		    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[i]));
+	}
+
+	// grab the storage ids for the existing datanodes (if they exist)
+	existing_sids = hdfs_array_string_new(0, NULL);
+	if (lb->ob_val._located_block._num_storage_ids > 0) {
+		ck_assert_int_eq(lb->ob_val._located_block._num_storage_ids, lb->ob_val._located_block._num_locs);
+		for (int i = 1; i < lb->ob_val._located_block._num_storage_ids; i++) {
+			hdfs_array_string_add(existing_sids, lb->ob_val._located_block._storage_ids[i]);
+		}
+	}
+
+	bl = hdfs_block_from_located_block(lb);
+
+	lb2 = hdfs2_getAdditionalDatanode(h, tf, bl, existing, exclude, 1/*num_additional_node*/,
+	    client, existing_sids, 0/*fileid*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	ck_assert_int_eq(lb2->ob_type, H_LOCATED_BLOCK);
+	if (dnrs->_len > 2)
+		ck_assert_int_eq(lb2->ob_val._located_block._num_locs, lb->ob_val._located_block._num_locs);
+	else
+		ck_assert_int_lt(lb2->ob_val._located_block._num_locs, lb->ob_val._located_block._num_locs);
+
+	hdfs_located_block_update_from_get_additional_datanode(lb, lb2);
+	hdfs_object_free(lb2);
+
+	hdfs_object_free(dnr);
+	hdfs_object_free(lb);
+	hdfs_object_free(existing);
+	hdfs_object_free(exclude);
+	hdfs_object_free(bl);
+	hdfs_object_free(existing_sids);
+
+	// Cleanup
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
 static Suite *
 t_hl_rpc1_basics_suite()
 {
@@ -1053,6 +1142,7 @@ t_hl_rpc2_basics_suite()
 	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
+	tcase_add_test(tc, test_getAdditionalDatanode);
 	suite_add_tcase(s, tc);
 
 	return s;
@@ -1102,6 +1192,7 @@ t_hl_rpc22_basics_suite()
 	tcase_add_test(tc, test_addBlock);
 	tcase_add_test(tc, test_addBlock_exclude);
 	tcase_add_test(tc, test_getContentSummary);
+	tcase_add_test(tc, test_getAdditionalDatanode);
 	suite_add_tcase(s, tc);
 
 	return s;

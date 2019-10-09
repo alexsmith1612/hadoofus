@@ -393,7 +393,7 @@ struct hdfs_array_byte {
 };
 
 struct hdfs_rpc_invocation {
-	struct hdfs_object *_args[8];
+	struct hdfs_object *_args[10];
 	char *_method;
 	int _nargs,
 	    _msgno;
@@ -595,5 +595,13 @@ struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
+
+// Update a H_LOCATED_BLOCK object with the relevant fields from the located
+// block returned by getAdditionalDatanode. Not all of the located block fields
+// are meaningfully populated in the response to getAdditionalDatanode, so
+// instead of directly using said returned located block, this function should
+// be used to update an existing located block.
+void	hdfs_located_block_update_from_get_additional_datanode(struct hdfs_object *dst,
+	struct hdfs_object *gad_res);
 
 #endif

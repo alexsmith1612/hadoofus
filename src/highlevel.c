@@ -1138,3 +1138,38 @@ _HDFS2_OBJ_RPC_BODY(getLinkTarget,
 	H_STRING,
 	path
 )
+
+_HDFS2_RPC_NB_DECL(getAdditionalDatanode,
+	const char *path, struct hdfs_object *block, struct hdfs_object *existings,
+	struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+	struct hdfs_object *existing_storage_uuids, int64_t fileid)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(getAdditionalDatanode,
+		hdfs_string_new(path),
+		hdfs_block_copy(block),
+		hdfs_array_datanode_info_copy(existings),
+		hdfs_array_datanode_info_copy(excludes),
+		hdfs_int_new(num_additional_nodes),
+		hdfs_string_new(client),
+		(existing_storage_uuids ? hdfs_array_string_copy(existing_storage_uuids) : hdfs_array_string_new(0, NULL)),
+		hdfs_long_new(fileid)
+	)
+)
+
+_HDFS2_OBJ_RPC_DECL(getAdditionalDatanode,
+	const char *path, struct hdfs_object *block, struct hdfs_object *existings,
+	struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+	struct hdfs_object *existing_storage_uuids, int64_t fileid)
+_HDFS2_OBJ_RPC_BODY(getAdditionalDatanode,
+	H_LOCATED_BLOCK,
+	path,
+	block,
+	existings,
+	excludes,
+	num_additional_nodes,
+	client,
+	existing_storage_uuids,
+	fileid
+)

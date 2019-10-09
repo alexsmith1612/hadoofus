@@ -1424,6 +1424,105 @@ hdfs_array_string_add(struct hdfs_object *o, const char *s)
 	H_ARRAY_APPEND(o->ob_val._array_string._val, o->ob_val._array_string._len, copy);
 }
 
+// Helper function for aggregating results from recovery RPCs
+
+static void
+_hdfs_located_block_set_locations_from_located_block(struct hdfs_object *dst, struct hdfs_object *src)
+{
+	struct hdfs_located_block *dlb, *slb;
+	int i;
+
+	ASSERT(dst);
+	ASSERT(dst->ob_type == H_LOCATED_BLOCK);
+	ASSERT(src);
+	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	dlb = &dst->ob_val._located_block;
+	slb = &src->ob_val._located_block;
+
+	for (i = 0; i < dlb->_num_locs; i++) {
+		hdfs_object_free(dlb->_locs[i]);
+		if (i < slb->_num_locs) {
+			dlb->_locs[i] = hdfs_datanode_info_copy(slb->_locs[i]);
+		}
+	}
+
+	for (; i < slb->_num_locs; i++) { // src longer than dst
+		hdfs_located_block_append_datanode_info(dst,
+		    hdfs_datanode_info_copy(slb->_locs[i]));
+	}
+
+	dlb->_num_locs = slb->_num_locs;
+}
+
+static void
+_hdfs_located_block_set_storage_ids_from_located_block(struct hdfs_object *dst, struct hdfs_object *src)
+{
+	struct hdfs_located_block *dlb, *slb;
+	int i;
+
+	ASSERT(dst);
+	ASSERT(dst->ob_type == H_LOCATED_BLOCK);
+	ASSERT(src);
+	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	dlb = &dst->ob_val._located_block;
+	slb = &src->ob_val._located_block;
+
+	for (i = 0; i < dlb->_num_storage_ids; i++) {
+		free(dlb->_storage_ids[i]);
+		if (i < slb->_num_storage_ids) {
+			dlb->_storage_ids[i] = strdup(slb->_storage_ids[i]);
+			ASSERT(dlb->_storage_ids[i]);
+		}
+	}
+
+	for (; i < slb->_num_storage_ids; i++) { // src longer than dst
+		hdfs_located_block_append_storage_id(dst, strdup(slb->_storage_ids[i]));
+	}
+
+	dlb->_num_storage_ids = slb->_num_storage_ids;
+}
+
+static void
+_hdfs_located_block_set_storage_types_from_located_block(struct hdfs_object *dst, struct hdfs_object *src)
+{
+	struct hdfs_located_block *dlb, *slb;
+	int i;
+
+	ASSERT(dst);
+	ASSERT(dst->ob_type == H_LOCATED_BLOCK);
+	ASSERT(src);
+	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	dlb = &dst->ob_val._located_block;
+	slb = &src->ob_val._located_block;
+
+	for (i = 0; i < dlb->_num_storage_types && i < slb->_num_storage_types; i++) {
+		dlb->_storage_types[i] = slb->_storage_types[i];
+	}
+
+	for (; i < slb->_num_storage_types; i++) { // src longer than dst
+		hdfs_located_block_append_storage_type(dst, slb->_storage_types[i]);
+	}
+
+	dlb->_num_storage_types = slb->_num_storage_types;
+}
+
+EXPORT_SYM void
+hdfs_located_block_update_from_get_additional_datanode(struct hdfs_object *dst, struct hdfs_object *gad_res)
+{
+
+	ASSERT(dst);
+	ASSERT(dst->ob_type == H_LOCATED_BLOCK);
+	ASSERT(gad_res);
+	ASSERT(gad_res->ob_type == H_LOCATED_BLOCK);
+
+	_hdfs_located_block_set_locations_from_located_block(dst, gad_res);
+	_hdfs_located_block_set_storage_ids_from_located_block(dst, gad_res);
+	_hdfs_located_block_set_storage_types_from_located_block(dst, gad_res);
+}
+
 #define FREE_H_ARRAY_ELMS(array, array_len) do { \
 	for (int32_t i = 0; i < array_len; i++) { \
 		hdfs_object_free(array[i]); \
