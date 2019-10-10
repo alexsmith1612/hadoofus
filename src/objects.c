@@ -427,14 +427,11 @@ _hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 	return res;
 }
 
-EXPORT_SYM struct hdfs_object *
-hdfs_located_block_copy(struct hdfs_object *src)
+static struct hdfs_object *
+_located_block_copy_no_arrays(struct hdfs_object *src)
 {
-	int nlocs, nsids, nstypes;
-	struct hdfs_object *r = _objmalloc(),
-			   **arr_locs = NULL;
-	char *pool_id, **arr_sids = NULL;
-	enum hdfs_storage_type *arr_stypes = NULL;
+	struct hdfs_object *r = _objmalloc();
+	char *pool_id = NULL;
 
 	ASSERT(src);
 	ASSERT(src->ob_type == H_LOCATED_BLOCK);
@@ -442,8 +439,32 @@ hdfs_located_block_copy(struct hdfs_object *src)
 	if (src->ob_val._located_block._pool_id) {
 		pool_id = strdup(src->ob_val._located_block._pool_id);
 		ASSERT(pool_id);
-	} else
-		pool_id = NULL;
+	}
+
+	r->ob_type = H_LOCATED_BLOCK;
+	r->ob_val._located_block = (struct hdfs_located_block) {
+		._blockid = src->ob_val._located_block._blockid,
+		._len = src->ob_val._located_block._len,
+		._generation = src->ob_val._located_block._generation,
+		._offset = src->ob_val._located_block._offset,
+		._token = hdfs_token_copy(src->ob_val._located_block._token),
+		._pool_id = pool_id,
+	};
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_located_block_copy(struct hdfs_object *src)
+{
+	int nlocs, nsids, nstypes;
+	struct hdfs_object *r, **arr_locs = NULL;
+	char **arr_sids = NULL;
+	enum hdfs_storage_type *arr_stypes = NULL;
+
+	ASSERT(src);
+	ASSERT(src->ob_type == H_LOCATED_BLOCK);
+
+	r = _located_block_copy_no_arrays(src);
 
 	nlocs = src->ob_val._located_block._num_locs;
 
@@ -480,21 +501,13 @@ hdfs_located_block_copy(struct hdfs_object *src)
 		}
 	}
 
-	r->ob_type = H_LOCATED_BLOCK;
-	r->ob_val._located_block = (struct hdfs_located_block) {
-		._blockid = src->ob_val._located_block._blockid,
-		._len = src->ob_val._located_block._len,
-		._generation = src->ob_val._located_block._generation,
-		._num_locs = nlocs,
-		._locs = arr_locs,
-		._offset = src->ob_val._located_block._offset,
-		._token = hdfs_token_copy(src->ob_val._located_block._token),
-		._pool_id = pool_id,
-		._num_storage_ids = nsids,
-		._storage_ids = arr_sids,
-		._num_storage_types = nstypes,
-		._storage_types = arr_stypes,
-	};
+	r->ob_val._located_block._num_locs = nlocs;
+	r->ob_val._located_block._locs = arr_locs;
+	r->ob_val._located_block._num_storage_ids = nsids;
+	r->ob_val._located_block._storage_ids = arr_sids;
+	r->ob_val._located_block._num_storage_types = nstypes;
+	r->ob_val._located_block._storage_types = arr_stypes;
+
 	return r;
 }
 
@@ -677,6 +690,14 @@ hdfs_datanode_info_copy(struct hdfs_object *src)
 		._infoport = infoport,
 	};
 	return r;
+}
+
+static bool
+_datanode_info_eq(struct hdfs_datanode_info *a, struct hdfs_datanode_info *b)
+{
+	return streq(a->_ipaddr, b->_ipaddr)
+	    && streq(a->_port, b->_port)
+	    && streq(a->_uuid, b->_uuid);
 }
 
 EXPORT_SYM struct hdfs_object *
@@ -1523,6 +1544,103 @@ hdfs_located_block_update_from_get_additional_datanode(struct hdfs_object *dst, 
 	_hdfs_located_block_set_storage_types_from_located_block(dst, gad_res);
 }
 
+EXPORT_SYM struct hdfs_error
+hdfs_get_transfer_data(struct hdfs_object *located_block, struct hdfs_object *existing,
+	struct hdfs_object **transfer_lb, struct hdfs_transfer_targets **targets)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct hdfs_located_block *lb;
+	struct hdfs_array_datanode_info *ex = NULL;
+	int ex_len = 0;
+	struct hdfs_object *tlb;
+	struct hdfs_transfer_targets *trg;
+
+	ASSERT(located_block);
+	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
+	ASSERT(targets);
+	ASSERT(transfer_lb);
+
+	if (existing) {
+		if (existing->ob_type == H_NULL) {
+			ASSERT(existing->ob_val._null._type == H_ARRAY_DATANODE_INFO);
+		} else {
+			ASSERT(existing->ob_type == H_ARRAY_DATANODE_INFO);
+			ex = &existing->ob_val._array_datanode_info;
+			ex_len = ex->_len;
+		}
+	}
+
+	lb = &located_block->ob_val._located_block;
+	if (lb->_num_storage_ids != lb->_num_storage_types) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (lb->_num_storage_ids > 0 && lb->_num_storage_ids != lb->_num_locs) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (lb->_num_storage_types > 0 && lb->_num_storage_types != lb->_num_locs) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES);
+		goto out;
+	}
+
+	tlb = _located_block_copy_no_arrays(located_block);
+	trg = malloc(sizeof(*trg));
+	ASSERT(trg);
+	memset(trg, 0, sizeof(*trg));
+
+	for (int i = 0; i < lb->_num_locs; i++) {
+		bool is_new = true;
+		struct hdfs_datanode_info *lb_dni = &lb->_locs[i]->ob_val._datanode_info;
+
+		for (int j = 0; j < ex_len; j++) {
+			struct hdfs_datanode_info *ex_dni = &ex->_values[j]->ob_val._datanode_info;
+			if (_datanode_info_eq(lb_dni, ex_dni)) {
+				is_new = false;
+				break;
+			}
+		}
+
+		if (is_new) {
+			// XXX this mirrors H_ARRAY_APPEND, but due to the shared nature of the
+			// array len between the three arrays the macro can't directly be used
+			if (trg->_num_targets % H_ARRAY_RESIZE == 0) {
+				int newcnt = trg->_num_targets + H_ARRAY_RESIZE;
+				trg->_locs = realloc(trg->_locs, newcnt * sizeof(*trg->_locs));
+				ASSERT(trg->_locs);
+				if (lb->_num_storage_ids > 0) {
+					trg->_storage_ids = realloc(trg->_storage_ids,
+					    newcnt * sizeof(*trg->_storage_ids));
+					trg->_storage_types = realloc(trg->_storage_types,
+					    newcnt * sizeof(*trg->_storage_types));
+					ASSERT(trg->_storage_ids);
+					ASSERT(trg->_storage_types);
+				}
+			}
+			trg->_locs[trg->_num_targets] = hdfs_datanode_info_copy(lb->_locs[i]);
+			if (lb->_num_storage_ids > 0) {
+				char *sid_copy = strdup(lb->_storage_ids[i]);
+				ASSERT(sid_copy);
+				trg->_storage_ids[trg->_num_targets] = sid_copy;
+				trg->_storage_types[trg->_num_targets] = lb->_storage_types[i];
+			}
+			trg->_num_targets++;
+		} else { // existing datanode
+			hdfs_located_block_append_datanode_info(tlb, hdfs_datanode_info_copy(lb->_locs[i]));
+			if (lb->_num_storage_ids > 0) {
+				hdfs_located_block_append_storage_id(tlb, strdup(lb->_storage_ids[i]));
+				hdfs_located_block_append_storage_type(tlb, lb->_storage_types[i]);
+			}
+		}
+	}
+
+	*targets = trg;
+	*transfer_lb = tlb;
+
+out:
+	return error;
+}
+
 #define FREE_H_ARRAY_ELMS(array, array_len) do { \
 	for (int32_t i = 0; i < array_len; i++) { \
 		hdfs_object_free(array[i]); \
@@ -1645,6 +1763,58 @@ hdfs_object_free(struct hdfs_object *obj)
 		ASSERT(false);
 	}
 	free(obj);
+}
+
+struct hdfs_transfer_targets *
+_hdfs_transfer_targets_copy(struct hdfs_transfer_targets *src)
+{
+	struct hdfs_transfer_targets *ret;
+
+	ASSERT(src);
+
+	ret = malloc(sizeof(*ret));
+	ASSERT(ret);
+	memset(ret, 0, sizeof(*ret));
+
+	ret->_num_targets = src->_num_targets;
+	ret->_locs = malloc(src->_num_targets * sizeof(*ret->_locs));
+	ASSERT(ret->_locs);
+
+	if (src->_storage_ids) {
+		ret->_storage_ids = malloc(src->_num_targets * sizeof(ret->_storage_ids));
+		ASSERT(ret->_storage_ids);
+		ret->_storage_types = malloc(src->_num_targets * sizeof(ret->_storage_types));
+		ASSERT(ret->_storage_types);
+	}
+
+	for (int i = 0; i < src->_num_targets; i++) {
+		ret->_locs[i] = hdfs_datanode_info_copy(src->_locs[i]);
+		if (src->_storage_ids) {
+			char *sid_copy = strdup(src->_storage_ids[i]);
+			ASSERT(sid_copy);
+
+			ret->_storage_ids[i] = sid_copy;
+			ret->_storage_types[i] = src->_storage_types[i];
+		}
+	}
+
+	return ret;
+}
+
+EXPORT_SYM void
+hdfs_transfer_targets_free(struct hdfs_transfer_targets *trg)
+{
+
+	FREE_H_ARRAY(trg->_locs, trg->_num_targets);
+	if (trg->_storage_ids) {
+		for (int i = 0; i < trg->_num_targets; i++) {
+			free(trg->_storage_ids[i]);
+		}
+	}
+	free(trg->_storage_ids);
+	free(trg->_storage_types);
+
+	free(trg);
 }
 
 static const char *

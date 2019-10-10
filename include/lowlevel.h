@@ -131,8 +131,8 @@ enum hdfs_datanode_state {
 // These are HDFS wire values
 enum hdfs_datanode_op {
 	HDFS_DN_OP_WRITE_BLOCK = 0x50,
-	HDFS_DN_OP_READ_BLOCK = 0x51
-	// TODO HDFS_DN_OP_TRANSFER_BLOCK = 0x56
+	HDFS_DN_OP_READ_BLOCK = 0x51,
+	HDFS_DN_OP_TRANSFER_BLOCK = 0x56
 };
 
 // hdfs_datanode structs must either be created with hdfs_datanode_alloc() or
@@ -160,6 +160,7 @@ struct hdfs_datanode {
 
 	/* v2+ */
 	char *dn_pool_id;
+	struct hdfs_transfer_targets *dn_ttrgs;
 
 	struct hdfs_conn_ctx dn_cctx;
 	struct hdfs_heap_buf dn_hdrbuf;
@@ -428,6 +429,10 @@ struct hdfs_datanode *	hdfs_datanode_alloc(void);
 // used. It is an error to use this struct for a different operation than
 // specified here (without first cleaning and reinitializing the struct)
 //
+// Note that for op HDFS_DN_OP_TRANSFER_BLOCK, located_block should have been
+// received from a call to hdfs_get_transfer_data() following a
+// getAdditionalDatanode() RPC.
+//
 // Returns HDFS_SUCCESS or an error code on failure
 struct hdfs_error	hdfs_datanode_init(struct hdfs_datanode *d,
 			struct hdfs_object *located_block, const char *client,
@@ -514,6 +519,21 @@ struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 			int fd, off_t fdoff, bool verifycrcs);
+
+// Attempt to transfer (blocking) the block associated with this connection to the
+// target datanodes.
+//
+// targets must be a struct hdfs_transfer_targets received from a call to
+// hdfs_get_transfer_data() (the same call that produced the located_block passed
+// to hdfs_datanode_init() for this struct hdfs_datanode instance)
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+//
+// Such a transfer operation should be performed when there is a pipeline failure
+// and new datanodes are to be added to the pipeline (only necessary when data has
+// already been sent to the block, including for appends).
+struct hdfs_error	hdfs_datanode_transfer(struct hdfs_datanode *d,
+			struct hdfs_transfer_targets *targets);
 
 //
 // Non-blocking Datanode API
@@ -728,5 +748,38 @@ struct hdfs_error	hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, voi
 // if the user has set it to be non-blocking
 struct hdfs_error	hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
 			off_t fdoff, ssize_t *nread);
+
+// Initialize the datanode struct with the target datanodes for a block transfer
+// operation
+//
+// targets must be a struct hdfs_transfer_targets received from a call to
+// hdfs_get_transfer_data() (the same call that produced the located_block passed
+// to hdfs_datanode_init() for this struct hdfs_datanode instance)
+//
+// This function must be called prior to the first invocation of
+// hdfs_datanode_transfer_nb()
+//
+// Return HDFS_SUCCESS or another error code on failure
+struct hdfs_error	hdfs_datanode_transfer_nb_init(struct hdfs_datanode *d,
+			struct hdfs_transfer_targets *targets);
+
+// Attempt to transfer (non-blocking) the block associated with this connection to
+// the target datanodes as specified in an earlier call to
+// hdfs_datanode_transfer_nb_init().
+//
+// Returns HDFS_SUCCESS if the block tranfer operation was completed succesfully,
+// HDFS_AGAIN if we are waiting on I/O, or another error code on failure.
+//
+// This function should be called repeatedly until a value other than HDFS_AGAIN is
+// returned.
+//
+// Such a transfer operation should be performed when there is a pipeline failure
+// and new datanodes are to be added to the pipeline (only necessary when data has
+// already been sent to the block, including for appends).
+//
+// For convenience purposes this function will initialize and/or finalize the
+// connection to the datanode if not already done so. This allows users to not
+// have to maintain state information regarding the connection setup.
+struct hdfs_error	hdfs_datanode_transfer_nb(struct hdfs_datanode *d);
 
 #endif // HADOOFUS_LOWLEVEL_H

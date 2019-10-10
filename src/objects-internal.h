@@ -92,6 +92,8 @@ streq(const char *a, const char *b)
 	return strcmp(a, b) == 0;
 }
 
+struct hdfs_transfer_targets *	_hdfs_transfer_targets_copy(struct hdfs_transfer_targets *src);
+
 // HDFSv2+ protobuf-to-hdfs_object converters
 struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(Hadoop__Hdfs__FsServerDefaultsProto *);
 struct hdfs_object *	_hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *);

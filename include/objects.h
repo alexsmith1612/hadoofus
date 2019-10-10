@@ -601,7 +601,45 @@ void	hdfs_object_free(struct hdfs_object *obj);
 // are meaningfully populated in the response to getAdditionalDatanode, so
 // instead of directly using said returned located block, this function should
 // be used to update an existing located block.
+//
+// Following this function call, dst is suitable for passing to
+// hdfs_get_transfer_data() and then for passing to hdfs_datanode_new() or
+// hdfs_datanode_init() for a recovery block write (NOTE dst's located block
+// length must separately be appended to include any bytes that were
+// acknowledged while before pipeline failure)
 void	hdfs_located_block_update_from_get_additional_datanode(struct hdfs_object *dst,
 	struct hdfs_object *gad_res);
+
+// Specifies the datanode targets for a datanode block transfer operation.
+struct hdfs_transfer_targets {
+	int _num_targets; // length of all three arrays (unless _storage_ids
+			  // and _storage_types are not given)
+	struct hdfs_object **_locs; // type: struct hdfs_datanode_info[]
+	char **_storage_ids; // NULL if none
+	enum hdfs_storage_type *_storage_types; // NULL if none
+};
+
+// Get the information required for a datanode transfer from a located_block
+// that was updated with the response from a getAdditionalDatanode RPC call (via
+// hdfs_located_block_update_from_get_additional_datanode()) and the list of
+// existing datanodes given as an argument to the getAdditionalDatanode RPC.
+//
+// On success *transfer_lb is set to a located block object suitable for use
+// with hdfs_datanode_new() or hdfs_datanode_init() for the datanode block
+// transfer operation. *transfer_lb should be freed with hdfs_object_free()
+//
+// On success *targets is set to a struct hdfs_transfer_targets instance that is
+// suitable for use with hdfs_datanode_transfer() or
+// hdfs_datanode_transfer_nb_init(). *targets should be freed with
+// hdfs_transfer_targets_free()
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_get_transfer_data(struct hdfs_object *located_block,
+			struct hdfs_object *existing, struct hdfs_object **transfer_lb,
+			struct hdfs_transfer_targets **targets);
+
+// Frees a struct hdfs_transfer_targets instance as allocated by
+// hdfs_get_transfer_data()
+void	hdfs_transfer_targets_free(struct hdfs_transfer_targets *trg);
 
 #endif

@@ -53,12 +53,16 @@ static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *bu
 				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
 				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
+static struct hdfs_error	_datanode_transfer(struct hdfs_datanode *d);
+static struct hdfs_error	_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
 static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
 static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *, int *err_idx);
+static struct hdfs_error	_read_transfer_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
 static struct hdfs_error	_recv_packet(struct hdfs_packet_state *, struct hdfs_read_info *);
 static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
@@ -319,6 +323,11 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
 	hdfs_conn_ctx_free(&d->dn_cctx);
+
+	if (d->dn_ttrgs) {
+		hdfs_transfer_targets_free(d->dn_ttrgs);
+		d->dn_ttrgs = NULL;
+	}
 
 	_packet_state_clean(&d->dn_pstate, reuse);
 	_read_info_clean(&d->dn_rinfo, reuse);
@@ -663,6 +672,29 @@ hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd,
 	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff, NULL/*buf*/);
 }
 
+// Datanode transfer operations
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer_nb_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	return _datanode_transfer_init(d, targets);
+}
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer_nb(struct hdfs_datanode *d)
+{
+	return _datanode_transfer(d);
+}
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	return _datanode_transfer_blocking(d, targets);
+}
+
 static struct hdfs_error
 error_from_datanode(int dnstatus)
 {
@@ -944,6 +976,110 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		hdfs_object_serialize(h, d->dn_token);
 		_bappend_s8(h, !!d->dn_crcs);
 		_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
+	}
+}
+
+static void
+_compose_transfer_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
+{
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+
+	_bappend_s16(h, d->dn_proto);
+	_bappend_s8(h, HDFS_DN_OP_TRANSFER_BLOCK);
+
+	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
+		Hadoop__Common__TokenProto token =
+		    HADOOP__COMMON__TOKEN_PROTO__INIT;
+		Hadoop__Hdfs__ExtendedBlockProto ebp = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+		Hadoop__Hdfs__BaseHeaderProto bhdr = HADOOP__HDFS__BASE_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__ClientOperationHeaderProto hdr =
+		    HADOOP__HDFS__CLIENT_OPERATION_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__OpTransferBlockProto op = HADOOP__HDFS__OP_TRANSFER_BLOCK_PROTO__INIT;
+
+		Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+		Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
+
+		struct hdfs_token *h_token;
+		size_t sz;
+
+		h_token = &d->dn_token->ob_val._token;
+
+		ASSERT(d->dn_pool_id);
+		ebp.poolid = d->dn_pool_id;
+		ebp.blockid = d->dn_blkid;
+		ebp.generationstamp = d->dn_gen;
+
+		token.identifier.len = h_token->_lens[0];
+		token.identifier.data = (void *)h_token->_strings[0];
+		token.password.len = h_token->_lens[1];
+		token.password.data = (void *)h_token->_strings[1];
+		token.kind = h_token->_strings[2];
+		token.service = h_token->_strings[3];
+
+		bhdr.block = &ebp;
+		bhdr.token = &token;
+
+		hdr.baseheader = &bhdr;
+		hdr.clientname = d->dn_client;
+
+		op.header = &hdr;
+
+		// TODO try to avoid these local mallocs
+		op.n_targets = d->dn_ttrgs->_num_targets;
+		op.targets = malloc(op.n_targets * sizeof(*op.targets));
+		ASSERT(op.targets);
+		dinfo_arr = malloc(op.n_targets * sizeof(*dinfo_arr));
+		ASSERT(dinfo_arr);
+		did_arr = malloc(op.n_targets * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < op.n_targets; i++) {
+			struct hdfs_datanode_info *h_dinfo = &d->dn_ttrgs->_locs[i]->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			op.targets[i] = dinfo;
+		}
+
+		// either both or neither of th target storage ids and storage types must be given
+		ASSERT(!d->dn_ttrgs->_storage_ids == !d->dn_ttrgs->_storage_types);
+		if (d->dn_ttrgs->_storage_ids) {
+			// no allocation necessary
+			op.n_targetstorageids = d->dn_ttrgs->_num_targets;
+			op.targetstorageids = d->dn_ttrgs->_storage_ids;
+			op.n_targetstoragetypes = d->dn_ttrgs->_num_targets;
+			op.targetstoragetypes = _hdfs_storage_type_ptr_to_proto(d->dn_ttrgs->_storage_types);
+		}
+
+		sz = hadoop__hdfs__op_transfer_block_proto__get_packed_size(&op);
+		_bappend_vlint(h, sz);
+		_hbuf_reserve(h, sz);
+		hadoop__hdfs__op_transfer_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
+		_hbuf_append(h, sz);
+
+		free(dinfo_arr);
+		free(did_arr);
+		free(op.targets);
+	} else {
+		// It's unclear if v1 had a transfer block operation nor what it's format
+		// looked like if it existed
+		ASSERT(false);
 	}
 }
 
@@ -1357,6 +1493,124 @@ out:
 }
 
 static struct hdfs_error
+_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+	ASSERT(!d->dn_op_inited);
+	ASSERT(!d->dn_ttrgs);
+	ASSERT(targets);
+
+	if (targets->_num_targets <= 0) {
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
+	}
+
+	d->dn_ttrgs = _hdfs_transfer_targets_copy(targets);
+	d->dn_op_inited = true;
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_transfer(struct hdfs_datanode *d)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t wlen;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+	ASSERT(d->dn_op_inited);
+	ASSERT(d->dn_ttrgs);
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		error = hdfs_datanode_connect_nb(d);
+		// state transitions handled by hdfs_datanode_connect_nb()
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
+		// fall through
+	case HDFS_DN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		_compose_transfer_header(&d->dn_hdrbuf, d);
+		d->dn_state = HDFS_DN_ST_SENDOP;
+		// fall through
+	case HDFS_DN_ST_SENDOP:
+		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		if (wlen < 0) {
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		if (hdfs_is_again(error))
+			goto out;
+		// complete write
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		d->dn_state = HDFS_DN_ST_RECVOP;
+		// fall through
+	case HDFS_DN_ST_RECVOP:
+		error = _read_transfer_status(d, &d->dn_recvbuf);
+		if (hdfs_is_again(error)) {
+			goto out; // no state or buffer change.
+		} else if (hdfs_is_error(error)) {
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		// Success!
+		d->dn_state = HDFS_DN_ST_FINISHED;
+		break;
+
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_PKT:
+	case HDFS_DN_ST_FINISHED:
+	case HDFS_DN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	struct hdfs_error error;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+
+	error = _datanode_transfer_init(d, targets);
+	if (hdfs_is_error(error))
+		goto out;
+
+	while (true) {
+		error = _datanode_transfer(d);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
 _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	struct hdfs_read_info *ri)
 {
@@ -1622,6 +1876,22 @@ _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h, int *err_i
 			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 		}
 	}
+
+	if (opres)
+		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
+	return error;
+}
+
+static struct hdfs_error
+_read_transfer_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
+
+	// TODO change this if v1 support is added
+	ASSERT(d->dn_proto == HDFS_DATANODE_AP_2_0);
+
+	error = _read_blockop_resp_status(d, h, &opres);
 
 	if (opres)
 		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
