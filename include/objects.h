@@ -169,6 +169,16 @@ enum hdfs_file_type {
 	HDFS_FT_SYMLINK = 3,
 };
 
+enum hdfs_storage_type {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_STORAGE_DISK = 1,
+	HDFS_STORAGE_SSD = 2,
+	HDFS_STORAGE_ARCHIVE = 3,
+	HDFS_STORAGE_RAM_DISK = 4,
+	HDFS_STORAGE_PROVIDED = 5,
+};
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -281,6 +291,12 @@ struct hdfs_located_block {
 	/* v2+ */
 	char *_pool_id;
 	bool _corrupt;
+
+	char **_storage_ids;
+	int _num_storage_ids;
+
+	enum hdfs_storage_type *_storage_types;
+	int _num_storage_types;
 };
 
 struct hdfs_located_blocks {
@@ -524,6 +540,10 @@ struct hdfs_object *	hdfs_upgrade_status_report_new(int32_t, int16_t);
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(
 	struct hdfs_object *located_block, struct hdfs_object *datanode_info);
+void	hdfs_located_block_append_storage_id(
+	struct hdfs_object *located_block, char *storage_id);
+void	hdfs_located_block_append_storage_type(
+	struct hdfs_object *located_block, enum hdfs_storage_type type);
 void	hdfs_located_blocks_append_located_block(
 	struct hdfs_object *located_blocks, struct hdfs_object *located_block);
 void	hdfs_array_locatedblock_append_located_block(

@@ -129,4 +129,20 @@ _hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType pr)
 	return (unsigned)pr;
 }
 
+_Static_assert((unsigned)HADOOP__HDFS__STORAGE_TYPE_PROTO__DISK == HDFS_STORAGE_DISK,
+    "Protobufs DISK storage type enum does not match our DISK storage type enum");
+_Static_assert((unsigned)HADOOP__HDFS__STORAGE_TYPE_PROTO__SSD == HDFS_STORAGE_SSD,
+    "Protobufs SSD storage type enum does not match our SSD storage type enum");
+_Static_assert((unsigned)HADOOP__HDFS__STORAGE_TYPE_PROTO__ARCHIVE == HDFS_STORAGE_ARCHIVE,
+    "Protobufs ARCHIVE storage type enum does not match our ARCHIVE storage type enum");
+_Static_assert((unsigned)HADOOP__HDFS__STORAGE_TYPE_PROTO__RAM_DISK == HDFS_STORAGE_RAM_DISK,
+    "Protobufs RAM_DISK storage type enum does not match our RAM_DISK storage type enum");
+_Static_assert((unsigned)HADOOP__HDFS__STORAGE_TYPE_PROTO__PROVIDED == HDFS_STORAGE_PROVIDED,
+    "Protobufs PROVIDED storage type enum does not match our PROVIDED storage type enum");
+static inline enum hdfs_storage_type
+_hdfs_storage_type_from_proto(Hadoop__Hdfs__StorageTypeProto pr)
+{
+	return (unsigned)pr;
+}
+
 #endif
