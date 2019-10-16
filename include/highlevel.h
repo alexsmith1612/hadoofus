@@ -429,9 +429,10 @@ struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
 //
 
 // Creates a new datanode connection (blocking). On error, returns NULL and sets
-// *error_out to an error value.
+// *error_out to an error value. See hdfs_datanode_init() (lowlevel.h) for
+// description of the arguments
 struct hdfs_datanode *	hdfs_datanode_new(struct hdfs_object *located_block,
-			const char *client, int proto,
+			const char *client, int proto, enum hdfs_datanode_op op,
 			struct hdfs_error *error_out);
 
 // Destroys the connection and frees memory.

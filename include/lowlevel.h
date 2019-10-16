@@ -128,9 +128,8 @@ enum hdfs_datanode_state {
 	HDFS_DN_ST_FINISHED
 };
 
-// These are HDFS wire values (except NONE)
+// These are HDFS wire values
 enum hdfs_datanode_op {
-	HDFS_DN_OP_NONE = 0,
 	HDFS_DN_OP_WRITE_BLOCK = 0x50,
 	HDFS_DN_OP_READ_BLOCK = 0x51
 	// TODO HDFS_DN_OP_TRANSFER_BLOCK = 0x56
@@ -153,7 +152,8 @@ struct hdfs_datanode {
 	int dn_sock,
 	    dn_proto,
 	    dn_conn_idx;
-	bool dn_last,
+	bool dn_op_inited,
+	     dn_last,
 	     dn_crcs;
 
 	/* v2+ */
@@ -422,10 +422,14 @@ struct hdfs_datanode *	hdfs_datanode_alloc(void);
 // A datanode object may be reused by calling hdfs_datanode_clean() prior to
 // calling hdfs_datanode_init() again.
 //
+// The argument op specifies the operation for which this datanode struct will be
+// used. It is an error to use this struct for a different operation than
+// specified here (without first cleaning and reinitializing the struct)
+//
 // Returns HDFS_SUCCESS or an error code on failure
 struct hdfs_error	hdfs_datanode_init(struct hdfs_datanode *d,
 			struct hdfs_object *located_block, const char *client,
-			int proto);
+			int proto, enum hdfs_datanode_op op);
 
 // Sets the pool_id (required in HDFSv2+). This should not be called by users who
 // pass a located_block to hdfs_datanode_init().

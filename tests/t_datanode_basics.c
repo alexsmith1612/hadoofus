@@ -172,7 +172,7 @@ START_TEST(test_dn_write_buf)
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
 		    format_error(err),
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
@@ -232,7 +232,7 @@ START_TEST(test_dn_write_buf)
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
@@ -247,7 +247,7 @@ START_TEST(test_dn_write_buf)
 
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
-			dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
@@ -320,7 +320,7 @@ START_TEST(test_dn_append_buf)
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
 		    format_error(err),
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
@@ -386,7 +386,7 @@ START_TEST(test_dn_append_buf)
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
 		    format_error(err),
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
@@ -446,7 +446,7 @@ START_TEST(test_dn_append_buf)
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
@@ -461,7 +461,7 @@ START_TEST(test_dn_append_buf)
 
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
-			dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
@@ -527,7 +527,7 @@ START_TEST(test_dn_write_file)
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
 		    format_error(err),
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
@@ -587,7 +587,7 @@ START_TEST(test_dn_write_file)
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
 		    bls->ob_val._located_blocks._blocks[i];
-		dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 		err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
@@ -605,7 +605,7 @@ START_TEST(test_dn_write_file)
 
 			// reconnect, try again without validating CRCs (for
 			// isi_hdfs_d)
-			dn = hdfs_datanode_new(bl, client, dn_proto, &err);
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
 			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
 
 			err = hdfs_datanode_read_file(dn, 0/*offset-in-block*/,
@@ -662,7 +662,7 @@ START_TEST(test_short_read)
 		goto out;
 
 	bl = bls->ob_val._located_blocks._blocks[0];
-	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", dn_proto, &errs);
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", dn_proto, HDFS_DN_OP_READ_BLOCK, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
 
 	errs = hdfs_datanode_read(dn, 0, 1032, abuf, false/*verifycrcs*/);
@@ -703,7 +703,7 @@ START_TEST(test_short_write)
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
+	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, HDFS_DN_OP_WRITE_BLOCK, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
 
 	errs = hdfs_datanode_write(dn, buf, 33128, false/*sendcrcs*/, &nwritten, &nacked, &err_idx);
