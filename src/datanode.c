@@ -49,6 +49,8 @@ static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int 
 static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
 				off_t len, int fd, off_t fdoff, void *buf);
 static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
+static struct hdfs_error	_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx);
+static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx);
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
@@ -342,6 +344,7 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 		d->dn_append_or_recovery = false;
 		d->dn_conn_idx = 0;
 		d->dn_last = false;
+		d->dn_blocking_pipeline_setup = false;
 		d->dn_recovery = HDFS_DN_RECOVERY_NONE;
 	} else {
 		PTR_FREE(d->dn_hdrbuf.buf);
@@ -590,12 +593,24 @@ hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs)
 }
 
 EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_setup_pipeline_nb(struct hdfs_datanode *d, int *error_idx)
+{
+	return _setup_write_pipeline(d, error_idx);
+}
+
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(buf);
 
 	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d, bool sendcrcs, int *error_idx)
+{
+	return _setup_write_pipeline_blocking(d, sendcrcs, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -1415,47 +1430,19 @@ _datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
 	return error;
 }
 
-// XXX TODO Add support for iovecs instead of just one contiguous buffer. Would
-// need to have a dynamically allocated iovec array in struct hdfs_datanode or
-// in struct hdfs_packet state (that only gets realloc'd up).  The iovec array
-// passed in by the user would get shallow copied into our array, starting at
-// index 1 to allow an iovec for the packet header/crcs buffer. There would be a
-// pointer into our iovec array that could be modified by _send_packet() to
-// advance through the array as data get sent. Our copy of the iovec array would
-// also get modified by _send_packet() when a write (whether complete or short,
-// but the complete writes are actually of interest here) finishes in the middle
-// of an iovec. We may want to do some checks against IOV_MAX or
-// sysconf(_SC_IOV_MAX), but these do not seem to be portably defined.
-// send_packet() will have to loop through the iovecs to count how many to pass
-// to writev() via iovcnt (although a temporary adjustment will have to be made
-// to iov_len in the last iovec passed in order to pass exactly the correct
-// number remains_pkt of bytes; this iov_len will then get restored after the
-// call to writev() is made.
 static struct hdfs_error
-_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-	off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 {
-	ssize_t wlen, t_nacked = 0;
-	struct hdfs_error error = HDFS_SUCCESS, ret;
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t wlen;
 
 	ASSERT(d);
-	ASSERT(nwritten);
-	ASSERT(nacked);
 	ASSERT(err_idx);
-	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_RECVOP);
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
 	ASSERT(d->dn_op_inited);
-	ASSERT(len >= d->dn_pstate.remains_tot);
-	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
-	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
-	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
-	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
 
-	*nacked = 0;
 	*err_idx = -1;
-	// *nwritten is set in the out label, so it will always be initialized before return
-
-	d->dn_pstate.remains_tot = len;
 
 	switch (d->dn_state) {
 	case HDFS_DN_ST_INITED:
@@ -1468,6 +1455,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			*err_idx = 0;
 			goto out;
 		}
+		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
@@ -1518,6 +1506,73 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		d->dn_pstate.offset = d->dn_size;
 		d->dn_pstate.pipelinesize = d->dn_nlocs;
 		d->dn_state = HDFS_DN_ST_PKT;
+		break;
+
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_PKT:
+	case HDFS_DN_ST_FINISHED:
+	case HDFS_DN_ST_ERROR:
+		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+// XXX TODO Add support for iovecs instead of just one contiguous buffer. Would
+// need to have a dynamically allocated iovec array in struct hdfs_datanode or
+// in struct hdfs_packet state (that only gets realloc'd up).  The iovec array
+// passed in by the user would get shallow copied into our array, starting at
+// index 1 to allow an iovec for the packet header/crcs buffer. There would be a
+// pointer into our iovec array that could be modified by _send_packet() to
+// advance through the array as data get sent. Our copy of the iovec array would
+// also get modified by _send_packet() when a write (whether complete or short,
+// but the complete writes are actually of interest here) finishes in the middle
+// of an iovec. We may want to do some checks against IOV_MAX or
+// sysconf(_SC_IOV_MAX), but these do not seem to be portably defined.
+// send_packet() will have to loop through the iovecs to count how many to pass
+// to writev() via iovcnt (although a temporary adjustment will have to be made
+// to iov_len in the last iovec passed in order to pass exactly the correct
+// number remains_pkt of bytes; this iov_len will then get restored after the
+// call to writev() is made.
+static struct hdfs_error
+_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
+	off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+{
+	ssize_t t_nacked = 0;
+	struct hdfs_error error = HDFS_SUCCESS, ret;
+
+	ASSERT(d);
+	ASSERT(nwritten);
+	ASSERT(nacked);
+	ASSERT(err_idx);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(d->dn_op_inited);
+	ASSERT(len >= d->dn_pstate.remains_tot);
+	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
+	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
+	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
+	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
+
+	*nacked = 0;
+	*err_idx = -1;
+	// *nwritten is set in the out label, so it will always be initialized before return
+
+	d->dn_pstate.remains_tot = len;
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+	case HDFS_DN_ST_CONNECTED:
+	case HDFS_DN_ST_SENDOP:
+	case HDFS_DN_ST_RECVOP:
+		ASSERT(!d->dn_append_or_recovery); // appends/recovery must call setup pipeline separately
+		error = _setup_write_pipeline(d, err_idx);
+		// state transitions handled by _setup_write_pipeline()
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		ASSERT(d->dn_state == HDFS_DN_ST_PKT);
 		// fall through
 	case HDFS_DN_ST_PKT:
 		d->dn_pstate.buf = __DECONST(void *, buf);
@@ -1574,6 +1629,40 @@ out:
 }
 
 static struct hdfs_error
+_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx)
+{
+	struct hdfs_error error;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d);
+	ASSERT(err_idx);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+
+	d->dn_blocking_pipeline_setup = true;
+	*err_idx = -1;
+	error = _datanode_write_init(d, sendcrcs);
+	if (hdfs_is_error(error))
+		goto out;
+
+	while (true) {
+		error = _setup_write_pipeline(d, err_idx);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
 _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
 	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
@@ -1590,11 +1679,18 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 	*nacked = 0;
 	*err_idx = -1;
 
-	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
-
-	error = _datanode_write_init(d, sendcrcs);
-	if (hdfs_is_error(error))
-		goto out;
+	// Only call _datanode_write_init() if it hasn't already been called by
+	// hdfs_datanode_write_setup_pipeline()
+	if (d->dn_blocking_pipeline_setup) {
+		ASSERT(d->dn_state == HDFS_DN_ST_PKT);
+		ASSERT(d->dn_pstate.remains_tot == 0);
+		ASSERT(d->dn_pstate.unacked.ua_num == 0);
+	} else {
+		ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+		error = _datanode_write_init(d, sendcrcs);
+		if (hdfs_is_error(error))
+			goto out;
+	}
 
 	while (true) {
 		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, err_idx);
