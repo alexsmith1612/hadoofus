@@ -1069,9 +1069,9 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	ASSERT(len >= d->dn_pstate.remains_tot);
 	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
 
-	*nwritten = 0;
 	*nacked = 0;
 	*err_idx = -1;
+	// *nwritten is set in the out label, so it will always be initialized before return
 
 	d->dn_pstate.remains_tot = len;
 
@@ -1130,12 +1130,12 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			// Try to drain any acks if we have many outstanding packets
 			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
 				ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+				*nacked += t_nacked; // update nacked even if there's an ACK error
 				if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
 					error = ret;
 					d->dn_state = HDFS_DN_ST_ERROR;
 					goto out;
 				}
-				*nacked += t_nacked;
 			}
 			error = _send_packet(&d->dn_pstate);
 			if (hdfs_is_again(error)) {
@@ -1152,19 +1152,16 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				break;
 			}
 		}
-		// XXX do we care about telling the user about the number of
-		// written bytes if there's any error?
-		*nwritten = len - d->dn_pstate.remains_tot;
 		// fall through
 	case HDFS_DN_ST_FINISHED:
 		// Check if there are any acks to drain (without clobbering return value)
 		ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+		*nacked += t_nacked; // update nacked even if there's an ACK error
 		if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
 			error = ret;
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		*nacked += t_nacked;
 		break;
 
 	case HDFS_DN_ST_ZERO:
@@ -1174,6 +1171,8 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	}
 
 out:
+	// ensure *nwritten is set even if there is an error
+	*nwritten = len - d->dn_pstate.remains_tot;
 	return error;
 }
 
