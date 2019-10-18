@@ -58,7 +58,7 @@ static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_h
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
-static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *, int *err_idx);
 static struct hdfs_error	_recv_packet(struct hdfs_packet_state *, struct hdfs_read_info *);
 static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
@@ -1166,7 +1166,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		// fall through
 	case HDFS_DN_ST_RECVOP:
 		if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
-			error = _read_write_status2(d, &d->dn_recvbuf);
+			error = _read_write_status2(d, &d->dn_recvbuf, err_idx);
 		else
 			error = _read_write_status(d, &d->dn_recvbuf);
 		if (hdfs_is_again(error)) {
@@ -1421,10 +1421,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	else if (opres->message != NULL)
 		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 
-	if (hdfs_is_error(error))
-		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
-	else
-		*opres_out = opres;
+	*opres_out = opres;
 
 	// Skip recvbuf past stuff we parsed here
 	_hbuf_consume(h, obuf.used);
@@ -1548,12 +1545,28 @@ out:
 }
 
 static struct hdfs_error
-_read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
+_read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
 
 	error = _read_blockop_resp_status(d, h, &opres);
+
+	if (opres && opres->firstbadlink && opres->firstbadlink[0] != '\0') {
+		int i;
+		for (i = 0; i < d->dn_nlocs; i++) {
+			char buf[32]; // big enough for 111.222.333.444:65535
+			struct hdfs_datanode_info *di = &d->dn_locs[i]->ob_val._datanode_info;
+			snprintf(buf, sizeof(buf), "%s:%s", di->_ipaddr, di->_port);
+			if (!strcmp(opres->firstbadlink, buf))
+				*err_idx = i;
+		}
+		// This shouldn't happend, but if the status was SUCCESS or the
+		// badfirstlink doesn't match any of the targets, set an error
+		if (!hdfs_is_error(error) || i == d->dn_nlocs) {
+			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
+		}
+	}
 
 	if (opres)
 		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
