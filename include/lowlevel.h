@@ -457,16 +457,38 @@ struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *d);
 // Attempt to write (blocking) a buffer to the block associated with this
 // connection.
 //
+// *nwritten is set to the number of bytes that have been written. This will be
+// equal to len on success.
+//
+// *nacked is set to the number of bytes that have been acknowledged. This will be
+// equal to len on success.
+//
 // Returns HDFS_SUCCESS or an error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
-			size_t len, bool sendcrcs);
+			size_t len, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked,
+			int *error_idx);
 
 // Attempt to write (blocking) from an fd at the given offset to the block
 // associated with this connection.
 //
+// *nwritten is set to the number of bytes that have been written. This will be
+// equal to len on success.
+//
+// *nacked is set to the number of bytes that have been acknowledged. This will be
+// equal to len on success.
+//
 // Returns HDFS_SUCCESS or an error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
-			off_t len, off_t offset, bool sendcrcs);
+			off_t len, off_t offset, bool sendcrcs, ssize_t *nwritten,
+			ssize_t *nacked, int *error_idx);
 
 // Attempt to read (blocking) from the block associated with this connection into
 // the given buffer.

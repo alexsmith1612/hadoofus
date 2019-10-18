@@ -52,7 +52,7 @@ static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool send
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
-				int fd, off_t len, off_t fdoff);
+				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
@@ -499,16 +499,15 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
-// XXX do we want to expose error_idx through the blocking dn write interfaces?
-// and perhaps nwritten/nacked/nread in the case of an error?
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
-	bool sendcrcs)
+	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(buf);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/);
+	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/,
+	    nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -524,13 +523,14 @@ hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t of
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
-	bool sendcrcs)
+	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(offset >= 0);
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset);
+	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset,
+	    nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -1197,12 +1197,20 @@ out:
 
 static struct hdfs_error
 _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
-	int fd, off_t len, off_t fdoff)
+	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error;
 	ssize_t nw = 0, na = 0;
-	int ei = -1;
 	struct pollfd pfd = { 0 };
+
+	ASSERT(d);
+	ASSERT(nwritten);
+	ASSERT(nacked);
+	ASSERT(err_idx);
+
+	*nwritten = 0;
+	*nacked = 0;
+	*err_idx = -1;
 
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
 
@@ -1211,7 +1219,9 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 		goto out;
 
 	while (true) {
-		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, &ei);
+		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, err_idx);
+		*nwritten += nw; // update even in error case
+		*nacked += na;
 		if (!hdfs_is_error(error)) // success
 			break;
 		if (!hdfs_is_again(error)) // error
@@ -1229,7 +1239,8 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 	}
 
 	while (true) {
-		error = hdfs_datanode_finish_block(d, &na, &ei);
+		error = hdfs_datanode_finish_block(d, &na, err_idx);
+		*nacked += na; // update even in error case
 		if (!hdfs_is_error(error)) // success
 			break;
 		if (!hdfs_is_again(error)) // error

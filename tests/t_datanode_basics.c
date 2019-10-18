@@ -141,7 +141,8 @@ START_TEST(test_dn_write_buf)
 	struct hdfs_datanode *dn;
 	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
 	uint64_t begin, end;
-	int replication = 1, wblk, wtot = 0;
+	int replication = 1, wblk, wtot = 0, err_idx;
+	ssize_t nwritten, nacked;
 
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
@@ -177,8 +178,11 @@ START_TEST(test_dn_write_buf)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/);
+		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_int_eq(nwritten, wblk);
+		ck_assert_int_eq(nacked, wblk);
+		ck_assert_int_lt(err_idx, 0);
 
 		hdfs_datanode_delete(dn);
 
@@ -279,7 +283,8 @@ START_TEST(test_dn_append_buf)
 	struct hdfs_datanode *dn;
 	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
 	uint64_t begin, end;
-	int replication = 1, wblk, wtot = 0, towrite_first, towrite_append;
+	int replication = 1, wblk, wtot = 0, towrite_first, towrite_append, err_idx;
+	ssize_t nwritten, nacked;
 	bool first = true;
 
 	if (H_VER > HDFS_NN_v1) {
@@ -321,8 +326,11 @@ START_TEST(test_dn_append_buf)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/);
+		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_int_eq(nwritten, wblk);
+		ck_assert_int_eq(nacked, wblk);
+		ck_assert_int_lt(err_idx, 0);
 
 		hdfs_datanode_delete(dn);
 
@@ -384,8 +392,11 @@ START_TEST(test_dn_append_buf)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/);
+		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_int_eq(nwritten, wblk);
+		ck_assert_int_eq(nacked, wblk);
+		ck_assert_int_lt(err_idx, 0);
 
 		hdfs_datanode_delete(dn);
 
@@ -486,7 +497,8 @@ START_TEST(test_dn_write_file)
 	struct hdfs_datanode *dn;
 	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
 	uint64_t begin, end;
-	int replication = 1, wblk, wtot = 0;
+	int replication = 1, wblk, wtot = 0, err_idx;
+	ssize_t nwritten, nacked;
 
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
@@ -521,8 +533,11 @@ START_TEST(test_dn_write_file)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
-		err = hdfs_datanode_write_file(dn, fd, wblk/*len*/, wtot/*offset*/, _i/*sendcrcs*/);
+		err = hdfs_datanode_write_file(dn, fd, wblk/*len*/, wtot/*offset*/, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_int_eq(nwritten, wblk);
+		ck_assert_int_eq(nacked, wblk);
+		ck_assert_int_lt(err_idx, 0);
 
 		hdfs_datanode_delete(dn);
 
@@ -670,6 +685,8 @@ START_TEST(test_short_write)
 	struct hdfs_datanode *dn;
 	struct hdfs_object *e, *bl, *fs, *last;
 	struct hdfs_error errs;
+	int err_idx;
+	ssize_t nwritten, nacked;
 
 	e = NULL;
 	dn = NULL;
@@ -689,8 +706,11 @@ START_TEST(test_short_write)
 	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
 
-	errs = hdfs_datanode_write(dn, buf, 33128, false/*sendcrcs*/);
+	errs = hdfs_datanode_write(dn, buf, 33128, false/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 	ck_assert_msg(!hdfs_is_error(errs), "dn_read: %s", format_error(errs));
+	ck_assert_int_eq(nwritten, 33128);
+	ck_assert_int_eq(nacked, 33128);
+	ck_assert_int_lt(err_idx, 0);
 
 	hdfs_datanode_delete(dn);
 
