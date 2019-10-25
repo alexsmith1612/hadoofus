@@ -46,7 +46,7 @@
 #define LEASE_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.LeaseExpiredException"
 
 #define SECURITY_EXCEPTION_STR "java.lang.SecurityException"
-#define QUOTA_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.DSQuotaExceededException"
+#define DSQUOTA_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.DSQuotaExceededException"
 #define ILLARG_EXCEPTION_STR "java.lang.IllegalArgumentException"
 #define INVTOK_EXCEPTION_STR "org.apache.hadoop.security.token.SecretManager$InvalidToken"
 #define INVPATH_EXCEPTION_STR "org.apache.hadoop.fs.InvalidPathException"
