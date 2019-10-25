@@ -56,6 +56,16 @@
 #define RPC_EXCEPTION_STR "org.apache.hadoop.ipc.RpcServerException"
 #define RPC_ENOENT_EXCEPTION_STR "org.apache.hadoop.ipc.RpcNoSuchMethodException"
 
+#define HADOOP_ILLARG_EXCEPTION_STR "org.apache.hadoop.HadoopIllegalArgumentException"
+#define SAFEMODE_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.SafeModeException"
+#define PARENT_NOTDIR_EXCEPTION_STR "org.apache.hadoop.fs.ParentNotDirectoryException"
+#define QUOTA_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.QuotaExceededException"
+#define NSQUOTA_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.NSQuotaExceededException"
+#define ENOTSUP_EXCEPTION_STR "java.lang.UnsupportedOperationException"
+#define NOT_REPLICATED_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.NotReplicatedYetException"
+#define ENOTDIR_EXCEPTION_STR "org.apache.hadoop.fs.PathIsNotDirectoryException"
+#define ENOTEMPTY_EXCEPTION_STR "org.apache.hadoop.fs.PathIsNotEmptyDirectoryException"
+
 struct _hdfs_result {
 	int64_t rs_msgno;
 	struct hdfs_object *rs_obj;
