@@ -251,15 +251,15 @@ START_TEST(test_dn_write_nb)
 				hdfs_object_free(obj);
 				hdfs_object_free(fctxp->prev);
 				fctxp->tend = _now();
-				fprintf(stderr, "(Non-blocking: %s) Wrote %d MB from buf in %ld ms%s, %02g MB/s\n",
+				fprintf(stderr, "(Non-blocking: %s) Wrote %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
 				    fctxp->tf, fctxp->wtot/1024/1024, fctxp->tend - fctxp->tstart,
-				    _i ? " (with crcs)" : "",
+				    csum2str[_i],
 				    ((double)fctxp->wtot/1024/1024) / ((double)(fctxp->tend - fctxp->tstart)/1000));
 				if (++n_wr_end == nelem(fctxs)) {
 					fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-					    "written in %ld ms%s, %02g MB/s\n",
+					    "written in %ld ms (with %s csum), %02g MB/s\n",
 					    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
-					    fctxp->tend - tstart_wr, _i ? " (with crcs)" : "",
+					    fctxp->tend - tstart_wr, csum2str[_i],
 					    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxp->tend - tstart_wr)/1000));
 				}
 				err = hdfs_getFileInfo_nb(&nn, fctxp->tf, &fctxp->mn, fctxp);
@@ -412,13 +412,13 @@ START_TEST(test_dn_write_nb)
 						fctxs[i].tend = _now();
 						fprintf(stderr, "(Non-blocking: %s) Read and compared %d MB from buf in %ld ms%s, %02g MB/s\n",
 						    fctxs[i].tf, fctxs[i].rtot/1024/1024, fctxs[i].tend - fctxs[i].tstart,
-						    _i ? " (with crcs)" : "",
+						    _i ? " (with csum verification)" : "",
 						    ((double)fctxs[i].rtot/1024/1024) / ((double)(fctxs[i].tend - fctxs[i].tstart)/1000));
 						if (++n_rd_end == nelem(fctxs)) {
 							fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
 							    "read and compared in %ld ms%s, %02g MB/s\n",
 							    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
-							    fctxs[i].tend - tstart_rd, _i ? " (with crcs)" : "",
+							    fctxs[i].tend - tstart_rd, _i ? " (with csum verification)" : "",
 							    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxs[i].tend - tstart_rd)/1000));
 						}
 						hdfs_datanode_destroy(&fctxs[i].dn);
@@ -464,9 +464,9 @@ START_TEST(test_dn_write_nb)
 
 	tend_tot = _now();
 	fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-	    "created, written, read, compared, and deleted in %ld ms%s. Average of %02g MB/s I/O\n\n",
+	    "created, written, read, compared, and deleted in %ld ms (with %s csum). Average of %02g MB/s I/O\n\n",
 	    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
-	    tend_tot - tstart_tot, _i ? " (with crcs)" : "",
+	    tend_tot - tstart_tot, csum2str[_i],
 	    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(tend_tot - tstart_tot)/1000));
 
 	hdfs_namenode_destroy(&nn);
@@ -475,12 +475,33 @@ START_TEST(test_dn_write_nb)
 }
 END_TEST
 
-Suite *
-t_datanode_nb_suite()
+static Suite *
+t_datanode1_nb_suite()
 {
-	Suite *s = suite_create("datanode_nb");
+	Suite *s;
+	TCase *tc;
 
-	TCase *tc = tcase_create("multi_file");
+	s = suite_create("datanode1_nb");
+
+	tc = tcase_create("multi_file1");
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_nb, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32 + 1);
+	suite_add_tcase(s, tc);
+
+	return s;
+}
+
+static Suite *
+t_datanode2_nb_suite()
+{
+	Suite *s;
+	TCase *tc;
+
+	s = suite_create("datanode2_nb");
+
+	tc = tcase_create("multi_file2");
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_nb, HDFS_CSUM_NULL,
@@ -488,4 +509,37 @@ t_datanode_nb_suite()
 	suite_add_tcase(s, tc);
 
 	return s;
+}
+
+static Suite *
+t_datanode22_nb_suite()
+{
+	Suite *s;
+	TCase *tc;
+
+	s = suite_create("datanode22_nb");
+
+	tc = tcase_create("multi_file22");
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_nb, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+	suite_add_tcase(s, tc);
+
+	return s;
+}
+
+Suite *
+t_datanode_nb_suite()
+{
+	switch (H_VER) {
+	case HDFS_NN_v1:
+		return t_datanode1_nb_suite();
+	case HDFS_NN_v2:
+		return t_datanode2_nb_suite();
+	case HDFS_NN_v2_2:
+		return t_datanode22_nb_suite();
+	default:
+		assert(false);
+	}
 }

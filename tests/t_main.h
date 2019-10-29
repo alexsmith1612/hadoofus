@@ -21,4 +21,6 @@ extern const char *H_ADDR, *H_USER, *H_PORT;
 extern enum hdfs_namenode_proto H_VER;
 extern enum hdfs_kerb H_KERB;
 
+extern const char *const csum2str[];
+
 #endif

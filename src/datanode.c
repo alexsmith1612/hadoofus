@@ -13,6 +13,7 @@
 
 #include <hadoofus/highlevel.h>
 
+#include "crc32c.h"
 #include "heapbuf.h"
 #include "net.h"
 #include "objects-internal.h"
@@ -39,19 +40,21 @@ static const long HEART_BEAT_SEQNO = -1L;
 
 static struct hdfs_error	error_from_datanode(int err, int *unknown_status);
 
-static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
+static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycsum, off_t bloff,
 				off_t len);
 static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 				const struct iovec *iov, int iovcnt, size_t iov_offt, ssize_t *nread);
-static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
+static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycsum, off_t bloff,
 				off_t len, int fd, off_t fdoff, const struct iovec *iov, int iovcnt);
-static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
+static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, enum hdfs_checksum_type csum);
 static struct hdfs_error	_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx);
-static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx);
+static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
+				int *err_idx);
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, size_t iov_offt,
 				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
-static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const struct iovec *iov,
-				int iovcnt, int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
+				const struct iovec *iov, int iovcnt, int fd, off_t len, off_t fdoff, ssize_t *nwritten,
+				ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
 static struct hdfs_error	_datanode_transfer(struct hdfs_datanode *d);
 static struct hdfs_error	_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
@@ -69,7 +72,7 @@ static struct hdfs_error	_recv_packet_copy_data(struct hdfs_packet_state *ps, st
 static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx);
 static void			_set_opres_msg(struct hdfs_datanode *d, const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
-				int32_t crcdlen, int32_t dlen);
+				int32_t crcdlen, int32_t dlen, enum hdfs_checksum_type ctype);
 static struct hdfs_error	_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
@@ -590,9 +593,9 @@ out:
 }
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs)
+hdfs_datanode_write_nb_init(struct hdfs_datanode *d, enum hdfs_checksum_type csum)
 {
-	return _datanode_write_init(d, sendcrcs);
+	return _datanode_write_init(d, csum);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -617,14 +620,15 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 }
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d, bool sendcrcs, int *error_idx)
+hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
+	int *error_idx)
 {
-	return _setup_write_pipeline_blocking(d, sendcrcs, error_idx);
+	return _setup_write_pipeline_blocking(d, csum, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
-	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+	enum hdfs_checksum_type csum, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	struct iovec iov;
 
@@ -634,7 +638,7 @@ hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
 	iov.iov_base = __DECONST(void *, buf);
 	iov.iov_len = len;
 
-	return _datanode_write_blocking(d, sendcrcs, &iov, 1/*iovcnt*/, -1/*fd*/,
+	return _datanode_write_blocking(d, csum, &iov, 1/*iovcnt*/, -1/*fd*/,
 	    len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
@@ -658,7 +662,7 @@ hdfs_datanode_writev_nb(struct hdfs_datanode *d, const struct iovec *iov, int io
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_writev(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt,
-	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+	enum hdfs_checksum_type csum, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	size_t len = 0;
 
@@ -670,7 +674,7 @@ hdfs_datanode_writev(struct hdfs_datanode *d, const struct iovec *iov, int iovcn
 		len += iov[i].iov_len; // XXX check for overflow?
 	}
 
-	return _datanode_write_blocking(d, sendcrcs, iov, iovcnt, -1/*fd*/,
+	return _datanode_write_blocking(d, csum, iov, iovcnt, -1/*fd*/,
 	    len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
@@ -688,13 +692,13 @@ hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t of
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
-	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+	enum hdfs_checksum_type csum, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(offset >= 0);
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, NULL/*iov*/, 0/*iovcnt*/, fd,
+	return _datanode_write_blocking(d, csum, NULL/*iov*/, 0/*iovcnt*/, fd,
 	    len, offset, nwritten, nacked, error_idx);
 }
 
@@ -759,9 +763,9 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 // XXX this indirection really isn't necessary except for the function name
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t bloff,
-	off_t len, bool verifycrcs)
+	off_t len, bool verifycsum)
 {
-	return _datanode_read_init(d, verifycrcs, bloff, len);
+	return _datanode_read_init(d, verifycsum, bloff, len);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -780,7 +784,7 @@ hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, void *buf, ssize_t *n
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
-	bool verifycrcs)
+	bool verifycsum)
 {
 	struct iovec iov;
 
@@ -789,7 +793,7 @@ hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	iov.iov_base = buf;
 	iov.iov_len = len;
 
-	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/,
+	return _datanode_read_blocking(d, verifycsum, off, len, -1/*fd*/,
 	    -1/*fdoff*/, &iov, 1/*iovcnt*/);
 }
 
@@ -812,7 +816,7 @@ hdfs_datanode_readv_nb(struct hdfs_datanode *d, const struct iovec *iov, int iov
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_readv(struct hdfs_datanode *d, size_t off, const struct iovec *iov,
-	int iovcnt, bool verifycrcs)
+	int iovcnt, bool verifycsum)
 {
 	size_t len = 0;
 
@@ -823,7 +827,7 @@ hdfs_datanode_readv(struct hdfs_datanode *d, size_t off, const struct iovec *iov
 		len += iov[i].iov_len; // XXX check for overflow?
 	}
 
-	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/,
+	return _datanode_read_blocking(d, verifycsum, off, len, -1/*fd*/,
 	    -1/*fdoff*/, iov, iovcnt);
 }
 
@@ -839,13 +843,13 @@ hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
 }
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd, off_t fdoff,
-	bool verifycrcs)
+hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd,
+	off_t fdoff, bool verifycsum)
 {
 	ASSERT(fdoff >= 0);
 	ASSERT(fd >= 0);
 
-	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff,
+	return _datanode_read_blocking(d, verifycsum, bloff, len, fd, fdoff,
 	    NULL/*iov*/, 0/*iovcnt*/);
 }
 
@@ -954,7 +958,7 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 		opread.len = len;
 
 		/* Defaults to true ("send crcs") */
-		if (!d->dn_crcs) {
+		if (d->dn_csum == HDFS_CSUM_NULL) {
 			opread.has_sendchecksums = true;
 			opread.sendchecksums = false;
 		}
@@ -983,7 +987,7 @@ _compose_client_read_status(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 
 		if (d->dn_rinfo.bad_crcs)
 			status.status = HADOOP__HDFS__STATUS__ERROR_CHECKSUM;
-		else if (d->dn_rinfo.has_crcs)
+		else if (d->dn_rinfo.csum_type != HDFS_CSUM_NULL)
 			status.status = HADOOP__HDFS__STATUS__CHECKSUM_OK;
 		else
 			status.status = HADOOP__HDFS__STATUS__SUCCESS;
@@ -1052,9 +1056,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		// work for appends (i.e. consider the case where the file was
 		// created with a different chunk size and/or type)
 		csum.bytesperchecksum = CHUNK_SIZE;
-		csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL;
-		if (d->dn_crcs)
-			csum.type = HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32;
+		csum.type = _hdfs_csum_to_proto(d->dn_csum);
 
 		op.header = &hdr;
 
@@ -1224,7 +1226,7 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		_bappend_s8(h, 0);
 		_bappend_s32(h, 0);
 		hdfs_object_serialize(h, d->dn_token);
-		_bappend_s8(h, !!d->dn_crcs);
+		_bappend_s8(h, d->dn_csum != HDFS_CSUM_NULL);
 		_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
 	}
 }
@@ -1334,7 +1336,7 @@ _compose_transfer_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 }
 
 static struct hdfs_error
-_datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t len)
+_datanode_read_init(struct hdfs_datanode *d, bool verifycsum, off_t bloff, off_t len)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 
@@ -1345,7 +1347,7 @@ _datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 	ASSERT(!d->dn_op_inited);
 
-	d->dn_crcs = verifycrcs;
+	d->dn_csum = verifycsum ? HDFS_CSUM_CRC32 : HDFS_CSUM_NULL; // XXX just directly assign?
 	d->dn_pstate.remains_tot = len;
 	d->dn_rinfo.client_offset = bloff;
 	d->dn_op_inited = true;
@@ -1425,13 +1427,13 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 		// this check to immediately before falling through to _ST_PKT. That was
 		// we give users the option to continue with the read even without
 		// checksums by just continuing to call _datanode_read()
-		if (!d->dn_rinfo.has_crcs && d->dn_crcs) {
+		if (d->dn_rinfo.csum_type == HDFS_CSUM_NULL && d->dn_csum != HDFS_CSUM_NULL) {
 			d->dn_state = HDFS_DN_ST_ERROR;
 			error = error_from_hdfs(HDFS_ERR_DATANODE_NO_CRCS);
 			goto out;
 		}
 		d->dn_pstate.sock = d->dn_sock;
-		d->dn_pstate.sendcrcs = d->dn_crcs; // XXX this is never used in _recv_packet() -- remove here?
+		d->dn_pstate.sendcsum_type = d->dn_csum; // XXX this is never used in _recv_packet() -- remove here?
 		d->dn_pstate.recvbuf = &d->dn_recvbuf;
 		d->dn_pstate.proto = d->dn_proto;
 		d->dn_state = HDFS_DN_ST_PKT;
@@ -1487,7 +1489,7 @@ out:
 }
 
 static struct hdfs_error
-_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t len,
+_datanode_read_blocking(struct hdfs_datanode *d, bool verifycsum, off_t bloff, off_t len,
 	int fd, off_t fdoff, const struct iovec *iov, int iovcnt)
 {
 	struct hdfs_error error;
@@ -1497,7 +1499,7 @@ _datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, o
 
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
 
-	error = _datanode_read_init(d, verifycrcs, bloff, len);
+	error = _datanode_read_init(d, verifycsum, bloff, len);
 	if (hdfs_is_error(error))
 		goto out;
 
@@ -1536,16 +1538,19 @@ out:
 }
 
 static struct hdfs_error
-_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
+_datanode_write_init(struct hdfs_datanode *d, enum hdfs_checksum_type csum)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 
 	ASSERT(d);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(csum == HDFS_CSUM_NULL || csum == HDFS_CSUM_CRC32 || csum == HDFS_CSUM_CRC32C);
+	// crc32c only supported in v2.0+
+	ASSERT(csum != HDFS_CSUM_CRC32C || d->dn_proto >= HDFS_DATANODE_AP_2_0);
 	ASSERT(!d->dn_op_inited);
 
-	d->dn_crcs = sendcrcs;
+	d->dn_csum = csum;
 	d->dn_op_inited = true;
 
 	return error;
@@ -1620,7 +1625,7 @@ _setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 			break;
 		}
 		d->dn_pstate.sock = d->dn_sock;
-		d->dn_pstate.sendcrcs = d->dn_crcs;
+		d->dn_pstate.sendcsum_type = d->dn_csum;
 		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
 		d->dn_pstate.recvbuf = &d->dn_recvbuf;
 		d->dn_pstate.proto = d->dn_proto;
@@ -1757,7 +1762,7 @@ out:
 }
 
 static struct hdfs_error
-_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx)
+_setup_write_pipeline_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum, int *err_idx)
 {
 	struct hdfs_error error;
 	struct pollfd pfd = { 0 };
@@ -1768,7 +1773,7 @@ _setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_
 
 	d->dn_blocking_pipeline_setup = true;
 	*err_idx = -1;
-	error = _datanode_write_init(d, sendcrcs);
+	error = _datanode_write_init(d, csum);
 	if (hdfs_is_error(error))
 		goto out;
 
@@ -1791,8 +1796,9 @@ out:
 }
 
 static struct hdfs_error
-_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const struct iovec *iov, int iovcnt,
-	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+_datanode_write_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
+	const struct iovec *iov, int iovcnt, int fd, off_t len, off_t fdoff,
+	ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error;
 	ssize_t nw = 0, na = 0;
@@ -1816,7 +1822,7 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const struct io
 		ASSERT(d->dn_pstate.unacked.ua_num == 0);
 	} else {
 		ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
-		error = _datanode_write_init(d, sendcrcs);
+		error = _datanode_write_init(d, csum);
 		if (hdfs_is_error(error))
 			goto out;
 	}
@@ -2037,7 +2043,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 
 	ri->server_offset = server_offset;
 	ri->chunk_size = chunk_size;
-	ri->has_crcs = crcs;
+	ri->csum_type = crcs ? HDFS_CSUM_CRC32 : HDFS_CSUM_NULL;
 
 	// Skip recvbuf past request status
 	_hbuf_consume(h, obuf.used);
@@ -2136,14 +2142,15 @@ _read_read_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	}
 
 	ri->server_offset = opres->readopchecksuminfo->chunkoffset;
-
-	ri->has_crcs = (opres->readopchecksuminfo->checksum->type !=
-	    HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL);
+	ri->csum_type = _hdfs_csum_from_proto(opres->readopchecksuminfo->checksum->type);
 	ri->chunk_size = opres->readopchecksuminfo->checksum->bytesperchecksum;
 
-	// TODO support more checksum types (crc32c)
-	if (ri->has_crcs && opres->readopchecksuminfo->checksum->type !=
-	    HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32) {
+	switch (ri->csum_type) {
+	case HDFS_CSUM_NULL:
+	case HDFS_CSUM_CRC32:
+	case HDFS_CSUM_CRC32C:
+		break;
+	default:
 		error = error_from_hdfs(HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM);
 		goto out;
 	}
@@ -2374,9 +2381,9 @@ _process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 	crcdlen = plen - dlen - 4;
 	if (plen < 0 || dlen < 0 || dlen > ONEGB || plen > ONEGB || crcdlen < 0)
 		error = error_from_hdfs(HDFS_ERR_DATANODE_PACKET_SIZE);
-	else if (ri->has_crcs && crcdlen != ((dlen + ri->chunk_size - 1) / ri->chunk_size) * 4)
+	else if (ri->csum_type != HDFS_CSUM_NULL && crcdlen != ((dlen + ri->chunk_size - 1) / ri->chunk_size) * 4)
 		error = error_from_hdfs(HDFS_ERR_DATANODE_CRC_LEN);
-	else if (!ri->has_crcs && crcdlen > 0)
+	else if (ri->csum_type == HDFS_CSUM_NULL && crcdlen > 0)
 		error = error_from_hdfs(HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN);
 	if (hdfs_is_error(error))
 		goto out;
@@ -2404,7 +2411,7 @@ _process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 	}
 
 	if (crcdlen > 0) {
-		error = _verify_crcdata(_hbuf_readptr(recvbuf) + hdr_len, ri->chunk_size, crcdlen, dlen);
+		error = _verify_crcdata(_hbuf_readptr(recvbuf) + hdr_len, ri->chunk_size, crcdlen, dlen, ri->csum_type);
 		if (hdfs_is_error(error)) {
 			ri->bad_crcs = true;
 			goto out;
@@ -2556,7 +2563,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 #if !defined(__linux__) && !defined(__FreeBSD__)
 		copydata = true;
 #else
-		if (ps->sendcrcs && is_new) {
+		if (ps->sendcsum_type != HDFS_CSUM_NULL && is_new) {
 			copydata = true;
 		} else {
 			struct stat sb;
@@ -2590,7 +2597,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 	if (is_new) {
 		// calculate crc length, if requested
-		crclen = (ps->sendcrcs) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
+		crclen = (ps->sendcsum_type != HDFS_CSUM_NULL) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
 
 		// construct header:
 		_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4);
@@ -2623,10 +2630,16 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 			ASSERT(ps->data_iovcnt > 0 || copydata);
 
+			ASSERT(ps->sendcsum_type == HDFS_CSUM_CRC32 || ps->sendcsum_type == HDFS_CSUM_CRC32C);
+
 			_hbuf_reserve(ps->hdrbuf, 4 * crclen);
 			tiovp = &ps->iovp[1]; // 0th iovec is used for hdrbuf
 
-			crcinit = crc32(0L, Z_NULL, 0);
+			if (ps->sendcsum_type == HDFS_CSUM_CRC32)
+				crcinit = crc32(0L, Z_NULL, 0);
+			else
+				crcinit = 0;
+
 			for (unsigned i = 0; i < crclen; i++) {
 				uint32_t crc = crcinit;
 				uint32_t chunklen = _min(CHUNK_SIZE, ps->remains_pkt - i * CHUNK_SIZE);
@@ -2634,7 +2647,12 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 				while (chunklen > 0) {
 					uint32_t tlen = _min(chunklen, tiovp->iov_len - tiov_offt);
 					void *tptr = (char *)tiovp->iov_base + tiov_offt;
-					crc = crc32(crc, tptr, tlen);
+
+					if (ps->sendcsum_type == HDFS_CSUM_CRC32)
+						crc = crc32(crc, tptr, tlen);
+					else
+						crc = crc32c(crc, tptr, tlen);
+
 					chunklen -= tlen;
 					tiov_offt += tlen;
 					if (tiov_offt == tiovp->iov_len) {
@@ -2790,23 +2808,31 @@ _set_opres_msg(struct hdfs_datanode *d, const char *newmsg)
 }
 
 static struct hdfs_error
-_verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen)
+_verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen,
+	enum hdfs_checksum_type ctype)
 {
 	uint32_t crcinit;
 	void *data = (char *)crcdata + crcdlen;
 
-	crcinit = crc32(0L, Z_NULL, 0);
+	ASSERT(ctype == HDFS_CSUM_CRC32 || ctype == HDFS_CSUM_CRC32C);
+
+	if (ctype == HDFS_CSUM_CRC32)
+		crcinit = crc32(0L, Z_NULL, 0);
+	else
+		crcinit = 0;
 
 	for (int i = 0; i < (dlen + chunksize - 1) / chunksize; i++) {
 		int32_t chunklen = _min(chunksize, dlen - i*chunksize);
-		uint32_t crc = crc32(crcinit,
-		    (uint8_t *)data + i*chunksize, chunklen),
-			 pcrc;
+		uint8_t *chunk = (uint8_t *)data + i*chunksize;
+		uint8_t *crcptr = (uint8_t *)crcdata + i*4;
+		uint32_t crc, pcrc;
 
-		pcrc = (((uint32_t) (*((uint8_t *)crcdata + i*4))) << 24) +
-		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 1))) << 16) +
-		    (((uint32_t) (*((uint8_t *)crcdata + i*4 + 2))) << 8) +
-		    (uint32_t) (*((uint8_t *)crcdata + i*4 + 3));
+		if (ctype == HDFS_CSUM_CRC32)
+			crc = crc32(crcinit, chunk, chunklen);
+		else
+			crc = crc32c(crcinit, chunk, chunklen);
+
+		pcrc = _be32dec(crcptr);
 
 		if (crc != pcrc)
 			return error_from_hdfs(HDFS_ERR_DATANODE_BAD_CHECKSUM);

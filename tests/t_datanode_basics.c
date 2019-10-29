@@ -15,6 +15,12 @@
 
 #include "t_main.h"
 
+const char *const csum2str[] = {
+	[HDFS_CSUM_NULL] = "null",
+	[HDFS_CSUM_CRC32] = "crc32",
+	[HDFS_CSUM_CRC32C] = "crc32c"
+};
+
 static const int TOWRITE = 70*1024*1024,
       BLOCKSZ = 64*1024*1024;
 static struct hdfs_namenode *h;
@@ -214,8 +220,8 @@ START_TEST(test_dn_write_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from buf in %ld ms%s, %02g MB/s\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Wrote %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -261,7 +267,7 @@ START_TEST(test_dn_write_buf)
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
@@ -368,8 +374,8 @@ START_TEST(test_dn_writev)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from iovec arrays in %ld ms%s, %02g MB/s\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Wrote %d MB from iovec arrays in %ld ms (with %s csum), %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -426,7 +432,7 @@ START_TEST(test_dn_writev)
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to iovec arrays in %ld ms%s, %02g MB/s\n\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
@@ -527,8 +533,8 @@ START_TEST(test_dn_append_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote initial %d MB from buf in %ld ms%s, %02g MB/s\n",
-	    towrite_first/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Wrote initial %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	    towrite_first/1024/1024, end - begin, csum2str[_i],
 	    (double)towrite_first/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -643,8 +649,8 @@ START_TEST(test_dn_append_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Appended %d MB from buf in %ld ms%s, %02g MB/s\n",
-	    towrite_append/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Appended %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	    towrite_append/1024/1024, end - begin, csum2str[_i],
 	    (double)towrite_append/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -690,7 +696,7 @@ START_TEST(test_dn_append_buf)
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
@@ -784,8 +790,8 @@ START_TEST(test_dn_write_file)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from file in %ld ms%s, %02g MB/s\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Wrote %d MB from file in %ld ms (with %s csum), %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -837,7 +843,7 @@ START_TEST(test_dn_write_file)
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to file in %ld ms%s, %02g MB/s\n\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
@@ -1108,8 +1114,8 @@ START_TEST(test_dn_recovery)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB (with simulated pipeline failures and recoveries) from buf in %ld ms%s, %02g MB/s\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	fprintf(stderr, "Wrote %d MB (with simulated pipeline failures and recoveries) from buf in %ld ms (with %s csum), %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	fs = hdfs_getFileInfo(h, tf, &e);
@@ -1155,7 +1161,7 @@ START_TEST(test_dn_recovery)
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
-	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
@@ -1283,25 +1289,29 @@ t_datanode1_basics_suite()
 
 	s = suite_create("datanode1");
 
+	// v1 does not have crc32c support
 	tc = tcase_create("buf1");
 	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc, test_dn_write_buf, 0, 2);
+	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32 + 1);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("iovec1");
 	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc, test_dn_writev, 0, 2);
+	tcase_add_loop_test(tc, test_dn_writev, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32 + 1);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("append1");
 	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc, test_dn_append_buf, 0, 2);
+	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32 + 1);
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("file1");
