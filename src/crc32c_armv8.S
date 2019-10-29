@@ -1,3 +1,11 @@
+/*
+ * Modified from original FreeBSD source:
+ *   - Remove FreeBSD-specific code and includes
+ *   - Pull in the #defines from FreeBSD's arm64 asm.h
+ *   - Add pre- and post-conditioning (bit inversion) to the crc
+ *   - Wrap code in preprocessor architecture condition
+ */
+
 /*-
  * Copyright (c) 2017 Michael Tuexen
  * All rights reserved.
@@ -25,8 +33,12 @@
  *
  */
 
-#include <machine/asm.h>
-__FBSDID("$FreeBSD$");
+#if defined(__aarch64__)
+
+#define	ENTRY(sym)						\
+	.text; .globl sym; .align 2; .type sym,#function; sym:
+#define	END(sym) .size sym, . - sym
+
 .arch armv8-a+crc
 
 /*
@@ -35,6 +47,7 @@ __FBSDID("$FreeBSD$");
  */
 
 ENTRY(armv8_crc32c)
+	mvn	w0, w0 // pre-condition the crc
 	cbz	w2, end
 	tbz	x1, #0x0, half_word_aligned
 	sub	w2, w2, 0x1
@@ -75,5 +88,8 @@ last_byte:
 	ldr	w10, [x1], #0x1
 	crc32cb	w0, w0, w10
 end:
+	mvn	w0, w0 // return a post-conditioned crc
 	ret
 END(armv8_crc32c)
+
+#endif /* defined(__aarch64__) */

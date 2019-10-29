@@ -1,4 +1,13 @@
 /*
+ * Modified from FreeBSD source:
+ *   - Remove FreeBSD specific code
+ *   - Add pre- and post-conditioning (bit inversion) to the crc
+ *   - Wrap code in preprocessor architecture condition
+ *   - Add intermediate (const void *) cast to suppress false alarm -Wcast-align
+ *     warnings (the code ensures natural alignment)
+ */
+
+/*
  * Derived from crc32c.c version 1.1 by Mark Adler.
  *
  * Copyright (C) 2013 Mark Adler
@@ -23,20 +32,12 @@
  * madler@alumni.caltech.edu
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#if defined(__amd64__) || defined(__i386__)
 
-/*
- * This file is compiled in userspace in order to run ATF unit tests.
- */
-#ifndef _KERNEL
 #include <stdint.h>
 #include <stdlib.h>
-#else
-#include <sys/param.h>
-#include <sys/kernel.h>
-#endif
-#include <sys/gsb_crc32.h>
+
+#include "crc32c.h"
 
 static __inline uint32_t
 _mm_crc32_u8(uint32_t x, uint8_t y)
@@ -199,9 +200,7 @@ crc32c_shift(uint32_t zeros[][256], uint32_t crc)
 
 /* Initialize tables for shifting crcs. */
 static void
-#ifndef _KERNEL
 __attribute__((__constructor__))
-#endif
 crc32c_init_hw(void)
 {
 	crc32c_zeros(crc32c_long, LONG);
@@ -209,13 +208,10 @@ crc32c_init_hw(void)
 	crc32c_zeros(crc32c_short, SHORT);
 	crc32c_zeros(crc32c_2short, 2 * SHORT);
 }
-#ifdef _KERNEL
-SYSINIT(crc32c_sse42, SI_SUB_LOCK, SI_ORDER_ANY, crc32c_init_hw, NULL);
-#endif
 
 /* Compute CRC-32C using the Intel hardware instruction. */
 uint32_t
-sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
+sse42_crc32c(uint32_t crc, const void *buf, unsigned len)
 {
 #ifdef __amd64__
 	const size_t align = 8;
@@ -230,7 +226,7 @@ sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
 #endif
 
 	next = buf;
-	crc0 = crc;
+	crc0 = ~crc; // pre-condition the crc
 
 	/* Compute the crc to bring the data pointer to an aligned boundary. */
 	while (len && ((uintptr_t)next & (align - 1)) != 0) {
@@ -254,17 +250,19 @@ sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
 		end = next + LONG;
 		do {
 #ifdef __amd64__
-			crc0 = _mm_crc32_u64(crc0, *(const uint64_t *)next);
+			crc0 = _mm_crc32_u64(crc0,
+			    *(const uint64_t *)(const void *)next);
 			crc1 = _mm_crc32_u64(crc1,
-			    *(const uint64_t *)(next + LONG));
+			    *(const uint64_t *)(const void *)(next + LONG));
 			crc2 = _mm_crc32_u64(crc2,
-			    *(const uint64_t *)(next + (LONG * 2)));
+			    *(const uint64_t *)(const void *)(next + (LONG * 2)));
 #else
-			crc0 = _mm_crc32_u32(crc0, *(const uint32_t *)next);
+			crc0 = _mm_crc32_u32(crc0,
+			    *(const uint32_t *)(const void *)next);
 			crc1 = _mm_crc32_u32(crc1,
-			    *(const uint32_t *)(next + LONG));
+			    *(const uint32_t *)(const void *)(next + LONG));
 			crc2 = _mm_crc32_u32(crc2,
-			    *(const uint32_t *)(next + (LONG * 2)));
+			    *(const uint32_t *)(const void *)(next + (LONG * 2)));
 #endif
 			next += align;
 		} while (next < end);
@@ -332,17 +330,19 @@ sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
 		end = next + SHORT;
 		do {
 #ifdef __amd64__
-			crc0 = _mm_crc32_u64(crc0, *(const uint64_t *)next);
+			crc0 = _mm_crc32_u64(crc0,
+			    *(const uint64_t *)(const void *)next);
 			crc1 = _mm_crc32_u64(crc1,
-			    *(const uint64_t *)(next + SHORT));
+			    *(const uint64_t *)(const void *)(next + SHORT));
 			crc2 = _mm_crc32_u64(crc2,
-			    *(const uint64_t *)(next + (SHORT * 2)));
+			    *(const uint64_t *)(const void *)(next + (SHORT * 2)));
 #else
-			crc0 = _mm_crc32_u32(crc0, *(const uint32_t *)next);
+			crc0 = _mm_crc32_u32(crc0,
+			    *(const uint32_t *)(const void *)next);
 			crc1 = _mm_crc32_u32(crc1,
-			    *(const uint32_t *)(next + SHORT));
+			    *(const uint32_t *)(const void *)(next + SHORT));
 			crc2 = _mm_crc32_u32(crc2,
-			    *(const uint32_t *)(next + (SHORT * 2)));
+			    *(const uint32_t *)(const void *)(next + (SHORT * 2)));
 #endif
 			next += align;
 		} while (next < end);
@@ -359,9 +359,11 @@ sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
 	end = next + (len - (len & (align - 1)));
 	while (next < end) {
 #ifdef __amd64__
-		crc0 = _mm_crc32_u64(crc0, *(const uint64_t *)next);
+		crc0 = _mm_crc32_u64(crc0,
+		    *(const uint64_t *)(const void *)next);
 #else
-		crc0 = _mm_crc32_u32(crc0, *(const uint32_t *)next);
+		crc0 = _mm_crc32_u32(crc0,
+		    *(const uint32_t *)(const void *)next);
 #endif
 		next += align;
 	}
@@ -374,5 +376,7 @@ sse42_crc32c(uint32_t crc, const unsigned char *buf, unsigned len)
 		len--;
 	}
 
-	return ((uint32_t)crc0);
+	return (~(uint32_t)crc0); // return a post-conditioned crc
 }
+
+#endif /* defined(__amd64__) || defined(__i386__) */

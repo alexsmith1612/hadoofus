@@ -12,6 +12,10 @@ TEST_SRCS = \
 			t_datanode_nb.c
 
 PRIV_OBJS = \
+			../src/crc32c.o \
+			../src/crc32c_armv8.o \
+			../src/crc32c_sse42.o \
+			../src/crc32c_sw.o \
 			../src/heapbuf.o \
 			../src/util.o
 
@@ -36,6 +40,9 @@ check: $(TEST_PRGM)
 	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src" ./$(TEST_PRGM)
 
 %.o: %.c
+	$(CC) $(FLAGS) -I../include -std=gnu99 -c $<
+
+%.o: %.S
 	$(CC) $(FLAGS) -I../include -std=gnu99 -c $<
 
 clean:
