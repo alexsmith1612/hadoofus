@@ -63,7 +63,7 @@ static struct hdfs_error	_recv_packet(struct hdfs_packet_state *, struct hdfs_re
 static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
 static struct hdfs_error	_recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri);
-static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps);
+static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx);
 static void			_set_opres_msg(const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen);
@@ -1138,8 +1138,12 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	case HDFS_DN_ST_CONNPENDING:
 		error = hdfs_datanode_connect_nb(d);
 		// state transitions handled by hdfs_datanode_connect_nb()
-		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+		if (hdfs_is_again(error)) {
 			goto out;
+		} else if (hdfs_is_error(error)) {
+			*err_idx = 0;
+			goto out;
+		}
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
@@ -1149,6 +1153,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	case HDFS_DN_ST_SENDOP:
 		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
 		if (wlen < 0) {
+			*err_idx = 0;
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
@@ -1168,6 +1173,10 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		if (hdfs_is_again(error)) {
 			goto out; // no state or buffer change.
 		} else if (hdfs_is_error(error)) {
+			// Say the primary datanode failed if err_idx not already
+			// set (e.g. a read(2) error)
+			if (*err_idx < 0)
+				*err_idx = 0;
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
@@ -1196,7 +1205,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 					goto out;
 				}
 			}
-			error = _send_packet(&d->dn_pstate);
+			error = _send_packet(&d->dn_pstate, err_idx);
 			if (hdfs_is_again(error)) {
 				break; // proceed to check acks below
 			} else if (hdfs_is_error(error)) {
@@ -1763,7 +1772,7 @@ out:
 }
 
 static struct hdfs_error
-_send_packet(struct hdfs_packet_state *ps)
+_send_packet(struct hdfs_packet_state *ps, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	size_t crclen = 0;
@@ -1773,6 +1782,8 @@ _send_packet(struct hdfs_packet_state *ps)
 	struct iovec ios[2];
 	int wlen_hdr = 0, wlen_data = 0;
 	bool is_new;
+
+	*err_idx = -1;
 
 	// if we have no data left to send from the last/current packet we're creating a new one
 	is_new = (_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
@@ -1904,8 +1915,10 @@ _send_packet(struct hdfs_packet_state *ps)
 	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
 		ASSERT(_hbuf_readlen(ps->hdrbuf) > 0);
 		error = _writev(ps->sock, ios, 1, &wlen);
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0;
 			goto out;
+		}
 		wlen_hdr = wlen;
 	} else if (data) {
 		ios[1].iov_base = data;
@@ -1917,8 +1930,10 @@ _send_packet(struct hdfs_packet_state *ps)
 		} else {
 			error = _writev(ps->sock, ios + 1, 1, &wlen);
 		}
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0;
 			goto out;
+		}
 		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 	} else {
@@ -1928,15 +1943,19 @@ _send_packet(struct hdfs_packet_state *ps)
 		do {
 			if (_hbuf_readlen(ps->hdrbuf) > 0) {
 				error = _writev(ps->sock, ios, 1, &wlen);
-				if (wlen < 0)
+				if (wlen < 0) {
+					*err_idx = 0;
 					goto out; // XXX clear TCP_CORK?
+				}
 				wlen_hdr = wlen;
 				if (hdfs_is_again(error))
 					break;
 			}
 			error = _sendfile(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt, &wlen);
-			if (wlen < 0)
+			if (wlen < 0) {
+				*err_idx = 0; // XXX could technically be an error reading the local file
 				goto out; // XXX clear TCP_CORK?
+			}
 			wlen_data = wlen;
 		} while (0); // not a loop
 
@@ -1949,8 +1968,10 @@ _send_packet(struct hdfs_packet_state *ps)
 			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
 			    NULL, 0, &wlen);
 		}
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0; // XXX could technically be an error reading the local file
 			goto out;
+		}
 		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 #else
@@ -2215,20 +2236,27 @@ out:
 }
 
 struct hdfs_error
-_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *error_idx)
+_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	ssize_t t_nacked;
 	struct hdfs_unacked_packets *ua = &ps->unacked;
 
 	*nacked = 0;
-	*error_idx = -1;
+	*err_idx = -1;
 
 	while (ua->ua_num > 0) {
 		if (ps->proto >= HDFS_DATANODE_AP_2_0)
-			error = _check_one_ack2(ps, &t_nacked, error_idx);
+			error = _check_one_ack2(ps, &t_nacked, err_idx);
 		else
-			error = _check_one_ack(ps, &t_nacked, error_idx);
+			error = _check_one_ack(ps, &t_nacked, err_idx);
+		if (hdfs_is_again(error)) {
+			break;
+		} else if (hdfs_is_error(error)) {
+			if (*err_idx < 0)
+				*err_idx = 0;
+			goto out;
+		}
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			break;
 		*nacked += t_nacked;
@@ -2242,5 +2270,6 @@ _check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *error_idx)
 		ua->ua_list_pos = 0;
 	}
 
+out:
 	return error;
 }
