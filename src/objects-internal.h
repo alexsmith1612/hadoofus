@@ -199,4 +199,24 @@ _hdfs_datanode_report_type_to_proto(enum hdfs_datanode_report_type dnr)
 	return (unsigned)dnr;
 }
 
+_Static_assert((unsigned)HADOOP__HDFS__CIPHER_SUITE_PROTO__UNKNOWN == HDFS_CS_UNKNOWN,
+    "Protobufs UNKNOWN cipher suite enum does not match our UNKNOWN cipher suite enum");
+_Static_assert((unsigned)HADOOP__HDFS__CIPHER_SUITE_PROTO__AES_CTR_NOPADDING == HDFS_CS_AES_CTR_NOPADDING,
+    "Protobufs AES_CTR_NOPADDING cipher suite enum does not match our AES_CTR_NOPADDING cipher suite enum");
+static inline enum hdfs_cipher_suite
+_hdfs_cipher_suite_from_proto(Hadoop__Hdfs__CipherSuiteProto pr)
+{
+	return (unsigned)pr;
+}
+
+_Static_assert((unsigned)HADOOP__HDFS__CRYPTO_PROTOCOL_VERSION_PROTO__UNKNOWN_PROTOCOL_VERSION == HDFS_CPV_UNKNOWN,
+    "Protobufs UNKNOWN crypto protocol version enum does not match our UNKNOWN crypto protocol enum");
+_Static_assert((unsigned)HADOOP__HDFS__CRYPTO_PROTOCOL_VERSION_PROTO__ENCRYPTION_ZONES == HDFS_CPV_ENCRYPTION_ZONES,
+    "Protobufs ENCRYPTION_ZONES crypto protocol version enum does not match our ENCRYPTION_ZONES crypto protocol enum");
+static inline enum hdfs_crypto_proto_version
+_hdfs_crypto_proto_version_from_proto(Hadoop__Hdfs__CryptoProtocolVersionProto pr)
+{
+	return (unsigned)pr;
+}
+
 #endif

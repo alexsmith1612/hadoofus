@@ -199,6 +199,20 @@ enum hdfs_datanode_report_type {
 	HDFS_DNREPORT_IN_MAINTENANCE = 6,
 };
 
+enum hdfs_cipher_suite {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_CS_UNKNOWN = 1,
+	HDFS_CS_AES_CTR_NOPADDING = 2,
+};
+
+enum hdfs_crypto_proto_version {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_CPV_UNKNOWN = 1,
+	HDFS_CPV_ENCRYPTION_ZONES = 2,
+};
+
 enum hdfs_object_type {
 	_H_START = 0x20,
 	H_VOID = 0x20,
@@ -234,6 +248,7 @@ enum hdfs_object_type {
 	/* v2+ types */
 	H_FS_SERVER_DEFAULTS,
 	_H_V2_START = H_FS_SERVER_DEFAULTS,
+	H_FILE_ENCRYPTION_INFO,
 
 	/* end of valid non-exception type range */
 	_H_END,
@@ -381,6 +396,7 @@ struct hdfs_file_status {
 	char *_symlink_target;		/* NULL iff not a symlink */
 	uint64_t _fileid;
 	int32_t _num_children;
+	struct hdfs_object *_encryption_info/* type: hdfs_file_encryption_info. NULL iff not encrypted */;
 };
 
 struct hdfs_content_summary {
@@ -477,6 +493,17 @@ struct hdfs_fsserverdefaults {
 	enum hdfs_checksum_type _checksumtype;
 };
 
+struct hdfs_file_encryption_info {
+	enum hdfs_cipher_suite _suite;
+	enum hdfs_crypto_proto_version _crypto_proto_version;
+	uint8_t *_key;
+	uint32_t _key_len;
+	uint8_t *_iv;
+	uint32_t _iv_len;
+	char *_key_name;
+	char *_ez_key_version_name;
+};
+
 struct hdfs_exception {
 	char *_msg;
 	enum hdfs_exception_type _etype;
@@ -510,6 +537,7 @@ struct hdfs_object {
 		struct hdfs_array_string _array_string;
 		struct hdfs_upgrade_status_report _upgrade_status;
 		struct hdfs_fsserverdefaults _server_defaults;
+		struct hdfs_file_encryption_info _file_encryption_info;
 	} ob_val;
 	enum hdfs_object_type ob_type;
 };

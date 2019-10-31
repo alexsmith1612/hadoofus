@@ -854,6 +854,44 @@ hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 	return r;
 }
 
+static struct hdfs_object *
+_hdfs_file_encryption_info_new_proto(Hadoop__Hdfs__FileEncryptionInfoProto *fei)
+{
+	struct hdfs_object *r = _objmalloc();
+	uint8_t *key_copy, *iv_copy;
+	char *key_name_copy, *ez_key_version_name_copy;
+
+	ASSERT(fei);
+
+	key_copy = malloc(fei->key.len);
+	ASSERT(key_copy);
+	memcpy(key_copy, fei->key.data, fei->key.len);
+
+	iv_copy = malloc(fei->iv.len);
+	ASSERT(iv_copy);
+	memcpy(iv_copy, fei->iv.data, fei->iv.len);
+
+	key_name_copy = strdup(fei->keyname);
+	ASSERT(key_name_copy);
+	ez_key_version_name_copy = strdup(fei->ezkeyversionname);
+	ASSERT(ez_key_version_name_copy);
+
+	r->ob_type = H_FILE_ENCRYPTION_INFO;
+	r->ob_val._file_encryption_info = (struct hdfs_file_encryption_info) {
+		._suite = _hdfs_cipher_suite_from_proto(fei->suite),
+		._crypto_proto_version =
+		    _hdfs_crypto_proto_version_from_proto(fei->cryptoprotocolversion),
+		._key = key_copy,
+		._key_len = fei->key.len,
+		._iv = iv_copy,
+		._iv_len = fei->iv.len,
+		._key_name = key_name_copy,
+		._ez_key_version_name = ez_key_version_name_copy,
+	};
+
+	return r;
+}
+
 struct hdfs_object *
 _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 {
@@ -890,6 +928,7 @@ _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 		._symlink_target = NULL,
 		._fileid = 0,
 		._num_children = -1,
+		._encryption_info = NULL,
 	};
 
 	if (fs->has_block_replication)
@@ -902,6 +941,9 @@ _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 		r->ob_val._file_status._fileid = fs->fileid;
 	if (fs->has_childrennum)
 		r->ob_val._file_status._num_children = fs->childrennum;
+	if (fs->fileencryptioninfo)
+		r->ob_val._file_status._encryption_info =
+		    _hdfs_file_encryption_info_new_proto(fs->fileencryptioninfo);
 
 	return r;
 }
@@ -1792,6 +1834,8 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._file_status._owner);
 		free(obj->ob_val._file_status._group);
 		free(obj->ob_val._file_status._symlink_target);
+		if (obj->ob_val._file_status._encryption_info)
+			hdfs_object_free(obj->ob_val._file_status._encryption_info);
 		break;
 	case H_CONTENT_SUMMARY: break;
 	case H_BLOCK:
@@ -1831,6 +1875,12 @@ hdfs_object_free(struct hdfs_object *obj)
 			free(obj->ob_val._array_string._val[i]);
 		if (obj->ob_val._array_string._val)
 			free(obj->ob_val._array_string._val);
+		break;
+	case H_FILE_ENCRYPTION_INFO:
+		free(obj->ob_val._file_encryption_info._key);
+		free(obj->ob_val._file_encryption_info._iv);
+		free(obj->ob_val._file_encryption_info._key_name);
+		free(obj->ob_val._file_encryption_info._ez_key_version_name);
 		break;
 	default:
 		ASSERT(false);
@@ -2218,6 +2268,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		break;
 	// v2+ types are invalid input
 	case H_FS_SERVER_DEFAULTS:
+	case H_FILE_ENCRYPTION_INFO:
 	// The client library doesn't ever need to serialize an exception
 	case H_PROTOCOL_EXCEPTION:
 		/* Invalid input */
