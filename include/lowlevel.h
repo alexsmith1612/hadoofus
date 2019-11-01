@@ -98,6 +98,7 @@ struct hdfs_packet_state {
 	void *buf;
 	struct hdfs_heap_buf *hdrbuf;
 	struct hdfs_heap_buf *recvbuf;
+	int *unknown_status;
 	int sock,
 	    proto,
 	    fd;
@@ -179,10 +180,10 @@ struct hdfs_datanode {
 	struct hdfs_heap_buf dn_recvbuf;
 	struct hdfs_packet_state dn_pstate;
 	struct hdfs_read_info dn_rinfo;
-};
 
-extern _Thread_local int hdfs_datanode_unknown_status;
-extern _Thread_local const char *hdfs_datanode_opresult_message;
+	int dn_unknown_status;
+	const char *dn_opresult_message;
+};
 
 //
 // Namenode operations

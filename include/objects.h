@@ -44,18 +44,18 @@ enum hdfs_error_numeric {
 	HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM,
 
 // Direct translations of Datanode STATUS codes.  More information may be
-// available in the hdfs_datanode_opresult_message (optionally provided by HDFS
-// datanode).  If no message was provided, the pointer will be NULL.
+// available in dn_opresult_message (optionally provided by HDFS datanode) in
+// struct hdfs_datanode.  If no message was provided, the pointer will be NULL.
 	HDFS_ERR_DN_ERROR,
 	HDFS_ERR_DN_ERROR_CHECKSUM,
 	HDFS_ERR_DN_ERROR_INVALID,
 	HDFS_ERR_DN_ERROR_EXISTS,
 	HDFS_ERR_DN_ERROR_ACCESS_TOKEN,
 	// Or STATUS code not recognized by libhadoofus; check
-	// hdfs_datanode_unknown_status to determine value.
+	// dn_unknown_status in struct hdfs_datanode to determine value.
 	HDFS_ERR_UNRECOGNIZED_DN_ERROR,
 	// STATUS code was recognized, but not valid in the scenario.  The
-	// value can be checked with hdfs_datanode_unknown_status.
+	// value can be checked with dn_unknown_status in struct hdfs_datanode.
 	HDFS_ERR_INVALID_DN_ERROR,
 
 // Protocol encoding errors

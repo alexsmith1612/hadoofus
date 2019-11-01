@@ -22,9 +22,6 @@
 
 // TODO look into datatransfer encryption
 
-_Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
-_Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
-
 static char DN_V1_CHECKSUM_OK[2] = {
 	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK >> 8),
 	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK & 0xff),
@@ -40,7 +37,7 @@ static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
 	     PACKET_SIZE = 64 * 1024;
 static const long HEART_BEAT_SEQNO = -1L;
 
-static struct hdfs_error	error_from_datanode(int);
+static struct hdfs_error	error_from_datanode(int err, int *unknown_status);
 
 static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
 				off_t len);
@@ -70,7 +67,7 @@ static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, stru
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
 static struct hdfs_error	_recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri);
 static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx);
-static void			_set_opres_msg(const char *);
+static void			_set_opres_msg(struct hdfs_datanode *d, const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen);
 static struct hdfs_error	_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
@@ -327,6 +324,9 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
 	hdfs_conn_ctx_free(&d->dn_cctx);
+	if (d->dn_opresult_message)
+		free(__DECONST(char *, d->dn_opresult_message));
+	d->dn_opresult_message = NULL;
 
 	if (d->dn_ttrgs) {
 		hdfs_transfer_targets_free(d->dn_ttrgs);
@@ -774,10 +774,11 @@ hdfs_datanode_transfer(struct hdfs_datanode *d, struct hdfs_transfer_targets *ta
 }
 
 static struct hdfs_error
-error_from_datanode(int dnstatus)
+error_from_datanode(int dnstatus, int *unknown_status)
 {
 	enum hdfs_error_numeric ecode;
 
+	ASSERT(unknown_status);
 	ASSERT(dnstatus != HADOOP__HDFS__STATUS__SUCCESS);
 
 	switch (dnstatus) {
@@ -798,11 +799,11 @@ error_from_datanode(int dnstatus)
 		break;
 	case HADOOP__HDFS__STATUS__CHECKSUM_OK:
 		ecode = HDFS_ERR_INVALID_DN_ERROR;
-		hdfs_datanode_unknown_status = dnstatus;
+		*unknown_status = dnstatus;
 		break;
 	default:
 		ecode = HDFS_ERR_UNRECOGNIZED_DN_ERROR;
-		hdfs_datanode_unknown_status = dnstatus;
+		*unknown_status = dnstatus;
 		break;
 	}
 	return error_from_hdfs(ecode);
@@ -1503,6 +1504,7 @@ _setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
 		d->dn_pstate.recvbuf = &d->dn_recvbuf;
 		d->dn_pstate.proto = d->dn_proto;
+		d->dn_pstate.unknown_status = &d->dn_unknown_status;
 		d->dn_pstate.offset = d->dn_size;
 		d->dn_pstate.pipelinesize = d->dn_nlocs;
 		d->dn_state = HDFS_DN_ST_PKT;
@@ -1873,7 +1875,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	ASSERT(obuf.used > 0); // should not be able to fail
 
 	if (status != HADOOP__HDFS__STATUS__SUCCESS) {
-		error = error_from_datanode(status);
+		error = error_from_datanode(status, &d->dn_unknown_status);
 		goto out;
 	}
 
@@ -1961,10 +1963,10 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		goto out;
 	}
 
-	_set_opres_msg(opres->message);
+	_set_opres_msg(d, opres->message);
 
 	if (opres->status != HADOOP__HDFS__STATUS__SUCCESS)
-		error = error_from_datanode(opres->status);
+		error = error_from_datanode(opres->status, &d->dn_unknown_status);
 	// Shouldn't happen, I believe; call it a protocol error.
 	else if (opres->message != NULL)
 		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
@@ -2073,14 +2075,14 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	statussz += obuf.used;
 
 	if (status == HADOOP__HDFS__STATUS__SUCCESS && strlen(statusmsg) == 0)
-		_set_opres_msg(NULL);
+		_set_opres_msg(d, NULL);
 	else {
 		// Shouldn't happen, I believe; call it a protocol error.
 		if (status == HADOOP__HDFS__STATUS__SUCCESS)
 			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 		else
-			error = error_from_datanode(status);
-		_set_opres_msg(statusmsg);
+			error = error_from_datanode(status, &d->dn_unknown_status);
+		_set_opres_msg(d, statusmsg);
 	}
 
 	// Skip the recv buffer past the read objects
@@ -2554,15 +2556,15 @@ out:
 }
 
 static void
-_set_opres_msg(const char *newmsg)
+_set_opres_msg(struct hdfs_datanode *d, const char *newmsg)
 {
-	if (hdfs_datanode_opresult_message != NULL)
-		free(__DECONST(char *, hdfs_datanode_opresult_message));
+	if (d->dn_opresult_message != NULL)
+		free(__DECONST(char *, d->dn_opresult_message));
 	if (newmsg == NULL)
-		hdfs_datanode_opresult_message = NULL;
+		d->dn_opresult_message = NULL;
 	else {
-		hdfs_datanode_opresult_message = strdup(newmsg);
-		ASSERT(hdfs_datanode_opresult_message != NULL);
+		d->dn_opresult_message = strdup(newmsg);
+		ASSERT(d->dn_opresult_message != NULL);
 	}
 }
 
@@ -2670,7 +2672,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ps->unacked.ua_list_pos++;
 		ps->unacked.ua_num--;
 	} else {
-		error = error_from_datanode(ack);
+		error = error_from_datanode(ack, ps->unknown_status);
 		*err_idx = 0; // XXX TODO change this when implementing full pipelining for v1
 	}
 
@@ -2766,7 +2768,7 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 
 	for (unsigned i = 0; i < ack->n_reply; i++) {
 		if (ack->reply[i] != HADOOP__HDFS__STATUS__SUCCESS) {
-			error = error_from_datanode(ack->reply[i]);
+			error = error_from_datanode(ack->reply[i], ps->unknown_status);
 			*err_idx = i;
 			goto out;
 		}

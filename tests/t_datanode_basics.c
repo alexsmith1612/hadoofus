@@ -845,8 +845,8 @@ START_TEST(test_dn_recovery)
 
 		err = hdfs_datanode_transfer(dn, ttrgs);
 		ck_assert_msg(!hdfs_is_error(err), "%s%s%s", format_error(err),
-		    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
-		    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+		    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+		    dn->dn_opresult_message ? dn->dn_opresult_message : "");
 
 		hdfs_object_free(transfer_lb);
 		hdfs_transfer_targets_free(ttrgs);
@@ -881,8 +881,8 @@ START_TEST(test_dn_recovery)
 		// perform the actual pipeline setup
 		err = hdfs_datanode_write_setup_pipeline(dn, _i/*sendcrcs*/, &err_idx);
 		ck_assert_msg(!hdfs_is_error(err), "%s%s%s", format_error(err),
-		    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
-		    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+		    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+		    dn->dn_opresult_message ? dn->dn_opresult_message : "");
 		ck_assert_int_lt(err_idx, 0);
 
 		// 5. tell the namenode about the updated pipeline (updatePipeline)

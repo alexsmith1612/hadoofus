@@ -342,8 +342,8 @@ START_TEST(test_dn_write_nb)
 					    wlen, &nwritten, &nacked, &erridx);
 					ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
 					    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
-					    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
-					    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+					    fctxs[i].dn.dn_opresult_message ? "\n\tDatanode message: " : "",
+					    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "");
 					fctxs[i].wtot += nwritten;
 					fctxs[i].prev->ob_val._block._length += nwritten;
 					fctxs[i].atot += nacked;
@@ -392,8 +392,8 @@ START_TEST(test_dn_write_nb)
 					// TODO handle servers that don't support crcs (do those still exist?)
 					ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
 					    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
-					    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
-					    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+					    fctxs[i].dn.dn_opresult_message ? "\n\tDatanode message: " : "",
+					    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "");
 					if (nread > 0) {
 						ck_assert_msg(memcmp(wbuf + fctxs[i].rtot, rbuf, nread) == 0,
 						    "Read differed from write for '%s'", fctxs[i].tf);
