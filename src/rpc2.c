@@ -865,8 +865,8 @@ DECODE_PB_NULLABLE(getBlockLocations, GetBlockLocations, get_block_locations, lo
  */
 DECODE_PB_NULLABLE(create, Create, create, file_status, fs, H_FILE_STATUS)
 DECODE_PB(delete, Delete, delete, boolean, result)
-DECODE_PB_NULLABLE(append, Append, append, located_block, block,
-    H_LOCATED_BLOCK);
+DECODE_PB_EX(append, Append, append,
+    result = _hdfs_located_block_with_status_new_proto(resp->block, resp->stat));
 DECODE_PB(setReplication, SetReplication, set_replication, boolean, result)
 DECODE_PB_VOID(setPermission, SetPermission, set_permission)
 DECODE_PB_VOID(setOwner, SetOwner, set_owner)

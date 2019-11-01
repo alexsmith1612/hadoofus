@@ -104,12 +104,18 @@ streq(const char *a, const char *b)
 
 struct hdfs_transfer_targets *	_hdfs_transfer_targets_copy(struct hdfs_transfer_targets *src);
 
+// Helper function for compat from v1 to v2.2+. Caller loses their reference to
+// the located block argument
+struct hdfs_object *	_hdfs_located_block_with_status_from_located_block(struct hdfs_object *lb);
+
 // HDFSv2+ protobuf-to-hdfs_object converters
 struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(Hadoop__Hdfs__FsServerDefaultsProto *);
 struct hdfs_object *	_hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *);
 struct hdfs_object *	_hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *);
 struct hdfs_object *	_hdfs_located_blocks_new_proto(Hadoop__Hdfs__LocatedBlocksProto *);
 struct hdfs_object *	_hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *);
+struct hdfs_object *	_hdfs_located_block_with_status_new_proto(Hadoop__Hdfs__LocatedBlockProto *,
+			Hadoop__Hdfs__HdfsFileStatusProto *);
 struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
 struct hdfs_object *	_hdfs_token_new_proto(Hadoop__Common__TokenProto *);
 struct hdfs_object *	_hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *);

@@ -529,6 +529,60 @@ hdfs_located_block_copy(struct hdfs_object *src)
 	return r;
 }
 
+struct hdfs_object *
+_hdfs_located_block_with_status_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb,
+	Hadoop__Hdfs__HdfsFileStatusProto *fs)
+{
+	struct hdfs_object *r = _objmalloc(), *lbo = NULL, *fso = NULL;
+
+	if (lb)
+		lbo = _hdfs_located_block_new_proto(lb);
+	if (fs)
+		fso = _hdfs_file_status_new_proto(fs);
+
+	if (lbo || fso) {
+		r->ob_type = H_LOCATED_BLOCK_WITH_STATUS;
+		r->ob_val._located_block_with_status = (struct hdfs_located_block_with_status) {
+			._block = lbo,
+			._status = fso,
+		};
+	} else {
+		r->ob_type = H_NULL;
+		r->ob_val._null = (struct hdfs_null) {
+			._type = H_LOCATED_BLOCK_WITH_STATUS,
+		};
+	}
+
+	return r;
+}
+
+// Caller loses reference to the argument
+struct hdfs_object *
+_hdfs_located_block_with_status_from_located_block(struct hdfs_object *lb)
+{
+	struct hdfs_object *r = _objmalloc();
+
+	ASSERT(lb);
+	ASSERT(lb->ob_type == H_LOCATED_BLOCK ||
+	    (lb->ob_type == H_NULL && lb->ob_val._null._type == H_LOCATED_BLOCK));
+
+	if (lb->ob_type == H_LOCATED_BLOCK) {
+		r->ob_type = H_LOCATED_BLOCK_WITH_STATUS;
+		r->ob_val._located_block_with_status = (struct hdfs_located_block_with_status) {
+			._block = lb,
+			._status = NULL,
+		};
+	} else {
+		 hdfs_object_free(lb);
+		r->ob_type = H_NULL;
+		r->ob_val._null = (struct hdfs_null) {
+			._type = H_LOCATED_BLOCK_WITH_STATUS,
+		};
+	}
+
+	return r;
+}
+
 EXPORT_SYM struct hdfs_object *
 hdfs_located_blocks_new(bool beingcreated, int64_t size)
 {
@@ -1800,6 +1854,12 @@ hdfs_object_free(struct hdfs_object *obj)
 		free(obj->ob_val._located_block._storage_ids);
 		free(obj->ob_val._located_block._storage_types);
 		break;
+	case H_LOCATED_BLOCK_WITH_STATUS:
+		if (obj->ob_val._located_block_with_status._block)
+			hdfs_object_free(obj->ob_val._located_block_with_status._block);
+		if (obj->ob_val._located_block_with_status._status)
+			hdfs_object_free(obj->ob_val._located_block_with_status._status);
+		break;
 	case H_ARRAY_LOCATEDBLOCK:
 		/* FALLTHROUGH */
 	case H_LOCATED_BLOCKS:
@@ -2269,6 +2329,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	// v2+ types are invalid input
 	case H_FS_SERVER_DEFAULTS:
 	case H_FILE_ENCRYPTION_INFO:
+	case H_LOCATED_BLOCK_WITH_STATUS:
 	// The client library doesn't ever need to serialize an exception
 	case H_PROTOCOL_EXCEPTION:
 		/* Invalid input */

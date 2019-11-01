@@ -4,6 +4,7 @@
 
 #include <hadoofus/highlevel.h>
 
+#include "objects-internal.h"
 #include "util.h"
 
 #define BAIL_ON_ERR(error) do {						\
@@ -196,6 +197,13 @@ do { \
 
 #define _HDFS_OBJ_RPC_RET(void_ok, htype) \
 do { \
+	/* Convert H_LOCATED_BLOCK from v1 appends to H_LOCATED_BLOCK_WITH_STATUS */ \
+	if (htype == H_LOCATED_BLOCK_WITH_STATUS && \
+	    (object->ob_type == H_LOCATED_BLOCK || \
+	     (object->ob_type == H_NULL && object->ob_val._null._type == H_LOCATED_BLOCK))) { \
+		object = _hdfs_located_block_with_status_from_located_block(object); \
+	} \
+\
 	ASSERT(object->ob_type == htype || \
 	    (object->ob_type == H_NULL && object->ob_val._null._type == htype) || \
 	    (void_ok && object->ob_type == H_VOID) || \
@@ -318,12 +326,7 @@ _HDFS_OBJ_RPC_BODY_VOID_OK(create,
 	blocksize
 )
 
-// XXX As of v2.7.0 AppendResponseProto includes an HdfsFileStatusProto in
-// addition to the LocatedBlockProto so that one does not need to subsequently
-// call getFileInfo in order to get the block size, etc. TODO update append to
-// handle this (perhaps make an H_LOCATED_BLOCK_WITH_STATUS object?)
 // XXX flags (bit values from CreateFlagProto)
-// XXX return LocatedBlockProto and HdfsFileStatusProto (perhaps both may be NULL?)
 _HDFS_RPC_NB_DECL(append,
 	const char *path, const char *client)
 _HDFS_RPC_NB_BODY(
@@ -338,7 +341,7 @@ _HDFS_RPC_NB_BODY(
 _HDFS_OBJ_RPC_DECL(append,
 	const char *path, const char *client)
 _HDFS_OBJ_RPC_BODY(append,
-	H_LOCATED_BLOCK,
+	H_LOCATED_BLOCK_WITH_STATUS,
 	path,
 	client
 )

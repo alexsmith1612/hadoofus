@@ -376,13 +376,16 @@ START_TEST(test_dn_append_buf)
 	begin = _now();
 	do {
 		if (first) { // Only write up to a complete block
-			struct hdfs_object *ubfp_lb, *oldblock, *newblock, *nodes, *storageids;
+			struct hdfs_object *lbws, *ubfp_lb, *oldblock, *newblock, *nodes, *storageids;
 			first = false;
 			prev = NULL;
 			wblk = _min(TOWRITE - wtot, BLOCKSZ - (wtot % BLOCKSZ));
-			bl = hdfs_append(h, tf, client, &e);
-			ck_assert_msg(bl, "append returned NULL");
-			ck_assert_int_eq(bl->ob_type, H_LOCATED_BLOCK);
+			lbws = hdfs_append(h, tf, client, &e);
+			ck_assert_msg(lbws, "append returned NULL");
+			ck_assert_int_eq(lbws->ob_type, H_LOCATED_BLOCK_WITH_STATUS);
+			bl = lbws->ob_val._located_block_with_status._block; // avoid doing a copy
+			lbws->ob_val._located_block_with_status._block = NULL; // don't free the located block we just grabbed
+			hdfs_object_free(lbws);
 
 			// Note that hdfs_append() can return NULL for its located_block -- this occurs if the
 			// last block in the file is already full. In that case you continue in the usual way

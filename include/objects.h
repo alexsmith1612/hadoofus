@@ -249,6 +249,7 @@ enum hdfs_object_type {
 	H_FS_SERVER_DEFAULTS,
 	_H_V2_START = H_FS_SERVER_DEFAULTS,
 	H_FILE_ENCRYPTION_INFO,
+	H_LOCATED_BLOCK_WITH_STATUS,
 
 	/* end of valid non-exception type range */
 	_H_END,
@@ -341,6 +342,11 @@ struct hdfs_located_block {
 
 	enum hdfs_storage_type *_storage_types;
 	int _num_storage_types;
+};
+
+struct hdfs_located_block_with_status {
+	struct hdfs_object *_block/* type: hdfs_located_block or NULL */;
+	struct hdfs_object *_status/* type: hdfs_file_status (NULL for versions before 2.7) */;
 };
 
 struct hdfs_located_blocks {
@@ -519,6 +525,7 @@ struct hdfs_object {
 		struct hdfs_long _long;
 		struct hdfs_array_long _array_long;
 		struct hdfs_located_block _located_block;
+		struct hdfs_located_block_with_status _located_block_with_status;
 		struct hdfs_located_blocks _located_blocks;
 		struct hdfs_directory_listing _directory_listing;
 		struct hdfs_datanode_info _datanode_info;

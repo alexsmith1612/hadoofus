@@ -113,7 +113,7 @@ END_TEST
 START_TEST(test_append)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *lb, *fs, *bl = NULL;
+	struct hdfs_object *e = NULL, *lbws, *fs, *bl = NULL;
 	const char *tf = "/HADOOFUS_TEST_APPEND",
 	      *client = "HADOOFUS_CLIENT";
 
@@ -133,18 +133,20 @@ START_TEST(test_append)
 	ck_assert_msg(s, "complete returned false");
 
 	// Open for appending
-	lb = hdfs_append(h, tf, client, &e);
+	lbws = hdfs_append(h, tf, client, &e);
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-	// XXX hdfs_append returns NULL (at least for v2.7.7---It seems like it
-	// should be the case for all versions) when there is no located block,
-	// i.e. when the file is empty, which it is here due to the
-	// overwrite. Consider a ck_assert_msg()?
-	if (lb) {
-		ck_assert_msg(lb->ob_type == H_LOCATED_BLOCK);
-		bl = hdfs_block_from_located_block(lb);
-		hdfs_object_free(lb);
+	if (lbws) {
+		struct hdfs_object *lb, *fs2;
+		ck_assert_msg(lbws->ob_type == H_LOCATED_BLOCK_WITH_STATUS);
+		lb = lbws->ob_val._located_block_with_status._block;
+		fs2 = lbws->ob_val._located_block_with_status._status;
+		if (lb)
+			bl = hdfs_block_from_located_block(lb);
+		if (fs2)
+			ck_assert_int_eq(fs2->ob_type, H_FILE_STATUS);
+		hdfs_object_free(lbws);
 	}
 
 	s = hdfs_complete(h, tf, client, bl, 0/*fileid?*/, &e);

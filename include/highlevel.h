@@ -160,6 +160,8 @@ struct hdfs_object *	hdfs_create(struct hdfs_namenode *, const char *path,
 struct hdfs_error	hdfs_append_nb(struct hdfs_namenode *, const char *path,
 			const char *client, int64_t *msgno, void *userdata);
 
+// For versions older than v2.7 the file status member of the
+// located_block_with_status will always be NULL
 struct hdfs_object *	hdfs_append(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
