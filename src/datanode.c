@@ -271,6 +271,8 @@ _packet_state_clean(struct hdfs_packet_state *ps, bool reuse)
 		ps->first_unacked = 0;
 		ps->remains_tot = 0;
 		ps->remains_pkt = 0;
+	} else {
+		PTR_FREE(ps->databuf.buf);
 	}
 	_unacked_packets_clean(&ps->unacked, reuse);
 }
@@ -2339,7 +2341,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	size_t crclen = 0;
 	ssize_t wlen;
 	unsigned char *data = NULL;
-	bool datamalloced = false;
+	bool copydata = false;
 	struct iovec ios[2];
 	int wlen_hdr = 0, wlen_data = 0;
 	bool is_new;
@@ -2387,10 +2389,10 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 	if (!ps->buf && ps->remains_pkt != 0) {
 #if !defined(__linux__) && !defined(__FreeBSD__)
-		datamalloced = true;
+		copydata = true;
 #else
 		if (ps->sendcrcs && is_new) {
-			datamalloced = true;
+			copydata = true;
 		} else {
 			struct stat sb;
 			int rc;
@@ -2401,18 +2403,21 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 			}
 			// Sendfile (on linux) doesn't work with device files
 			if (!S_ISREG(sb.st_mode))
-				datamalloced = true;
+				copydata = true;
 		}
 #endif
 	}
 
-	if (datamalloced) {
-		data = malloc(ps->remains_pkt);
-		ASSERT(data);
+	if (copydata) {
+		// this copied data is at most used for this function invocation, so reset every time
+		_hbuf_reset(&ps->databuf);
+		_hbuf_reserve(&ps->databuf, ps->remains_pkt);
 		// Note that is can block on the user's fd
-		error = _pread_all(ps->fd, data, ps->remains_pkt, ps->fdoffset);
+		error = _pread_all(ps->fd, _hbuf_writeptr(&ps->databuf), ps->remains_pkt, ps->fdoffset);
 		if (hdfs_is_error(error))
 			goto out;
+		_hbuf_append(&ps->databuf, ps->remains_pkt);
+		data = (unsigned char *)_hbuf_readptr(&ps->databuf);
 	} else
 		data = ps->buf;
 
@@ -2550,8 +2555,6 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		ps->buf = (char *)ps->buf + wlen_data;
 
 out:
-	if (datamalloced)
-		free(data);
 	return error;
 }
 

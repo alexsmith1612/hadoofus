@@ -98,6 +98,7 @@ struct hdfs_packet_state {
 	void *buf;
 	struct hdfs_heap_buf *hdrbuf;
 	struct hdfs_heap_buf *recvbuf;
+	struct hdfs_heap_buf databuf;
 	int *unknown_status;
 	int sock,
 	    proto,
