@@ -146,10 +146,10 @@ out:
 // sets *wlen to number of bytes written (which is 0 for EAGAIN/EWOULDBLOCK).
 // If error, returns error_from_errno() and sets *wlen to -1.
 struct hdfs_error
-_write(int s, void *vbuf, size_t buflen, ssize_t *wlen)
+_write(int s, const void *vbuf, size_t buflen, ssize_t *wlen)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	char *buf = vbuf;
+	const char *buf = vbuf;
 
 	*wlen = write(s, buf, buflen);
 	if (*wlen == -1) {
@@ -167,7 +167,7 @@ _write(int s, void *vbuf, size_t buflen, ssize_t *wlen)
 }
 
 struct hdfs_error
-_writev(int s, struct iovec *iov, int iovcnt, ssize_t *wlen)
+_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	ssize_t totlen = 0;
