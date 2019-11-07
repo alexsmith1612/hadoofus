@@ -42,16 +42,16 @@ static struct hdfs_error	error_from_datanode(int err, int *unknown_status);
 static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
 				off_t len);
 static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
-				void *buf, ssize_t *nread);
+				const struct iovec *iov, int iovcnt, size_t iov_offt, ssize_t *nread);
 static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
-				off_t len, int fd, off_t fdoff, void *buf);
+				off_t len, int fd, off_t fdoff, const struct iovec *iov, int iovcnt);
 static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
 static struct hdfs_error	_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx);
 static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx);
-static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
-static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
+static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, size_t iov_offt,
 				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const struct iovec *iov,
+				int iovcnt, int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
 static struct hdfs_error	_datanode_transfer(struct hdfs_datanode *d);
 static struct hdfs_error	_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
@@ -273,6 +273,7 @@ _packet_state_clean(struct hdfs_packet_state *ps, bool reuse)
 		ps->remains_pkt = 0;
 	} else {
 		PTR_FREE(ps->databuf.buf);
+		PTR_FREE(ps->iovbuf);
 	}
 	_unacked_packets_clean(&ps->unacked, reuse);
 }
@@ -604,9 +605,15 @@ EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
+	struct iovec iov;
+
 	ASSERT(buf);
 
-	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
+	iov.iov_base = __DECONST(void *, buf);
+	iov.iov_len = len;
+
+	return _datanode_write(d, &iov, 1/*iovcnt*/, 0/*iov_offt*/, -1/*fd*/, len,
+	    -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -619,11 +626,52 @@ EXPORT_SYM struct hdfs_error
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
 	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
+	struct iovec iov;
+
 	ASSERT(buf);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/,
-	    nwritten, nacked, error_idx);
+	iov.iov_base = __DECONST(void *, buf);
+	iov.iov_len = len;
+
+	return _datanode_write_blocking(d, sendcrcs, &iov, 1/*iovcnt*/, -1/*fd*/,
+	    len, -1/*fdoff*/, nwritten, nacked, error_idx);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_writev_nb(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt,
+	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+{
+	size_t len = 0;
+
+	ASSERT(iov);
+	ASSERT(iovcnt > 0);
+
+	// XXX consider making the user pass in a len instead
+	for (int i = 0; i < iovcnt; i++) {
+		len += iov[i].iov_len; // XXX check for overflow?
+	}
+
+	return _datanode_write(d, iov, iovcnt, 0/*iov_offt*/, -1/*fd*/, len,
+	    -1/*fdoff*/, nwritten, nacked, error_idx);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_writev(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt,
+	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+{
+	size_t len = 0;
+
+	ASSERT(iov);
+	ASSERT(iovcnt > 0);
+
+	// XXX consider making the user pass in a len instead
+	for (int i = 0; i < iovcnt; i++) {
+		len += iov[i].iov_len; // XXX check for overflow?
+	}
+
+	return _datanode_write_blocking(d, sendcrcs, iov, iovcnt, -1/*fd*/,
+	    len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -634,7 +682,8 @@ hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t of
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	return _datanode_write(d, NULL/*buf*/, fd, len, offset, nwritten, nacked, error_idx);
+	return _datanode_write(d, NULL/*iov*/, 0/*iovcnt*/, 0/*iov_offt*/, fd, len,
+	    offset, nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -645,8 +694,8 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset,
-	    nwritten, nacked, error_idx);
+	return _datanode_write_blocking(d, sendcrcs, NULL/*iov*/, 0/*iovcnt*/, fd,
+	    len, offset, nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -684,8 +733,8 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 	}
 
 	// will write the last packet if necessary and check for any outstanding ACKs
-	error = _datanode_write(d, NULL/*buf*/, -1/*fd*/, 0/*len*/, -1/*fdoff*/,
-	    &t_nwritten, nacked, error_idx);
+	error = _datanode_write(d, NULL/*iov*/, 0/*iovcnt*/, 0/*iov_offt*/, -1/*fd*/,
+	    0/*len*/, -1/*fdoff*/, &t_nwritten, nacked, error_idx);
 
 	// Only return HDFS_SUCCESS once all of the packets have been acknowledged
 	if (!hdfs_is_error(error)) {
@@ -718,18 +767,64 @@ hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t bloff,
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, void *buf, ssize_t *nread)
 {
+	struct iovec iov;
+
 	ASSERT(buf);
 
-	return _datanode_read(d, len, -1/*fd*/, -1/*fdoff*/, buf, nread);
+	iov.iov_base = buf;
+	iov.iov_len = len;
+
+	return _datanode_read(d, len, -1/*fd*/, -1/*fdoff*/, &iov, 1/*iovcnt*/,
+	    0/*iov_offt*/, nread);
 }
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
 	bool verifycrcs)
 {
+	struct iovec iov;
+
 	ASSERT(buf);
 
-	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/, -1/*fdoff*/, buf);
+	iov.iov_base = buf;
+	iov.iov_len = len;
+
+	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/,
+	    -1/*fdoff*/, &iov, 1/*iovcnt*/);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_readv_nb(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt,
+	ssize_t *nread)
+{
+	size_t len = 0;
+
+	ASSERT(iov);
+	ASSERT(iovcnt > 0);
+
+	for (int i = 0; i < iovcnt; i++) {
+		len += iov[i].iov_len; // XXX check for overflow?
+	}
+
+	return _datanode_read(d, len, -1/*fd*/, -1/*fdoff*/, iov, iovcnt,
+	    0/*iov_offt*/, nread);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_readv(struct hdfs_datanode *d, size_t off, const struct iovec *iov,
+	int iovcnt, bool verifycrcs)
+{
+	size_t len = 0;
+
+	ASSERT(iov);
+	ASSERT(iovcnt > 0);
+
+	for (int i = 0; i < iovcnt; i++) {
+		len += iov[i].iov_len; // XXX check for overflow?
+	}
+
+	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/,
+	    -1/*fdoff*/, iov, iovcnt);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -739,7 +834,8 @@ hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
 	ASSERT(fd >= 0);
 	ASSERT(fdoff >= 0);
 
-	return _datanode_read(d, len, fd, fdoff, NULL/*buf*/, nread);
+	return _datanode_read(d, len, fd, fdoff, NULL/*iov*/, 0/*iovcnt*/,
+	    0/*iov_offt*/, nread);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -749,7 +845,8 @@ hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd,
 	ASSERT(fdoff >= 0);
 	ASSERT(fd >= 0);
 
-	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff, NULL/*buf*/);
+	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff,
+	    NULL/*iov*/, 0/*iovcnt*/);
 }
 
 // Datanode transfer operations
@@ -1265,7 +1362,7 @@ _datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t
 // strictly less than len.
 static struct hdfs_error
 _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
-	void *buf, ssize_t *nread)
+	const struct iovec *iov, int iovcnt, size_t iov_offt, ssize_t *nread)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	ssize_t wlen;
@@ -1276,6 +1373,11 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 	ASSERT(d->dn_op_inited);
+	ASSERT(iovcnt >= 0);
+	if (iovcnt > 0) {
+		ASSERT(iov);
+		ASSERT(iov_offt <= iov[0].iov_len);
+	}
 
 	*nread = 0;
 
@@ -1336,7 +1438,10 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 		// fall through
 	case HDFS_DN_ST_PKT:
 		d->dn_rinfo.rlen = len;
-		d->dn_pstate.buf = buf;
+		d->dn_rinfo.iov_offt = iov_offt;
+		// Directly use a reference to the caller's iov, unlike _datanode_write()
+		d->dn_pstate.iovp = __DECONST(struct iovec *, iov);
+		d->dn_pstate.data_iovcnt = iovcnt;
 		d->dn_pstate.fd = fd;
 		d->dn_pstate.fdoffset = fdoff;
 		while (d->dn_pstate.remains_tot > 0) {
@@ -1383,10 +1488,11 @@ out:
 
 static struct hdfs_error
 _datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t len,
-	int fd, off_t fdoff, void *buf)
+	int fd, off_t fdoff, const struct iovec *iov, int iovcnt)
 {
 	struct hdfs_error error;
 	ssize_t nr = 0;
+	size_t iov_offt = 0;
 	struct pollfd pfd = { 0 };
 
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
@@ -1396,14 +1502,26 @@ _datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, o
 		goto out;
 
 	while (true) {
-		error = _datanode_read(d, len, fd, fdoff, buf, &nr);
+		error = _datanode_read(d, len, fd, fdoff, iov, iovcnt, iov_offt, &nr);
 		if (!hdfs_is_error(error)) // success
 			break;
 		if (!hdfs_is_again(error)) // error
 			goto out;
 		// again
-		if (buf)
-			buf = (char *)buf + nr;
+		if (iovcnt > 0) {
+			size_t tnr = nr;
+
+			while (tnr >= iov->iov_len - iov_offt) {
+				tnr -= iov->iov_len - iov_offt;
+				iov_offt = 0;
+				iov++;
+				iovcnt--;
+				ASSERT(iovcnt > 0);
+			}
+			// We use iov_offt because we cannot change
+			// iov_base/iov_len due to iov being a const pointer
+			iov_offt += tnr;
+		}
 		fdoff += nr;
 		len -= nr;
 		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
@@ -1523,25 +1641,11 @@ out:
 	return error;
 }
 
-// XXX TODO Add support for iovecs instead of just one contiguous buffer. Would
-// need to have a dynamically allocated iovec array in struct hdfs_datanode or
-// in struct hdfs_packet state (that only gets realloc'd up).  The iovec array
-// passed in by the user would get shallow copied into our array, starting at
-// index 1 to allow an iovec for the packet header/crcs buffer. There would be a
-// pointer into our iovec array that could be modified by _send_packet() to
-// advance through the array as data get sent. Our copy of the iovec array would
-// also get modified by _send_packet() when a write (whether complete or short,
-// but the complete writes are actually of interest here) finishes in the middle
-// of an iovec. We may want to do some checks against IOV_MAX or
-// sysconf(_SC_IOV_MAX), but these do not seem to be portably defined.
-// send_packet() will have to loop through the iovecs to count how many to pass
-// to writev() via iovcnt (although a temporary adjustment will have to be made
-// to iov_len in the last iovec passed in order to pass exactly the correct
-// number remains_pkt of bytes; this iov_len will then get restored after the
-// call to writev() is made.
+#define ROUNDUP2(x, y) (((x) + (y) - 1) & ~((y) - 1)) // only works for powers of 2
+
 static struct hdfs_error
-_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-	off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+_datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, size_t iov_offt,
+	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	ssize_t t_nacked = 0;
 	struct hdfs_error error = HDFS_SUCCESS, ret;
@@ -1558,6 +1662,11 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
 	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
 	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
+	ASSERT(iovcnt >= 0);
+	if (iovcnt > 0) {
+		ASSERT(iov);
+		ASSERT(iov_offt <= iov[0].iov_len);
+	}
 
 	*nacked = 0;
 	*err_idx = -1;
@@ -1579,7 +1688,22 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 		ASSERT(d->dn_state == HDFS_DN_ST_PKT);
 		// fall through
 	case HDFS_DN_ST_PKT:
-		d->dn_pstate.buf = __DECONST(void *, buf);
+		// Shallow copy the iovec array to be manipulated by _send_packet(),
+		// leaving the 0th iovec free for headers and checksums
+		if (iovcnt + 1 > d->dn_pstate.iovbuf_size) {
+			d->dn_pstate.iovbuf_size = ROUNDUP2(iovcnt + 1, 16); // _send_packet() requires at least 2
+			d->dn_pstate.iovbuf = realloc(d->dn_pstate.iovbuf,
+			    d->dn_pstate.iovbuf_size * sizeof(*d->dn_pstate.iovbuf));
+		}
+		for (int i = 0; i < iovcnt; i++) { // XXX consider memcpy instead
+			d->dn_pstate.iovbuf[i + 1] = iov[i];
+		}
+		if (iovcnt > 0) { // Apply the shift to the first iovec
+			d->dn_pstate.iovbuf[1].iov_base = (char *)d->dn_pstate.iovbuf[1].iov_base + iov_offt;
+			d->dn_pstate.iovbuf[1].iov_len -= iov_offt;
+		}
+		d->dn_pstate.iovp = d->dn_pstate.iovbuf;
+		d->dn_pstate.data_iovcnt = iovcnt;
 		d->dn_pstate.fd = fd;
 		d->dn_pstate.fdoffset = fdoff;
 		while (d->dn_pstate.remains_tot > 0 || d->dn_last) {
@@ -1667,11 +1791,12 @@ out:
 }
 
 static struct hdfs_error
-_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
+_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const struct iovec *iov, int iovcnt,
 	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error;
 	ssize_t nw = 0, na = 0;
+	size_t iov_offt = 0;
 	struct pollfd pfd = { 0 };
 
 	ASSERT(d);
@@ -1697,7 +1822,7 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 	}
 
 	while (true) {
-		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, err_idx);
+		error = _datanode_write(d, iov, iovcnt, iov_offt, fd, len, fdoff, &nw, &na, err_idx);
 		*nwritten += nw; // update even in error case
 		*nacked += na;
 		if (!hdfs_is_error(error)) // success
@@ -1705,8 +1830,20 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 		if (!hdfs_is_again(error)) // error
 			goto out;
 		// again
-		if (buf)
-			buf = (const char *)buf + nw;
+		if (iovcnt > 0) { // advance through the iovec array
+			size_t tnw = nw;
+
+			while (tnw >= iov->iov_len - iov_offt) {
+				tnw -= iov->iov_len - iov_offt;
+				iov_offt = 0;
+				iov++;
+				iovcnt--;
+				ASSERT(iovcnt > 0);
+			}
+			// We use iov_offt because we cannot change
+			// iov_base/iov_len due to iov being a const pointer
+			iov_offt += tnw;
+		}
 		fdoff += nw;
 		len -= nw;
 		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
@@ -2305,23 +2442,40 @@ _recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 
 	c_len = _min(ps->remains_pkt, ri->rlen);
 
-	// Copy the packet data out to the user's buf or to file:
-	if (ps->buf) {
-		memcpy(ps->buf, _hbuf_readptr(ps->recvbuf), c_len);
+	// Copy the packet data out to the user's iovec array or to file:
+	if (ps->data_iovcnt > 0) {
+		size_t remc_len = c_len;
+		while (remc_len > 0) {
+			void *dst = (char *)ps->iovp->iov_base + ri->iov_offt;
+			size_t dstlen = _min(remc_len, ps->iovp->iov_len - ri->iov_offt);
+
+			memcpy(dst, _hbuf_readptr(ps->recvbuf), dstlen);
+			_hbuf_consume(ps->recvbuf, dstlen);
+			remc_len -= dstlen;
+
+			// We cannot update the struct iovec members themselves (as they
+			// belong to the caller), so we maintain an offset into the next
+			// iovec
+			ri->iov_offt += dstlen;
+			if (ri->iov_offt == ps->iovp->iov_len) {
+				ps->iovp++;
+				ps->data_iovcnt--;
+				ri->iov_offt = 0;
+				ASSERT(ps->data_iovcnt > 0 || (size_t)c_len == ri->rlen);
+			}
+		}
 	} else {
 		// Note that this can block on the user's fd
 		error = _pwrite_all(ps->fd, _hbuf_readptr(ps->recvbuf), c_len, ps->fdoffset);
 		if (hdfs_is_error(error))
 			goto out;
+		_hbuf_consume(ps->recvbuf, c_len);
 	}
 
-	_hbuf_consume(ps->recvbuf, c_len);
 	ps->remains_pkt -= c_len;
 	ps->remains_tot -= c_len;
 	ps->fdoffset += c_len;
 	ri->rlen -= c_len;
-	if (ps->buf)
-		ps->buf = (char *)ps->buf + c_len;
 
 	// Server indicated last packet, but user expects more data
 	if (ps->remains_pkt == 0 && ri->lastpacket && ps->remains_tot > 0)
@@ -2340,11 +2494,22 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	struct hdfs_error error = HDFS_SUCCESS;
 	size_t crclen = 0;
 	ssize_t wlen;
-	unsigned char *data = NULL;
 	bool copydata = false;
-	struct iovec ios[2];
 	int wlen_hdr = 0, wlen_data = 0;
 	bool is_new;
+
+	ASSERT(ps->remains_pkt >= 0);
+	ASSERT(ps->remains_tot >= ps->remains_pkt);
+	ASSERT(ps->data_iovcnt >= 0);
+	ASSERT(ps->iovbuf_size >= ps->data_iovcnt + 1);
+	ASSERT(ps->iovbuf_size >= 2); //ensured by the ROUNDUP2() at realloc()
+
+	// If there is data to send, we must either have a valid fd or data
+	// buffers, but not both. If no data remains we should have neither.
+	if (ps->remains_tot > 0)
+		ASSERT((ps->fd >= 0) != (ps->data_iovcnt > 0));
+	else
+		ASSERT(ps->fd < 0 && ps->data_iovcnt == 0);
 
 	*err_idx = -1;
 
@@ -2387,7 +2552,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		}
 	} // is_new
 
-	if (!ps->buf && ps->remains_pkt != 0) {
+	if (ps->data_iovcnt == 0 && ps->remains_pkt != 0) {
 #if !defined(__linux__) && !defined(__FreeBSD__)
 		copydata = true;
 #else
@@ -2417,9 +2582,11 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		if (hdfs_is_error(error))
 			goto out;
 		_hbuf_append(&ps->databuf, ps->remains_pkt);
-		data = (unsigned char *)_hbuf_readptr(&ps->databuf);
-	} else
-		data = ps->buf;
+		ASSERT(ps->data_iovcnt == 0);
+		ASSERT(ps->iovp == ps->iovbuf);
+		ps->iovp[1].iov_base = _hbuf_readptr(&ps->databuf);
+		ps->iovp[1].iov_len = ps->remains_pkt;
+	}
 
 	if (is_new) {
 		// calculate crc length, if requested
@@ -2451,13 +2618,31 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		// calculate the crcs, if requested
 		if (crclen > 0) {
 			uint32_t crcinit;
+			struct iovec *tiovp;
+			size_t tiov_offt = 0;
+
+			ASSERT(ps->data_iovcnt > 0 || copydata);
 
 			_hbuf_reserve(ps->hdrbuf, 4 * crclen);
+			tiovp = &ps->iovp[1]; // 0th iovec is used for hdrbuf
 
 			crcinit = crc32(0L, Z_NULL, 0);
 			for (unsigned i = 0; i < crclen; i++) {
+				uint32_t crc = crcinit;
 				uint32_t chunklen = _min(CHUNK_SIZE, ps->remains_pkt - i * CHUNK_SIZE);
-				uint32_t crc = crc32(crcinit, data + i * CHUNK_SIZE, chunklen);
+
+				while (chunklen > 0) {
+					uint32_t tlen = _min(chunklen, tiovp->iov_len - tiov_offt);
+					void *tptr = (char *)tiovp->iov_base + tiov_offt;
+					crc = crc32(crc, tptr, tlen);
+					chunklen -= tlen;
+					tiov_offt += tlen;
+					if (tiov_offt == tiovp->iov_len) {
+						tiovp++;
+						tiov_offt = 0;
+					}
+				}
+
 				_be32enc(_hbuf_writeptr(ps->hdrbuf), crc);
 				_hbuf_append(ps->hdrbuf, 4);
 			}
@@ -2475,40 +2660,58 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		ps->offset += ps->remains_pkt;
 	} // is_new
 
-	ios[0].iov_base = _hbuf_readptr(ps->hdrbuf);
-	ios[0].iov_len = _hbuf_readlen(ps->hdrbuf);
+	ps->iovp[0].iov_base = _hbuf_readptr(ps->hdrbuf);
+	ps->iovp[0].iov_len = _hbuf_readlen(ps->hdrbuf);
 
 	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
 		ASSERT(_hbuf_readlen(ps->hdrbuf) > 0);
-		error = _writev(ps->sock, ios, 1, &wlen);
+		ASSERT(ps->remains_tot == 0);
+		ASSERT(ps->data_iovcnt == 0);
+		error = _writev(ps->sock, ps->iovp, 1, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
 			goto out;
 		}
 		wlen_hdr = wlen;
-	} else if (data) {
-		ios[1].iov_base = data;
-		ios[1].iov_len = ps->remains_pkt;
+	} else if (ps->data_iovcnt > 0 || copydata) {
+		size_t lastiov_len_orig, tpktlen = 0;
+		struct iovec *tiovp = ps->iovp; // points to header iovec
+		int tiovcnt = 1; // start at the first data iovec
 
-		// only pass the buffers with nonzero length to writev()
-		if (_hbuf_readlen(ps->hdrbuf) > 0) {
-			error = _writev(ps->sock, ios, 2, &wlen);
-		} else {
-			error = _writev(ps->sock, ios + 1, 1, &wlen);
+		// Count the number of data iovecs required for this pkt write
+		while (tiovp[tiovcnt].iov_len < (size_t)ps->remains_pkt - tpktlen) {
+			tpktlen += tiovp[tiovcnt].iov_len;
+			tiovcnt++;
 		}
+
+		// Don't pass the header iovec if it's empty
+		if (_hbuf_readlen(ps->hdrbuf) > 0) {
+			tiovcnt++;
+		} else {
+			tiovp++;
+		}
+
+		// Temporarily adjust the last iovec to finish at the appropriate byte for this pkt
+		lastiov_len_orig = tiovp[tiovcnt - 1].iov_len;
+		tiovp[tiovcnt - 1].iov_len = ps->remains_pkt - tpktlen;
+
+		error = _writev(ps->sock, tiovp, tiovcnt, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
 			goto out;
 		}
 		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
+
+		// Restore the original iov_len of the last iovec used
+		tiovp[tiovcnt - 1].iov_len = lastiov_len_orig;
 	} else {
 #if defined(__linux__)
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 1);
 
 		do {
 			if (_hbuf_readlen(ps->hdrbuf) > 0) {
-				error = _writev(ps->sock, ios, 1, &wlen);
+				error = _writev(ps->sock, ps->iovp, 1, &wlen);
 				if (wlen < 0) {
 					*err_idx = 0;
 					goto out; // XXX clear TCP_CORK?
@@ -2527,13 +2730,17 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 0);
 #elif defined(__FreeBSD__)
+		struct iovec *tiovp = NULL;
+		int tiovcnt = 0;
+
+		// Only send the header if it's non-empty
 		if (_hbuf_readlen(ps->hdrbuf) > 0) {
-			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
-			    ios, 1, &wlen);
-		} else {
-			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
-			    NULL, 0, &wlen);
+			tiovp = ps->iovp;
+			tiovcnt = 1;
 		}
+
+		error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
+		    tiovp, tiovcnt, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0; // XXX could technically be an error reading the local file
 			goto out;
@@ -2551,8 +2758,19 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	ps->remains_pkt -= wlen_data;
 	ps->remains_tot -= wlen_data;
 	ps->fdoffset += wlen_data;
-	if (ps->buf)
-		ps->buf = (char *)ps->buf + wlen_data;
+
+	while (ps->data_iovcnt > 0 && (size_t)wlen_data >= ps->iovp[1].iov_len) {
+		// Note that ps->iovp always points one iovec behind the next user
+		// data to be sent (and thus always to a valid member of ps->iovbuf)
+		wlen_data -= ps->iovp[1].iov_len;
+		ps->iovp++;
+		ps->data_iovcnt--;
+	}
+	if (ps->data_iovcnt > 0) {
+		ASSERT((size_t)wlen_data < ps->iovp[1].iov_len);
+		ps->iovp[1].iov_base = (char *)ps->iovp[1].iov_base + wlen_data;
+		ps->iovp[1].iov_len -= wlen_data;
+	}
 
 out:
 	return error;

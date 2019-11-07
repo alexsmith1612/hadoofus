@@ -274,6 +274,171 @@ START_TEST(test_dn_write_buf)
 }
 END_TEST
 
+START_TEST(test_dn_writev)
+{
+	const char *tf = "/HADOOFUS_TEST_WRITEV",
+	      *client = "HADOOFUS_CLIENT";
+	bool s;
+
+	struct hdfs_error err;
+	struct hdfs_datanode *dn;
+	struct hdfs_object *e = NULL, *bl, *fs, *bls, *prev = NULL, *fsd;
+	uint64_t begin, end;
+	int replication = 1, wblk, wtot = 0, err_idx;
+	ssize_t nwritten, nacked;
+
+	if (H_VER > HDFS_NN_v1) {
+		fsd = hdfs2_getServerDefaults(h, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		replication = fsd->ob_val._server_defaults._replication;
+		// XXX TODO blocksize?
+		hdfs_object_free(fsd);
+	}
+
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
+		// XXX TODO fileid?
+		hdfs_object_free(fs);
+	}
+
+	// Write to the new file
+	begin = _now();
+	do {
+		struct iovec wiov[11]; // TODO add test case where iovec ends in alignment with packet
+		size_t per_wiov;
+
+		wblk = _min(TOWRITE - wtot, BLOCKSZ);
+
+		// split the data to be written to this block into iovecs
+		per_wiov = wblk / nelem(wiov);
+		for (unsigned i = 0; i < nelem(wiov); i++) {
+			wiov[i].iov_base = buf + wtot + (per_wiov * i);
+			wiov[i].iov_len = per_wiov;
+		}
+		// account for integer division discrepancies
+		wiov[nelem(wiov) - 1].iov_len = wblk - (per_wiov * (nelem(wiov) - 1));
+
+		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+		err = hdfs_datanode_writev(dn, wiov, nelem(wiov), _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
+		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_int_eq(nwritten, wblk);
+		ck_assert_int_eq(nacked, wblk);
+		ck_assert_int_lt(err_idx, 0);
+
+		hdfs_datanode_delete(dn);
+
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(bl);
+		prev->ob_val._block._length += wblk;
+		// XXX _generation?
+		hdfs_object_free(bl);
+
+		wtot += wblk;
+	} while (wtot < TOWRITE);
+
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
+
+	hdfs_object_free(prev);
+
+	end = _now();
+	fprintf(stderr, "Wrote %d MB from iovec arrays in %ld ms%s, %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
+
+	fs = hdfs_getFileInfo(h, tf, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
+	hdfs_object_free(fs);
+
+	// Read the file back
+	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	begin = _now();
+	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
+		struct iovec riov[13]; // TODO add test case where iovec ends in alignment with packet
+		size_t per_riov;
+		struct hdfs_object *bl =
+		    bls->ob_val._located_blocks._blocks[i];
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+		// split the data to be read into iovecs
+		per_riov = bl->ob_val._located_block._len / nelem(riov);
+		for (unsigned j = 0; j < nelem(riov); j++) {
+			riov[j].iov_base = rbuf + i*BLOCKSZ + j*per_riov;
+			riov[j].iov_len = per_riov;
+		}
+		// account for integer division discrepancies
+		riov[nelem(riov) - 1].iov_len =  bl->ob_val._located_block._len - (per_riov * (nelem(riov) - 1));
+
+		err = hdfs_datanode_readv(dn, 0/*offset-in-block*/,
+		    riov, nelem(riov), _i/*verifycrcs*/);
+
+		hdfs_datanode_delete(dn);
+
+		if (err.her_kind == he_hdfserr && err.her_num == HDFS_ERR_DATANODE_NO_CRCS) {
+			fprintf(stderr, "Warning: test server doesn't support "
+			    "CRCs, skipping validation.\n");
+			_i = 0;
+
+			// reconnect, try again without validating CRCs (for
+			// isi_hdfs_d)
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+			err = hdfs_datanode_readv(dn, 0/*offset-in-block*/,
+			    riov, nelem(riov), false/*verifycrcs*/);
+
+			hdfs_datanode_delete(dn);
+		}
+
+		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+	}
+	end = _now();
+	fprintf(stderr, "Read %d MB to iovec arrays in %ld ms%s, %02g MB/s\n\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
+
+	hdfs_object_free(bls);
+	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
 START_TEST(test_dn_append_buf)
 {
 	const char *tf = "/HADOOFUS_TEST_APPEND",
@@ -1106,7 +1271,9 @@ END_TEST
 static Suite *
 t_datanode1_basics_suite()
 {
-	Suite *s = suite_create("datanode1");
+	Suite *s;
+	TCase *tc;
+	s = suite_create("datanode1");
 
 	// The test fixtures here must be checked, not unchecked, (i.e. they
 	// must be run within the forked address spaces) or we must run the
@@ -1114,22 +1281,35 @@ t_datanode1_basics_suite()
 	// reused between unit tests within the test case for the same namenode
 	// connection, leading to test failure (hdfs raises exceptions)
 
-	TCase *tc = tcase_create("buf1"), *tc2;
+	s = suite_create("datanode1");
+
+	tc = tcase_create("buf1");
 	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_buf, 0, 2);
-	tcase_add_loop_test(tc, test_dn_append_buf, 0, 2);
-
 	suite_add_tcase(s, tc);
 
-	tc2 = tcase_create("file1");
-	tcase_add_checked_fixture(tc2, setup_file, teardown_file);
-	tcase_set_timeout(tc2, 2*60/*2 minutes*/);
+	tc = tcase_create("iovec1");
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
-	tcase_add_loop_test(tc2, test_dn_write_file, 0, 2);
+	tcase_add_loop_test(tc, test_dn_writev, 0, 2);
+	suite_add_tcase(s, tc);
 
-	suite_add_tcase(s, tc2);
+	tc = tcase_create("append1");
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_append_buf, 0, 2);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("file1");
+	tcase_add_checked_fixture(tc, setup_file, teardown_file);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_write_file, 0, 2);
+	suite_add_tcase(s, tc);
 
 	return s;
 }
@@ -1161,9 +1341,24 @@ t_datanode2_basics_suite()
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("iovec2");
+	/* tcase_add_unchecked_fixture(tc, setup_buf, teardown_buf); */
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_writev, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("append2");
+	/* tcase_add_unchecked_fixture(tc, setup_buf, teardown_buf); */
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_append_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
-
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("file2");
@@ -1172,7 +1367,6 @@ t_datanode2_basics_suite()
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
-
 	suite_add_tcase(s, tc);
 
 	return s;
@@ -1198,9 +1392,22 @@ t_datanode22_basics_suite()
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("iovec22");
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_writev, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("append22");
+	tcase_add_checked_fixture(tc, setup_buf, teardown_buf);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_append_buf, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
-
 	suite_add_tcase(s, tc);
 
 	tc = tcase_create("file22");

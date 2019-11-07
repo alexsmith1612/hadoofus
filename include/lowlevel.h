@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sysexits.h>
+#include <sys/uio.h>
 
 #include <sasl/sasl.h>
 
@@ -95,7 +96,10 @@ struct hdfs_packet_state {
 	off_t remains_tot,
 	      remains_pkt,
 	      fdoffset;
-	void *buf;
+	struct iovec *iovbuf, // owned
+		     *iovp; // reference
+	int iovbuf_size,
+	    data_iovcnt;
 	struct hdfs_heap_buf *hdrbuf;
 	struct hdfs_heap_buf *recvbuf;
 	struct hdfs_heap_buf databuf;
@@ -111,7 +115,8 @@ struct hdfs_packet_state {
 struct hdfs_read_info {
 	int64_t client_offset,
 		server_offset; // XXX this is unused, remove?
-	size_t rlen;
+	size_t rlen,
+	       iov_offt;
 	int32_t chunk_size;
 	bool has_crcs,
 	     bad_crcs,
@@ -595,6 +600,24 @@ struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
 			size_t len, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked,
 			int *error_idx);
 
+// Attempt to write (blocking) an array of iovecs to the block associated with this
+// connection.
+//
+// *nwritten is set to the number of bytes that have been written. This will be
+// equal to len on success.
+//
+// *nacked is set to the number of bytes that have been acknowledged. This will be
+// equal to len on success.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
+struct hdfs_error	hdfs_datanode_writev(struct hdfs_datanode *d,
+			const struct iovec *iov, int iovcnt, bool sendcrcs,
+			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
+
 // Attempt to write (blocking) from an fd at the given offset to the block
 // associated with this connection.
 //
@@ -621,6 +644,17 @@ struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
 			size_t len, void *buf, bool verifycrcs);
+
+// Attempt to read (blocking) from the block associated with this connection into the
+// given array of iovecs.
+//
+// The number of bytes read is given by the sum of iov_len values in the iovec array.
+//
+// The block is read starting at the given byte offset.
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_datanode_readv(struct hdfs_datanode *d, size_t off,
+			const struct iovec *iov, int iovcnt, bool verifycrcs);
 
 // Attempt to read (blocking) from the block associated with this connection.
 //
@@ -792,6 +826,15 @@ struct hdfs_error	hdfs_datanode_write_setup_pipeline_nb(struct hdfs_datanode *d,
 struct hdfs_error	hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
 
+// Attempt to write (non-blocking) and= array of iovecs to the block associated with
+// this connection.
+//
+// Everything is as described for hdfs_datanode_write_mb(). except instead of buf
+// pointing to the first byte to be sent for every invocation, the first iovec must
+// point to the first byte to be sent for every invocation.
+struct hdfs_error	hdfs_datanode_writev_nb(struct hdfs_datanode *d, const struct iovec *iov,
+			int iovcnt, ssize_t *nwritten, ssize_t *nacked, int *error_idx);
+
 // Attempt to write (non-blocking) from an fd at the given offset to the block
 // associated with this connection.
 //
@@ -882,6 +925,16 @@ struct hdfs_error	hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t blof
 // have to maintain state information regarding the connection setup.
 struct hdfs_error	hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, void *buf,
 			ssize_t *nread);
+
+// Attempt to read (non-blocking) from the block associated with this connection into
+// the given array of iovecs.
+//
+// The maximum number of bytes read in a given invocation is given by the sum of the
+// iov_len values in the given iovec array.
+//
+// Everything else is as described for hdfs_datanode_read_nb().
+struct hdfs_error	hdfs_datanode_readv_nb(struct hdfs_datanode *d, const struct iovec *iov,
+			int iovcnt, ssize_t *nread);
 
 // Attempt to read (non-blocking) up to len bytes from the block associated with
 // this connection and written to the given fd starting at offset fdoff.
