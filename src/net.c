@@ -166,8 +166,13 @@ _write(int s, const void *vbuf, size_t buflen, ssize_t *wlen)
 	return error;
 }
 
+#if defined(_SC_IOV_MAX) || defined(IOV_MAX)
+static struct hdfs_error
+_writev_direct(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+#else
 struct hdfs_error
 _writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+#endif
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	ssize_t totlen = 0;
@@ -192,6 +197,46 @@ _writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 
 	return error;
 }
+
+#if defined(_SC_IOV_MAX) || defined(IOV_MAX)
+// Extra wrapper around writev() to split the iovec array into
+// chunks if the system specifies an upper bound on iovcnt
+static int glob_iov_max;
+static void __attribute__((constructor))
+_glob_iov_max_init(void)
+{
+#if defined(_SC_IOV_MAX)
+	glob_iov_max = sysconf(_SC_IOV_MAX);
+#else // defined(IOV_MAX)
+	glob_iov_max = IOV_MAX;
+#endif
+}
+
+struct hdfs_error
+_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+{
+	struct hdfs_error error;
+
+	*wlen = 0;
+
+	do {
+		int tiovcnt = _min(iovcnt, glob_iov_max);
+		ssize_t twlen;
+
+		error = _writev_direct(s, iov, tiovcnt, &twlen);
+		if (twlen < 0) {
+			*wlen = twlen;
+			break;
+		}
+
+		*wlen += twlen;
+		iovcnt -= tiovcnt;
+		iov += tiovcnt;
+	} while (!hdfs_is_error(error) && iovcnt > 0);
+
+	return error;
+}
+#endif // defined(_SC_IOV_MAX) || defined(IOV_MAX)
 
 struct hdfs_error
 _read_to_hbuf(int s, struct hdfs_heap_buf *h)
