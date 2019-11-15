@@ -154,14 +154,16 @@ enum hdfs_namenode_proto {
 };
 
 enum hdfs_checksum_type {
-	/* Chosen to match wire values in HDFS2 */
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
 	HDFS_CSUM_NULL = 0,
 	HDFS_CSUM_CRC32 = 1,
 	HDFS_CSUM_CRC32C = 2,
 };
 
 enum hdfs_file_type {
-	/* Chosen to match wire values in HDFS2 */
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
 	HDFS_FT_DIR = 1,
 	HDFS_FT_FILE = 2,
 	HDFS_FT_SYMLINK = 3,

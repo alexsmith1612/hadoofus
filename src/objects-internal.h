@@ -92,9 +92,6 @@ streq(const char *a, const char *b)
 }
 
 // HDFSv2+ protobuf-to-hdfs_object converters
-enum hdfs_checksum_type	_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto);
-enum hdfs_file_type	_hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType);
-
 struct hdfs_object *	_hdfs_fsserverdefaults_new_proto(Hadoop__Hdfs__FsServerDefaultsProto *);
 struct hdfs_object *	_hdfs_directory_listing_new_proto(Hadoop__Hdfs__DirectoryListingProto *);
 struct hdfs_object *	_hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *);
@@ -104,5 +101,32 @@ struct hdfs_object *	_hdfs_boolean_new_proto(protobuf_c_boolean);
 struct hdfs_object *	_hdfs_token_new_proto(Hadoop__Common__TokenProto *);
 struct hdfs_object *	_hdfs_datanode_info_new_proto(Hadoop__Hdfs__DatanodeInfoProto *);
 struct hdfs_object *	_hdfs_content_summary_new_proto(Hadoop__Hdfs__ContentSummaryProto *);
+
+// HDFSv2+ proto-buf-to-hadoofus enum conversion assertions and functions to
+// placate compiler warnings while maintaining type safety
+
+_Static_assert((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL == HDFS_CSUM_NULL,
+    "Protobufs NULL checksum enum does not match our NULL checksum enum");
+_Static_assert((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32 == HDFS_CSUM_CRC32,
+    "Protobufs CRC32 enum does not match our CRC32 enum");
+_Static_assert((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32C == HDFS_CSUM_CRC32C,
+    "Protobufs CRC32C enum does not match our CRC32C enum");
+static inline enum hdfs_checksum_type
+_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto pr)
+{
+	return (unsigned)pr;
+}
+
+_Static_assert((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR,
+    "Protobufs DIR file type enum does not match our DIR file type enum");
+_Static_assert((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE,
+    "Protobufs FILE file type enum does not match our FILE file type enum");
+_Static_assert((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK,
+    "Protobufs SYMLINK file type enum does not match our SYMLINK file type enum");
+static inline enum hdfs_file_type
+_hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType pr)
+{
+	return (unsigned)pr;
+}
 
 #endif

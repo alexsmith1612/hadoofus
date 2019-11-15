@@ -726,18 +726,6 @@ hdfs_file_status_new_ex(const char *logical_name, int64_t size, bool directory,
 	return r;
 }
 
-enum hdfs_file_type
-_hdfs_file_type_from_proto(Hadoop__Hdfs__HdfsFileStatusProto__FileType pr)
-{
-
-	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR);
-	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE);
-	ASSERT((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_SYMLINK == HDFS_FT_SYMLINK);
-
-	ASSERT(HDFS_FT_DIR <= (unsigned)pr && (unsigned)pr <= HDFS_FT_SYMLINK);
-	return (unsigned)pr;
-}
-
 struct hdfs_object *
 _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 {
@@ -1155,18 +1143,6 @@ hdfs_upgrade_status_report_new(int32_t version, int16_t status)
 	r->ob_val._upgrade_status._version = version;
 	r->ob_val._upgrade_status._status = status;
 	return r;
-}
-
-enum hdfs_checksum_type
-_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto pr)
-{
-
-	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_NULL == HDFS_CSUM_NULL);
-	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32 == HDFS_CSUM_CRC32);
-	ASSERT((unsigned)HADOOP__HDFS__CHECKSUM_TYPE_PROTO__CHECKSUM_CRC32C == HDFS_CSUM_CRC32C);
-
-	ASSERT(HDFS_CSUM_NULL <= (unsigned)pr && (unsigned)pr <= HDFS_CSUM_CRC32C);
-	return (unsigned)pr;
 }
 
 struct hdfs_object *
