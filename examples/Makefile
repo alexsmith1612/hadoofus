@@ -1,4 +1,7 @@
-LIBS = -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lpthread -lz -lsasl2 -lrt
+LIBS = -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lpthread -lz -lsasl2
+ifneq ($(shell uname -s), Darwin)
+	LIBS += -lrt
+endif
 ifeq ($(shell uname -s),FreeBSD)
 	LIBS += -lexecinfo
 endif

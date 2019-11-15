@@ -24,8 +24,11 @@ TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
 LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -L../src -lhadoofus \
 	     `pkg-config --libs --static check` \
-	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lrt -lsasl2 \
+	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lsasl2 \
 	     -lpthread -lm
+ifneq ($(shell uname -s), Darwin)
+	LINK_FLAGS += -lrt
+endif
 ifeq ($(shell uname -s),FreeBSD)
 	LINK_FLAGS += -lexecinfo
 endif

@@ -58,7 +58,12 @@ WARNS_NEW = -Wnull-dereference
 
 FLAGS = $(WARNS) $(WARNS_NEW) $(CFLAGS) -fPIC -g -fvisibility=hidden \
 		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lrt
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz
+ifneq ($(shell uname -s), Darwin)
+	LIBFLAGS += -lrt
+endif
+
+
 LIB = libhadoofus.so
 SLIB = libhadoofus.a
 LIBDIR = $(PREFIX)/lib
