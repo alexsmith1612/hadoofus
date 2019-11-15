@@ -58,7 +58,7 @@ WARNS_NEW = -Wnull-dereference
 
 FLAGS = $(WARNS) $(WARNS_NEW) $(CFLAGS) -fPIC -g -fvisibility=hidden \
 		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
-LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz
+LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lsasl2 $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
 ifneq ($(shell uname -s), Darwin)
 	LIBFLAGS += -lrt
 endif
