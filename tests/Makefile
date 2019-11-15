@@ -34,13 +34,19 @@ ifeq ($(shell uname -s),FreeBSD)
 endif
 FLAGS = -Wall -Wextra -Werror -Wno-error=unused-parameter -fPIC -g $(CFLAGS) `pkg-config --cflags check`
 
+ifeq ($(shell uname -s), Darwin)
+	LD_PATH = DYLD_LIBRARY_PATH="$$DYLD_LIBRARY_PATH:../src"
+else
+	LD_PATH = LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src"
+endif
+
 all: $(TEST_PRGM)
 
 $(TEST_PRGM): $(PRIV_OBJS) $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
 	$(CC) -o $@ $(FLAGS) $(TEST_OBJS) $(PRIV_OBJS) $(LINK_FLAGS)
 
 check: $(TEST_PRGM)
-	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src" ./$(TEST_PRGM)
+	$(LD_PATH) ./$(TEST_PRGM)
 
 %.o: %.c
 	$(CC) $(FLAGS) -I../include -std=gnu99 -c $<
