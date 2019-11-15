@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -220,7 +221,7 @@ START_TEST(test_dn_write_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Wrote %d MB from buf in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -266,7 +267,7 @@ START_TEST(test_dn_write_buf)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
 	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -374,7 +375,7 @@ START_TEST(test_dn_writev)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from iovec arrays in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Wrote %d MB from iovec arrays in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -431,7 +432,7 @@ START_TEST(test_dn_writev)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to iovec arrays in %ld ms%s, %02g MB/s\n\n",
+	fprintf(stderr, "Read %d MB to iovec arrays in %"PRIu64" ms%s, %02g MB/s\n\n",
 	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -533,7 +534,7 @@ START_TEST(test_dn_append_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote initial %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Wrote initial %d MB from buf in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    towrite_first/1024/1024, end - begin, csum2str[_i],
 	    (double)towrite_first/(end-begin)/1024*1000/1024);
 
@@ -649,7 +650,7 @@ START_TEST(test_dn_append_buf)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Appended %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Appended %d MB from buf in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    towrite_append/1024/1024, end - begin, csum2str[_i],
 	    (double)towrite_append/(end-begin)/1024*1000/1024);
 
@@ -695,7 +696,7 @@ START_TEST(test_dn_append_buf)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
 	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -790,7 +791,7 @@ START_TEST(test_dn_write_file)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB from file in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Wrote %d MB from file in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -842,7 +843,7 @@ START_TEST(test_dn_write_file)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to file in %ld ms%s, %02g MB/s\n\n",
+	fprintf(stderr, "Read %d MB to file in %"PRIu64" ms%s, %02g MB/s\n\n",
 	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -1114,7 +1115,7 @@ START_TEST(test_dn_recovery)
 	hdfs_object_free(prev);
 
 	end = _now();
-	fprintf(stderr, "Wrote %d MB (with simulated pipeline failures and recoveries) from buf in %ld ms (with %s csum), %02g MB/s\n",
+	fprintf(stderr, "Wrote %d MB (with simulated pipeline failures and recoveries) from buf in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 	    TOWRITE/1024/1024, end - begin, csum2str[_i],
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
@@ -1160,7 +1161,7 @@ START_TEST(test_dn_recovery)
 		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
-	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
 	    TOWRITE/1024/1024, end - begin, _i? " (with csum verification)":"",
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 

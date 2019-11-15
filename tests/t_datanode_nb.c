@@ -251,13 +251,13 @@ START_TEST(test_dn_write_nb)
 				hdfs_object_free(obj);
 				hdfs_object_free(fctxp->prev);
 				fctxp->tend = _now();
-				fprintf(stderr, "(Non-blocking: %s) Wrote %d MB from buf in %ld ms (with %s csum), %02g MB/s\n",
+				fprintf(stderr, "(Non-blocking: %s) Wrote %d MB from buf in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 				    fctxp->tf, fctxp->wtot/1024/1024, fctxp->tend - fctxp->tstart,
 				    csum2str[_i],
 				    ((double)fctxp->wtot/1024/1024) / ((double)(fctxp->tend - fctxp->tstart)/1000));
 				if (++n_wr_end == nelem(fctxs)) {
 					fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-					    "written in %ld ms (with %s csum), %02g MB/s\n",
+					    "written in %"PRIu64" ms (with %s csum), %02g MB/s\n",
 					    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
 					    fctxp->tend - tstart_wr, csum2str[_i],
 					    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxp->tend - tstart_wr)/1000));
@@ -410,13 +410,13 @@ START_TEST(test_dn_write_nb)
 					if (fctxs[i].rtot == TOWRITE) {
 						// Fully read the file
 						fctxs[i].tend = _now();
-						fprintf(stderr, "(Non-blocking: %s) Read and compared %d MB from buf in %ld ms%s, %02g MB/s\n",
+						fprintf(stderr, "(Non-blocking: %s) Read and compared %d MB from buf in %"PRIu64" ms%s, %02g MB/s\n",
 						    fctxs[i].tf, fctxs[i].rtot/1024/1024, fctxs[i].tend - fctxs[i].tstart,
 						    _i ? " (with csum verification)" : "",
 						    ((double)fctxs[i].rtot/1024/1024) / ((double)(fctxs[i].tend - fctxs[i].tstart)/1000));
 						if (++n_rd_end == nelem(fctxs)) {
 							fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-							    "read and compared in %ld ms%s, %02g MB/s\n",
+							    "read and compared in %"PRIu64" ms%s, %02g MB/s\n",
 							    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
 							    fctxs[i].tend - tstart_rd, _i ? " (with csum verification)" : "",
 							    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxs[i].tend - tstart_rd)/1000));
@@ -464,7 +464,7 @@ START_TEST(test_dn_write_nb)
 
 	tend_tot = _now();
 	fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-	    "created, written, read, compared, and deleted in %ld ms (with %s csum). Average of %02g MB/s I/O\n\n",
+	    "created, written, read, compared, and deleted in %"PRIu64" ms (with %s csum). Average of %02g MB/s I/O\n\n",
 	    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
 	    tend_tot - tstart_tot, csum2str[_i],
 	    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(tend_tot - tstart_tot)/1000));
