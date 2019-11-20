@@ -1270,7 +1270,7 @@ hdfs_array_string_copy(struct hdfs_object *src)
 #define H_ARRAY_RESIZE 8
 #define H_ARRAY_APPEND(array, array_len, obj) do { \
 	if (array_len % H_ARRAY_RESIZE == 0) { \
-		array = realloc(array, (array_len+H_ARRAY_RESIZE) * sizeof(struct hdfs_object *)); \
+		array = realloc(array, (array_len+H_ARRAY_RESIZE) * sizeof(*(array))); \
 		ASSERT(array); \
 	} \
 	array[array_len] = obj; \
