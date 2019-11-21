@@ -106,6 +106,8 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_DATANODE_BAD_LASTPACKET] = "Got 'last packet' flag before expected end of block",
 	[HDFS_ERR_KERBEROS_DOWNGRADE] = "Attempt was made to drop kerberos, but the client required it",
 	[HDFS_ERR_KERBEROS_NEGOTIATION] = "Unhandled error negotiating kerberos with server",
+	[HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS] = "Got located block with invalid storage ids count",
+	[HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES] = "Got located block with invalid storage types count",
 };
 
 EXPORT_SYM const char *

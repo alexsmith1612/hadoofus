@@ -167,6 +167,20 @@ hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 		goto out;
 	}
 
+	// ensure that the located block arrays are consistent
+	if (__predict_false(lb->_num_storage_ids != lb->_num_storage_ids)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (__predict_false(lb->_num_storage_ids > 0 && lb->_num_storage_ids != lb->_num_locs)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (__predict_false(lb->_num_storage_types > 0 && lb->_num_storage_types != lb->_num_locs)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES);
+		goto out;
+	}
+
 	d->dn_sock = -1;
 	d->dn_proto = proto;
 	d->dn_op = op;
@@ -184,6 +198,20 @@ hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 	ASSERT(d->dn_locs);
 	for (int i = 0; i < d->dn_nlocs; i++) {
 		d->dn_locs[i] = hdfs_datanode_info_copy(lb->_locs[i]);
+	}
+	ASSERT(lb->_num_storage_ids == lb->_num_storage_types);
+	if (lb->_num_storage_ids > 0) {
+		d->dn_storage_ids = malloc(d->dn_nlocs * sizeof(*d->dn_storage_ids));
+		ASSERT(d->dn_storage_ids);
+		d->dn_storage_types = malloc(d->dn_nlocs * sizeof(*d->dn_storage_types));
+		ASSERT(d->dn_storage_types);
+
+		for (int i = 0; i < d->dn_nlocs; i++) {
+			char *sid_copy = strdup(lb->_storage_ids[i]);
+			ASSERT(sid_copy);
+			d->dn_storage_ids[i] = sid_copy;
+			d->dn_storage_types[i] = lb->_storage_types[i];
+		}
 	}
 
 	if (lb->_token)
@@ -282,6 +310,13 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 		hdfs_object_free(d->dn_locs[i]);
 	}
 	PTR_FREE(d->dn_locs);
+	if (d->dn_storage_ids) {
+		for (int i = 0; i < d->dn_nlocs; i++) {
+			free(d->dn_storage_ids[i]);
+		}
+	}
+	PTR_FREE(d->dn_storage_ids);
+	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
 	hdfs_conn_ctx_free(&d->dn_cctx);
 
@@ -813,6 +848,13 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 
 		op.header = &hdr;
 
+		ASSERT(!d->dn_storage_ids == !d->dn_storage_types); // either both or neither are defined
+		if (d->dn_storage_ids) {
+			ASSERT(d->dn_storage_types);
+			op.storageid = d->dn_storage_ids[0];
+			op.storagetype = _hdfs_storage_type_to_proto(d->dn_storage_types[0]);
+		}
+
 		// Tell this datanode about the others in the pipeline
 		if (d->dn_nlocs > 1) {
 			// TODO try to avoid these local malloc()s
@@ -846,6 +888,14 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 				// what's actually necessary to include here
 
 				op.targets[i] = dinfo;
+			}
+
+			if (d->dn_storage_ids) {
+				// no allocation necessary
+				op.n_targetstorageids = d->dn_nlocs - 1;
+				op.targetstorageids = d->dn_storage_ids + 1;
+				op.n_targetstoragetypes = d->dn_nlocs - 1;
+				op.targetstoragetypes = _hdfs_storage_type_ptr_to_proto(d->dn_storage_types + 1);
 			}
 		}
 

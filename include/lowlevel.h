@@ -147,6 +147,8 @@ struct hdfs_datanode {
 		dn_size;
 	struct hdfs_object *dn_token;
 	struct hdfs_object **dn_locs;
+	char **dn_storage_ids; // either NULL or counted by dn_nlocs
+	enum hdfs_storage_type *dn_storage_types; // either NULL or counted by dn_nlocs
 	int dn_nlocs;
 	char *dn_client;
 	int dn_sock,

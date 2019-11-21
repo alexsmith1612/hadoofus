@@ -145,4 +145,26 @@ _hdfs_storage_type_from_proto(Hadoop__Hdfs__StorageTypeProto pr)
 	return (unsigned)pr;
 }
 
+static inline Hadoop__Hdfs__StorageTypeProto
+_hdfs_storage_type_to_proto(enum hdfs_storage_type stype)
+{
+	return (unsigned)stype;
+}
+
+_Static_assert(sizeof(Hadoop__Hdfs__StorageTypeProto) == sizeof(enum hdfs_storage_type),
+    "sizeof protobufs storage type enum does not match sizeof out storage type enum");
+// XXX somewhat hackish, but the enums have the same size as enforced by the above
+// static assertion, and no changes get made to the input pointer, so this technical
+// aliasing violation shouldn't lead to any adverse effects
+static inline Hadoop__Hdfs__StorageTypeProto *
+_hdfs_storage_type_ptr_to_proto(enum hdfs_storage_type *ptr)
+{
+	union {
+		enum hdfs_storage_type *our_ptr;
+		Hadoop__Hdfs__StorageTypeProto *pr_ptr;
+	} cast = { .our_ptr = ptr };
+
+	return cast.pr_ptr;
+}
+
 #endif

@@ -97,6 +97,12 @@ enum hdfs_error_numeric {
 	HDFS_ERR_KERBEROS_DOWNGRADE,
 	// Unexpected and unhandled error negotiating kerberos
 	HDFS_ERR_KERBEROS_NEGOTIATION,
+	// A located block object has storage ids but not the same number as
+	// datanode_infos/locations
+	HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS,
+	// A located block object has storage types but not the same number as
+	// datanode_infos/locations
+	HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES,
 	_HDFS_ERR_END
 };
 #define _HDFS_ERR_MAXIMUM (_HDFS_ERR_END - 1)
