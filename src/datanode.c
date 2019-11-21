@@ -79,28 +79,35 @@ EXPORT_SYM struct hdfs_datanode *
 hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
 	int proto, struct hdfs_error *error_out)
 {
-	struct hdfs_datanode *d;
-	struct hdfs_error error;
+	struct hdfs_datanode *d = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
 
 	/* Bail early if the LB is non-actionable */
 	if (__predict_false(located_block->ob_val._located_block._num_locs == 0)) {
-		*error_out = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
-		return NULL;
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
 	}
 
 	d = hdfs_datanode_alloc();
-	hdfs_datanode_init(d, located_block, client, proto);
+	error = hdfs_datanode_init(d, located_block, client, proto);
+	if (hdfs_is_error(error))
+		goto out;
 	error = hdfs_datanode_connect(d);
-	if (!hdfs_is_error(error))
-		return d;
+	if (hdfs_is_error(error))
+		goto out;
 
-	hdfs_datanode_destroy(d);
-	free(d);
-	*error_out = error;
-	return NULL;
+out:
+	if (hdfs_is_error(error)) {
+		if (d) {
+			hdfs_datanode_delete(d);
+			d = NULL;
+		}
+		*error_out = error;
+	}
+	return d;
 }
 
 EXPORT_SYM void
@@ -137,10 +144,13 @@ hdfs_datanode_alloc(void)
 // instead of using hdfs_datanode_connect()/hdfs_datanode_connect_nb(). If
 // not, then we should probably make hdfs_datanode_set_pool_id() static (or
 // just remove it entirely and move its functionality to hdfs_datanode_init())
-EXPORT_SYM void
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 	const char *client, int proto)
 {
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct hdfs_located_block *lb;
+
 	ASSERT(d);
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
@@ -149,35 +159,44 @@ hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 	    proto == HDFS_DATANODE_AP_2_0);
 	ASSERT(d->dn_state == HDFS_DN_ST_ZERO);
 
+	lb = &located_block->ob_val._located_block;
+
+	/* Bail early if the LB is non-actionable */
+	if (__predict_false(lb->_num_locs == 0)) {
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
+	}
+
 	d->dn_sock = -1;
 	d->dn_proto = proto;
 	d->dn_client = strdup(client);
 	ASSERT(d->dn_client);
 
-	d->dn_blkid = located_block->ob_val._located_block._blockid;
-	d->dn_size = located_block->ob_val._located_block._len;
-	d->dn_gen = located_block->ob_val._located_block._generation;
-	d->dn_offset = located_block->ob_val._located_block._offset;
-	d->dn_nlocs = located_block->ob_val._located_block._num_locs;
-	if (d->dn_nlocs > 0) {
-		d->dn_locs = malloc(d->dn_nlocs * sizeof(*d->dn_locs));
-		ASSERT(d->dn_locs);
-		for (int i = 0; i < d->dn_nlocs; i++) {
-			struct hdfs_object *di = located_block->ob_val._located_block._locs[i];
-			d->dn_locs[i] = hdfs_datanode_info_copy(di);
-		}
+	d->dn_blkid = lb->_blockid;
+	d->dn_size = lb->_len;
+	d->dn_gen = lb->_generation;
+	d->dn_offset = lb->_offset;
+
+	d->dn_nlocs = lb->_num_locs;
+	ASSERT(d->dn_nlocs > 0);
+	d->dn_locs = malloc(d->dn_nlocs * sizeof(*d->dn_locs));
+	ASSERT(d->dn_locs);
+	for (int i = 0; i < d->dn_nlocs; i++) {
+		d->dn_locs[i] = hdfs_datanode_info_copy(lb->_locs[i]);
 	}
 
-	if (located_block->ob_val._located_block._token)
-		d->dn_token = hdfs_token_copy(located_block->ob_val._located_block._token);
+	if (lb->_token)
+		d->dn_token = hdfs_token_copy(lb->_token);
 	else
 		d->dn_token = hdfs_token_new_empty();
 
 	if (proto >= HDFS_DATANODE_AP_2_0)
-		hdfs_datanode_set_pool_id(d,
-		    located_block->ob_val._located_block._pool_id);
+		hdfs_datanode_set_pool_id(d, lb->_pool_id);
 
 	d->dn_state = HDFS_DN_ST_INITED;
+
+out:
+	return error;
 }
 
 EXPORT_SYM void

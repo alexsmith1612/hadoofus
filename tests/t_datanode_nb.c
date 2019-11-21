@@ -218,7 +218,9 @@ START_TEST(test_dn_write_nb)
 
 			case ST_AB:
 				ck_assert_int_eq(obj->ob_type, H_LOCATED_BLOCK);
-				hdfs_datanode_init(&fctxp->dn, obj, client, dn_proto);
+				err = hdfs_datanode_init(&fctxp->dn, obj, client, dn_proto);
+				ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+				    hdfs_error_str_kind(err), hdfs_error_str(err));
 				err = hdfs_datanode_write_nb_init(&fctxp->dn, _i/*sendcrcs*/);
 				ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
 				    hdfs_error_str_kind(err), hdfs_error_str(err));
@@ -291,7 +293,9 @@ START_TEST(test_dn_write_nb)
 				}
 				fctxp->bls = obj;
 				lb = fctxp->bls->ob_val._located_blocks._blocks[fctxp->blkidx];
-				hdfs_datanode_init(&fctxp->dn, lb, client, dn_proto);
+				err = hdfs_datanode_init(&fctxp->dn, lb, client, dn_proto);
+				ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+				    hdfs_error_str_kind(err), hdfs_error_str(err));
 				err = hdfs_datanode_read_nb_init(&fctxp->dn, 0/*block offset*/,
 				    lb->ob_val._located_block._len, _i/*verifycrcs*/);
 				ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
@@ -430,7 +434,9 @@ START_TEST(test_dn_write_nb)
 						hdfs_datanode_clean(&fctxs[i].dn);
 						fctxs[i].blkidx++;
 						lb = fctxs[i].bls->ob_val._located_blocks._blocks[fctxs[i].blkidx];
-						hdfs_datanode_init(&fctxs[i].dn, lb, client, dn_proto);
+						err = hdfs_datanode_init(&fctxs[i].dn, lb, client, dn_proto);
+						ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+						    hdfs_error_str_kind(err), hdfs_error_str(err));
 						err = hdfs_datanode_read_nb_init(&fctxs[i].dn, 0/*block offset*/,
 						    lb->ob_val._located_block._len, _i/*verifycrcs*/);
 						ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
