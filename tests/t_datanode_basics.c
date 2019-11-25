@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -681,6 +682,324 @@ START_TEST(test_dn_write_file)
 }
 END_TEST
 
+START_TEST(test_dn_recovery)
+{
+	const char *tf = "/HADOOFUS_TEST_RECOVERY",
+	      *client = "HADOOFUS_CLIENT";
+	bool s;
+
+	struct hdfs_error err;
+	struct hdfs_datanode *dn;
+	struct hdfs_object *e = NULL, *fs, *bls, *prev = NULL, *dnr;
+	uint64_t begin, end;
+	int replication = 2, wtot = 0;
+	struct hdfs_array_datanode_info *dnrs;
+
+	// This test requires at least 3 datanodes to run (and replication must be at least 2)
+	dnr = hdfs_getDatanodeReport(h, HDFS_DNREPORT_LIVE, &e);
+	if (e)
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(dnr->ob_type, H_ARRAY_DATANODE_INFO);
+	dnrs = &dnr->ob_val._array_datanode_info;
+	if (dnrs->_len < replication + 1) {
+		fprintf(stderr, "%s: Test requires cluster with at least %d live data nodes (%d live currently). Skipping test.\n",
+		    __func__, replication + 1, dnrs->_len);
+		return;
+	}
+	hdfs_object_free(dnr);
+
+	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
+		// XXX TODO fileid?
+		hdfs_object_free(fs);
+	}
+
+	// Write to the new file
+	begin = _now();
+	do {
+		int towrite_blk, err_idx, blk_written = 0, blk_acked = 0, maxbytesrcvd;
+		ssize_t nwritten, nacked;
+		struct hdfs_object *lb, *gad_lb, *ubfp_lb, *bl, *existing, *exclude,
+		    *existing_sids, *transfer_lb = NULL, *oldblock, *newblock, *nodes, *storageids;
+		struct hdfs_transfer_targets *ttrgs = NULL;
+
+		towrite_blk = _min(TOWRITE - wtot, BLOCKSZ);
+
+		lb = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		dn = hdfs_datanode_new(lb, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    lb->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    lb->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+		err = hdfs_datanode_write_nb_init(dn, _i/*sendcrcs*/);
+		ck_assert_msg(!hdfs_is_error(err), "error initializing datanode write: %s", format_error(err));
+
+		while (true) {
+			int rc;
+			struct pollfd pfd;
+			size_t towrite_partial = towrite_blk / 2 - blk_written + 1; /*always write something*/
+
+			err = hdfs_datanode_write_nb(dn, buf + wtot + blk_written, towrite_partial, &nwritten, &nacked, &err_idx);
+			ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+			    "partial block write: %s", format_error(err));
+			ck_assert_int_ge(nwritten, 0);
+			ck_assert_int_ge(nacked, 0);
+			ck_assert_int_lt(err_idx, 0); // XXX could actually try to handle error here
+
+			blk_written += nwritten;
+			blk_acked += nacked;
+
+			ck_assert_int_le(blk_acked, blk_written);
+			ck_assert_int_lt(blk_written, towrite_blk);
+
+			// keep writing until we reach an arbitrary write/ack threshold
+			if ((blk_written >= towrite_blk / 2) && (blk_acked >= towrite_blk / 4))
+				break;
+
+			err = hdfs_datanode_get_eventfd(dn, &pfd.fd, &pfd.events);
+			ck_assert_msg(!hdfs_is_error(err), "%s", format_error(err));
+			rc = poll(&pfd, 1, -1);
+			ck_assert_int_eq(rc, 1);
+			ck_assert_int_ne(pfd.revents, 0);
+		}
+
+		// Teardown the pipeline without finishing the block
+		hdfs_datanode_delete(dn);
+
+		// the maximum bytes received by a datanode in the pipeline includes all of that
+		// data that was written
+		maxbytesrcvd = lb->ob_val._located_block._len + blk_written;
+
+		// the located block length must be incremented by the amount acked. i.e. we know
+		// the block at least contains the acked data, and the located block length must be
+		// minbytesrcvd
+		lb->ob_val._located_block._len += blk_acked;
+
+		fprintf(stderr, "Wrote %d bytes (%d acknowledged) to block prior to simulated pipeline failure.\n", blk_written, blk_acked);
+
+		// 1. get a new datanode for the pipeline
+		bl = hdfs_block_from_located_block(lb);
+
+		// exclude the first datanode
+		exclude = hdfs_array_datanode_info_new();
+		hdfs_array_datanode_info_append_datanode_info(exclude,
+		    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[0]));
+
+		// mark all of the other listed datanodes (if any) as existing
+		existing = hdfs_array_datanode_info_new();
+		for (int i = 1; i < lb->ob_val._located_block._num_locs; i++) {
+			hdfs_array_datanode_info_append_datanode_info(existing,
+			    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[i]));
+		}
+
+		// grab the storage ids for the existing datanodes (if they exist)
+		existing_sids = hdfs_array_string_new(0, NULL);
+		if (lb->ob_val._located_block._num_storage_ids > 0) {
+			ck_assert_int_eq(lb->ob_val._located_block._num_storage_ids,
+			    lb->ob_val._located_block._num_locs);
+			for (int i = 1; i < lb->ob_val._located_block._num_storage_ids; i++) {
+				hdfs_array_string_add(existing_sids,
+				    lb->ob_val._located_block._storage_ids[i]);
+			}
+		}
+
+		gad_lb = hdfs2_getAdditionalDatanode(h, tf, bl, existing, exclude,
+		    1/*num_additional_nodes*/, client, existing_sids, 0/*fileid?*/, &e);
+		if (e)
+			ck_abort_msg("exception: %s:\n%s",
+			    hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_assert(gad_lb);
+		ck_assert_int_eq(gad_lb->ob_type, H_LOCATED_BLOCK);
+
+		// update the real located block with the new pipeline information
+		// received from getAdditionalDatanode
+		hdfs_located_block_update_from_get_additional_datanode(lb, gad_lb);
+
+		hdfs_object_free(bl);
+		hdfs_object_free(exclude);
+		hdfs_object_free(existing_sids);
+		hdfs_object_free(gad_lb);
+
+		// find the new datanodes and prepare the transfer targets
+		// and transfer sources (transfer_lb)
+		err = hdfs_get_transfer_data(lb, existing, &transfer_lb, &ttrgs);
+		ck_assert_msg(!hdfs_is_error(err), "%s", format_error(err));
+		ck_assert(transfer_lb);
+		ck_assert(ttrgs);
+		ck_assert_int_gt(transfer_lb->ob_val._located_block._num_locs, 0);
+		ck_assert_int_gt(ttrgs->_num_targets, 0);
+
+		hdfs_object_free(existing);
+
+		// 2. transfer the data to the new datanode
+		dn = hdfs_datanode_new(transfer_lb, client, dn_proto, HDFS_DN_OP_TRANSFER_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode for transfer: %s",
+		    format_error(err));
+
+		err = hdfs_datanode_transfer(dn, ttrgs);
+		ck_assert_msg(!hdfs_is_error(err), "%s%s%s", format_error(err),
+		    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
+		    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+
+		hdfs_object_free(transfer_lb);
+		hdfs_transfer_targets_free(ttrgs);
+		hdfs_datanode_delete(dn);
+
+		dn = hdfs_datanode_new(lb, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+		    format_error(err),
+		    lb->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+		    lb->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+		// 3. updateBlockForPipeline
+		oldblock = hdfs_block_from_located_block(lb);
+		ubfp_lb = hdfs2_updateBlockForPipeline(h, oldblock, client, &e);
+		if (e)
+			ck_abort_msg("exception: %s:\n%s",
+			    hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		// update the real located block with the new token and generation
+		// information received from updateBlockForPipeline. NOTE this must happen
+		// AFTER the call to hdfs_datanode_init() or hdfs_datanode_new()
+		hdfs_located_block_update_from_update_block_for_pipeline(lb, ubfp_lb);
+		hdfs_object_free(ubfp_lb);
+
+		// 4. setup recovery pipeline
+
+		// configure this to be a recovery pipeline. Since we had pipeline "failure" while
+		// in the middle of streaming data, we use type HDFS_DN_RECOVERY_STREAMING
+		err = hdfs_datanode_write_set_append_or_recovery(dn, lb, HDFS_DN_RECOVERY_STREAMING, maxbytesrcvd);
+		ck_assert_msg(!hdfs_is_error(err), "%s", format_error(err));
+
+		// perform the actual pipeline setup
+		err = hdfs_datanode_write_setup_pipeline(dn, _i/*sendcrcs*/, &err_idx);
+		ck_assert_msg(!hdfs_is_error(err), "%s%s%s", format_error(err),
+		    hdfs_datanode_opresult_message ? "\n\tDatanode message: " : "",
+		    hdfs_datanode_opresult_message ? hdfs_datanode_opresult_message : "");
+		ck_assert_int_lt(err_idx, 0);
+
+		// 5. tell the namenode about the updated pipeline (updatePipeline)
+		newblock = hdfs_block_from_located_block(lb);
+		nodes = hdfs_array_datanode_info_from_located_block(lb);
+		storageids = hdfs_storage_ids_array_string_from_located_block(lb);
+		hdfs2_updatePipeline(h, client, oldblock, newblock, nodes, storageids, &e);
+		if (e)
+			ck_abort_msg("exception: %s:\n%s",
+			    hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+		hdfs_object_free(oldblock);
+		hdfs_object_free(newblock);
+		hdfs_object_free(nodes);
+		hdfs_object_free(storageids);
+
+		// 6. write to the new pipeline (starting after the last acked byte)
+		err = hdfs_datanode_write(dn, buf + wtot + blk_acked, towrite_blk - blk_acked,
+		    -1/*sendcrcs--ignored after setup_pipeline*/, &nwritten, &nacked, &err_idx);
+		ck_assert_msg(!hdfs_is_error(err), "error writing block (recovery): %s",
+		    format_error(err));
+		ck_assert_int_eq(nwritten, towrite_blk - blk_acked);
+		ck_assert_int_eq(nwritten, nacked);
+		ck_assert_int_lt(err_idx, 0);
+
+		hdfs_datanode_delete(dn);
+
+		fprintf(stderr, "Recovered pipeline and wrote %zd bytes (%d new bytes). "
+		    "%d total bytes written to this block\n",
+		    nwritten, towrite_blk - blk_written, towrite_blk);
+
+		if (prev)
+			hdfs_object_free(prev);
+		prev = hdfs_block_from_located_block(lb);
+		prev->ob_val._block._length += nwritten;
+		hdfs_object_free(lb);
+
+		wtot += towrite_blk;
+	} while (wtot < TOWRITE);
+
+	// XXX This is dubious. There's no guarantee that complete will return
+	// true within the time it takes for five round trip RPC
+	// request/response cycles to be completed
+	for (int i = 0; i < 5; i++) {
+		if (i > 0)
+			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
+
+	hdfs_object_free(prev);
+
+	end = _now();
+	fprintf(stderr, "Wrote %d MB (with simulated pipeline failures and recoveries) from buf in %ld ms%s, %02g MB/s\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
+
+	fs = hdfs_getFileInfo(h, tf, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
+	hdfs_object_free(fs);
+
+	// Read the file back
+	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	begin = _now();
+	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
+		struct hdfs_object *bl =
+		    bls->ob_val._located_blocks._blocks[i];
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
+		    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ, _i/*verifycrcs*/);
+
+		hdfs_datanode_delete(dn);
+
+		if (err.her_kind == he_hdfserr && err.her_num == HDFS_ERR_DATANODE_NO_CRCS) {
+			fprintf(stderr, "Warning: test server doesn't support "
+			    "CRCs, skipping validation.\n");
+			_i = 0;
+
+			// reconnect, try again without validating CRCs (for
+			// isi_hdfs_d)
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s", format_error(err));
+
+			err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
+			    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ, false/*verifycrcs*/);
+
+			hdfs_datanode_delete(dn);
+		}
+
+		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+	}
+	end = _now();
+	fprintf(stderr, "Read %d MB to buf in %ld ms%s, %02g MB/s\n\n",
+	    TOWRITE/1024/1024, end - begin, _i? " (with crcs)":"",
+	    (double)TOWRITE/(end-begin)/1024*1000/1024);
+
+	hdfs_object_free(bls);
+	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+
+	s = hdfs_delete(h, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+}
+END_TEST
+
 START_TEST(test_short_read)
 {
 	struct hdfs_namenode *nn;
@@ -886,6 +1205,15 @@ t_datanode22_basics_suite()
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
 	tcase_add_loop_test(tc, test_dn_write_file, HDFS_CSUM_NULL,
+	    HDFS_CSUM_CRC32C + 1);
+
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("recovery22");
+	tcase_add_checked_fixture(tc, setup_file, teardown_file);
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	// Loop each test to send or not send crcs
+	tcase_add_loop_test(tc, test_dn_recovery, HDFS_CSUM_NULL,
 	    HDFS_CSUM_CRC32C + 1);
 
 	suite_add_tcase(s, tc);
