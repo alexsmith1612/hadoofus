@@ -45,7 +45,7 @@ START_TEST(test_getProtocolVersion)
 	    hdfs_getProtocolVersion(h, HADOOFUS_CLIENT_PROTOCOL_STR, 61L, &e);
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert_msg(pv == 61L);
+	ck_assert_int_eq(pv, 61L);
 }
 END_TEST
 
@@ -56,7 +56,7 @@ START_TEST(test_getBlockLocations)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(!bls || hdfs_object_is_null(bls));
-	ck_assert_msg(hdfs_null_type(bls) == H_LOCATED_BLOCKS);
+	ck_assert_int_eq(hdfs_null_type(bls), H_LOCATED_BLOCKS);
 }
 END_TEST
 
@@ -71,7 +71,7 @@ START_TEST(test_getBlockLocations2)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -82,7 +82,7 @@ START_TEST(test_getBlockLocations2)
 	if (e2)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e2), hdfs_exception_get_message(e2));
 
-	ck_assert_msg(bls->ob_type == H_LOCATED_BLOCKS);
+	ck_assert_int_eq(bls->ob_type, H_LOCATED_BLOCKS);
 	hdfs_object_free(bls);
 }
 END_TEST
@@ -99,7 +99,7 @@ START_TEST(test_create)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -123,7 +123,7 @@ START_TEST(test_append)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -139,7 +139,7 @@ START_TEST(test_append)
 
 	if (lbws) {
 		struct hdfs_object *lb, *fs2;
-		ck_assert_msg(lbws->ob_type == H_LOCATED_BLOCK_WITH_STATUS);
+		ck_assert_int_eq(lbws->ob_type, H_LOCATED_BLOCK_WITH_STATUS);
 		lb = lbws->ob_val._located_block_with_status._block;
 		fs2 = lbws->ob_val._located_block_with_status._status;
 		if (lb)
@@ -178,7 +178,7 @@ START_TEST(test_setReplication)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -208,7 +208,7 @@ START_TEST(test_setPermission)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -237,7 +237,7 @@ START_TEST(test_setOwner)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -266,7 +266,7 @@ START_TEST(test_abandonBlock)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -312,7 +312,7 @@ START_TEST(test_addBlock)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -349,7 +349,7 @@ START_TEST(test_addBlock_exclude)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -405,7 +405,7 @@ START_TEST(test_complete)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -436,7 +436,7 @@ START_TEST(test_rename)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -465,7 +465,7 @@ START_TEST(test_delete)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -541,7 +541,7 @@ START_TEST(test_getPreferredBlockSize)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -628,7 +628,7 @@ START_TEST(test_fsync)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -655,7 +655,7 @@ START_TEST(test_setTimes)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -683,7 +683,7 @@ START_TEST(test_recoverLease)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -978,7 +978,7 @@ START_TEST(test_getAdditionalDatanode)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -1054,7 +1054,7 @@ START_TEST(test_updateBlockForPipeline)
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 

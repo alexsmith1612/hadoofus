@@ -159,7 +159,7 @@ START_TEST(test_dn_write_buf)
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		// XXX TODO fileid?
 		hdfs_object_free(fs);
 	}
@@ -221,7 +221,7 @@ START_TEST(test_dn_write_buf)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == TOWRITE);
+	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
@@ -301,7 +301,7 @@ START_TEST(test_dn_append_buf)
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -369,7 +369,7 @@ START_TEST(test_dn_append_buf)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == towrite_first);
+	ck_assert_int_eq(fs->ob_val._file_status._size, towrite_first);
 	hdfs_object_free(fs);
 
 	// Append the rest of the data
@@ -485,7 +485,7 @@ START_TEST(test_dn_append_buf)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == TOWRITE);
+	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
@@ -564,7 +564,7 @@ START_TEST(test_dn_write_file)
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
-		ck_assert_msg(fs->ob_type == H_FILE_STATUS);
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
 	}
 
@@ -626,7 +626,7 @@ START_TEST(test_dn_write_file)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == TOWRITE);
+	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
@@ -1094,7 +1094,7 @@ START_TEST(test_short_write)
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
 		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert(fs->ob_val._file_status._size == 33128);
+	ck_assert_int_eq(fs->ob_val._file_status._size, 33128);
 	hdfs_object_free(fs);
 
 	hdfs_delete(h, tf, false, &e);
