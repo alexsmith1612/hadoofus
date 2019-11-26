@@ -193,7 +193,9 @@ hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 
 	d->dn_blkid = lb->_blockid;
 	d->dn_size = lb->_len;
+	d->dn_maxbytesrcvd = d->dn_size; // gets adjusted in set_recovery() if need be
 	d->dn_gen = lb->_generation;
+	d->dn_newgen = lb->_generation;
 	d->dn_offset = lb->_offset;
 
 	d->dn_nlocs = lb->_num_locs;
@@ -337,8 +339,10 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 		_hbuf_reset(&d->dn_recvbuf);
 		d->dn_state = HDFS_DN_ST_ZERO;
 		d->dn_op_inited = false;
+		d->dn_append_or_recovery = false;
 		d->dn_conn_idx = 0;
 		d->dn_last = false;
+		d->dn_recovery = HDFS_DN_RECOVERY_NONE;
 	} else {
 		PTR_FREE(d->dn_hdrbuf.buf);
 		PTR_FREE(d->dn_recvbuf.buf);
@@ -519,6 +523,65 @@ hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 }
 
 // Datanode write operations
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_set_append_or_recovery(struct hdfs_datanode *d, struct hdfs_object *ubfp_lb,
+	enum hdfs_datanode_write_recovery_type type, off_t maxbytesrcvd)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	// Cannot be called after passing data to _datanode_write()
+	ASSERT(d->dn_pstate.remains_tot == 0);
+	ASSERT(d->dn_recovery == HDFS_DN_RECOVERY_NONE);
+	ASSERT(ubfp_lb);
+	ASSERT(ubfp_lb->ob_type == H_LOCATED_BLOCK);
+
+	// Generation stamp must monotonically increase
+	if (ubfp_lb->ob_val._located_block._generation <= d->dn_gen) {
+		error = error_from_hdfs(HDFS_ERR_APPEND_OR_RECOVERY_BAD_GENERATION);
+		goto out;
+	}
+
+	// we use the token immediately
+	hdfs_object_free(d->dn_token);
+	d->dn_token = hdfs_token_copy(ubfp_lb->ob_val._located_block._token);
+
+	// the generation stamp gets sent as lastgenerationstamp in the blockop
+	d->dn_newgen = ubfp_lb->ob_val._located_block._generation;
+
+	d->dn_recovery = type;
+
+	switch (d->dn_recovery) {
+	case HDFS_DN_RECOVERY_NONE: // Regular append
+	case HDFS_DN_RECOVERY_APPEND_SETUP:
+	case HDFS_DN_RECOVERY_CLOSE:
+		ASSERT(d->dn_size > 0);
+		break;
+
+	case HDFS_DN_RECOVERY_STREAMING:
+		// if maxbytes received is negative just leave it as d->dn_size
+		if (maxbytesrcvd >= 0) {
+			ASSERT(maxbytesrcvd >= d->dn_size);
+			d->dn_maxbytesrcvd = maxbytesrcvd;
+		}
+		break;
+
+	default:
+		ASSERT(false);
+	}
+
+	// XXX consider a better API for setting dn_size (i.e. pstate.offset and
+	// minbytesrcvd) than having the user manually adjust the located block
+	// length
+
+	d->dn_append_or_recovery = true;
+
+out:
+	return error;
+}
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs)
@@ -931,26 +994,98 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 			}
 		}
 
-		// XXX TODO add support for recovery stages. Need to look into this more,
-		// but there likely needs to be a way for the user to specify the offset
-		// into the block at which they will begin writing (since they would start
-		// by writing the first unacked bytes) in addition to simply specifying
-		// that this will be a recovery pipeline. This could be done by having the
-		// user directly mess with the located block object that gets passed to
-		// _new()/_init(), but there should probably be a more clear way. Perhaps
-		// hdfs_datanode_set_recovery(off_t off) to be called between _init() and
-		// _connect() calls
+		// When to send each block construction stage:
+		//
+		// PIPELINE_SETUP_CREATE:
+		//     Writing to a new block that has never had any data sent to
+		//     it. There is no corresponding recovery stage, as errors
+		//     that occur prior to sending any data/pipeline creation are
+		//     handled by simply abandoning the block and adding a new
+		//     block with any problematic datanodes excluded. minbytesrcvd
+		//     and maxbytesrcvd do not really matter in this case, but in
+		//     principle they should both be 0.
+		//
+		// PIPELINE_SETUP_APPEND:
+		//     Writing to a block that already exists and was finalized
+		//     (and has more space remaining). The key point being that
+		//     the block/replica to be written to MUST be finalized prior
+		//     to this. minbytesrcvd must be the number of bytes already
+		//     in the finalized replica to be appended. maxbytesrcvd does
+		//     not really matter in this case, but in principle should be
+		//     equal to minbytesrcvd.
+		//
+		// PIPELINE_SETUP_APPEND_RECOVERY:
+		//     Recovering a failed attempt at setting up a
+		//     PIPELINE_SETUP_APPEND pipeline. If an error occurred after
+		//     an append pipeline was successfully created/data was
+		//     written to the pipeline, then this should not be sent;
+		//     PIPELINE_SETUP_STREAMING_RECOVERY should be sent
+		//     instead. minbytesrcvd must be the number of bytes already
+		//     in the finalized replica to be appended. maxbytesrcvd does
+		//     not really matter in this case, but in principle should be
+		//     equal to minbytesrcvd.
+		//
+		// PIPELINE_SETUP_STREAMING_RECOVERY:
+		//     Recovering a pipeline that was successfully created and for
+		//     which there is still more data to be sent and/or
+		//     acknowledged. minbytesrcvd should be the number of bytes
+		//     that are known to be in all of the replicas in the
+		//     pipeline, that is, the number of bytes acknowledged in the
+		//     pipeline that is being recovered plus the number of bytes
+		//     that were already in the replica prior to the failed
+		//     pipeline (i.e. the minbytes received sent to that
+		//     pipeline). maxbytesrcvd should be the total number of bytes
+		//     sent to this replica in the previous pipeline, including
+		//     any that already existed in the replica.
+		//
+		// PIPELINE_CLOSE_RECOVERY:
+		//     Recovering a pipeline was being closed. That is, a pipeline
+		//     for which all data has already been acknowledged but the
+		//     lastpacketinblock packet was either not sent or not
+		//     acknowledged. minbytesrcvd MUST be the number of bytes in
+		//     the to-be-finalized replica. maxbytesrcvd does not really
+		//     matter, but in principle should be equal to minbytesrcvd.
 
-		if (d->dn_size > 0)
-			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND;
-		else
-			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+		switch (d->dn_recovery) {
+		case HDFS_DN_RECOVERY_NONE:
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			if (d->dn_size > 0) {
+				ASSERT(d->dn_append_or_recovery);
+				op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND;
+			} else {
+				ASSERT(!d->dn_append_or_recovery);
+				op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+			}
+			break;
 
-		/* Not sure about any of this: */
+		case HDFS_DN_RECOVERY_APPEND_SETUP:
+			ASSERT(d->dn_size > 0);
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND_RECOVERY;
+			break;
+
+		case HDFS_DN_RECOVERY_STREAMING:
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd >= d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_STREAMING_RECOVERY;
+			break;
+
+		case HDFS_DN_RECOVERY_CLOSE:
+			ASSERT(d->dn_size > 0);
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_CLOSE_RECOVERY;
+			break;
+
+		default:
+			ASSERT(false);
+		}
+
 		op.pipelinesize = d->dn_nlocs;
 		op.minbytesrcvd = d->dn_size;
-		op.maxbytesrcvd = d->dn_size;
-		op.latestgenerationstamp = d->dn_gen;
+		op.maxbytesrcvd = d->dn_maxbytesrcvd;
+		op.latestgenerationstamp = d->dn_newgen;
 		op.requestedchecksum = &csum;
 
 		sz = hadoop__hdfs__op_write_block_proto__get_packed_size(&op);
@@ -1312,6 +1447,9 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	ASSERT(d->dn_op_inited);
 	ASSERT(len >= d->dn_pstate.remains_tot);
 	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
+	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
+	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
+	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
 
 	*nacked = 0;
 	*err_idx = -1;
@@ -1367,6 +1505,11 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			goto out;
 		}
 		// Success!
+		if (d->dn_recovery == HDFS_DN_RECOVERY_CLOSE) {
+			// If we sent PIPELINE_CLOSE_RECOVERY we are done
+			d->dn_state = HDFS_DN_ST_FINISHED;
+			break;
+		}
 		d->dn_pstate.sock = d->dn_sock;
 		d->dn_pstate.sendcrcs = d->dn_crcs;
 		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;

@@ -103,6 +103,9 @@ enum hdfs_error_numeric {
 	// A located block object has storage types but not the same number as
 	// datanode_infos/locations
 	HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES,
+	// The located block passed to hdfs_datanode_write_set_append_or_recovery()
+	// does not have a generation stamp larger than the old generation stamp
+	HDFS_ERR_APPEND_OR_RECOVERY_BAD_GENERATION,
 	_HDFS_ERR_END
 };
 #define _HDFS_ERR_MAXIMUM (_HDFS_ERR_END - 1)

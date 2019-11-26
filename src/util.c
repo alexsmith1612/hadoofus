@@ -108,6 +108,7 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_KERBEROS_NEGOTIATION] = "Unhandled error negotiating kerberos with server",
 	[HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS] = "Got located block with invalid storage ids count",
 	[HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES] = "Got located block with invalid storage types count",
+	[HDFS_ERR_APPEND_OR_RECOVERY_BAD_GENERATION] = "New generation stamp <= old gs for block append or recovery"
 };
 
 EXPORT_SYM const char *

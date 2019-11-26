@@ -135,6 +135,13 @@ enum hdfs_datanode_op {
 	HDFS_DN_OP_TRANSFER_BLOCK = 0x56
 };
 
+enum hdfs_datanode_write_recovery_type {
+	HDFS_DN_RECOVERY_NONE = 0,
+	HDFS_DN_RECOVERY_APPEND_SETUP,
+	HDFS_DN_RECOVERY_STREAMING,
+	HDFS_DN_RECOVERY_CLOSE
+};
+
 // hdfs_datanode structs must either be created with hdfs_datanode_alloc() or
 // be initialized to all 0's before calling hdfs_datanode_init()
 // Access to struct hdfs_datanode must be serialized by the user
@@ -144,7 +151,9 @@ struct hdfs_datanode {
 	int64_t dn_blkid,
 		dn_gen,
 		dn_offset,
-		dn_size;
+		dn_size,
+		dn_newgen,
+		dn_maxbytesrcvd;
 	struct hdfs_object *dn_token;
 	struct hdfs_object **dn_locs;
 	char **dn_storage_ids; // either NULL or counted by dn_nlocs
@@ -155,8 +164,10 @@ struct hdfs_datanode {
 	    dn_proto,
 	    dn_conn_idx;
 	bool dn_op_inited,
+	     dn_append_or_recovery,
 	     dn_last,
 	     dn_crcs;
+	enum hdfs_datanode_write_recovery_type dn_recovery;
 
 	/* v2+ */
 	char *dn_pool_id;
@@ -429,6 +440,10 @@ struct hdfs_datanode *	hdfs_datanode_alloc(void);
 // used. It is an error to use this struct for a different operation than
 // specified here (without first cleaning and reinitializing the struct)
 //
+// located_block should NOT be or have been updated from the response to an
+// updateBlockForPipeline RPC. Such a located block should be passed to
+// hdfs_datanode_write_set_append_or_recovery()
+//
 // Note that for op HDFS_DN_OP_TRANSFER_BLOCK, located_block should have been
 // received from a call to hdfs_get_transfer_data() following a
 // getAdditionalDatanode() RPC.
@@ -454,6 +469,73 @@ void			hdfs_datanode_clean(struct hdfs_datanode *d);
 
 // Destroy a datanode object (caller should free).
 void			hdfs_datanode_destroy(struct hdfs_datanode *);
+
+// Initialize the datanode struct for write appends and/or pipeline recovery.
+//
+// Returns HDFS_SUCCESS or another error code on failure.
+//
+// This function should be followed by use of the datanode write setup pipeline
+// APIs and then the updatePipeline RPC following successful pipeline setup.
+//
+// ubfp_lb is a located_block returned from the updateBlockForPipeline RPC (or a
+// real located block updated from the updateBlockForPipeline via
+// hdfs_located_block_update_from_update_block_for_pipeline()). Note that this is
+// different from the located block passed to hdfs_datanode_init() or
+// hdfs_datanode_new(), as that should not yet have been updated by an
+// updateBlockForPipeline RPC response.
+//
+// The recovery types that can by passed to this function are as follows:
+//
+// HDFS_DN_RECOVERY_NONE:
+//     This should be used for normal (i.e. non-recovery) block appends.
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+// HDFS_DN_RECOVERY_APPEND_SETUP:
+//     This should be used to recover from errors that occur when setting up a
+//     write pipeline for appending to a block. If an error occurs during an
+//     append write after any data has been written to the pipeline, use
+//     HDFS_DN_RECOVERY_STREAMING instead.
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+// HDFS_DN_RECOVERY_STREAMING:
+//     This should be used to recover from errors that occur once data has already
+//     been written into a write pipeline and there is more data to be written or
+//     acknowledged.
+//
+//     The length in the located_block object passed to hdfs_datanode_init()
+//     should have been set to include any bytes that were acknowledged prior to
+//     the pipeline error.
+//
+//     maxbytesrcvd should be set to the total number of bytes that have been
+//     written to this block, regardless of whether or not they had been
+//     acknowledged. If this number is the same as the above-mentioned
+//     located_block length, maxbytesrcvd can be passed as a negative value for
+//     convenience.
+//
+// HDFS_DN_RECOVERY_CLOSE:
+//     This should be used to recover from errors that occur when there is no more
+//     data to be written to the pipeline and all written bytes have been
+//     acknowledged, but the block was not successfully finalized.
+//
+//     The length in the located_block object passed to hdfs_datanode_init()
+//     should have been set to include the total number of bytes in this block
+//     (i.e. including any bytes that were written/acknowledged prior to the
+//     pipeline error).
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+//     Since this closes the replicas in the datanode pipeline, it is an error to
+//     try to write data to this pipeline follwing successful pipeline setup.
+//
+// Note that the above does not mention the case in which an error occurs when
+// setting up a write pipeline for a new block. In such a case this function
+// should not be called, as the recovery procedure is to simply call abandonBlock
+// and then addBlock with any problematic datanodes excluded.
+struct hdfs_error	hdfs_datanode_write_set_append_or_recovery(struct hdfs_datanode *d,
+			struct hdfs_object *ubfp_lb,
+			enum hdfs_datanode_write_recovery_type type, off_t maxbytesrcvd);
 
 //
 // Blocking Datanode API
@@ -531,7 +613,10 @@ struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, 
 //
 // Such a transfer operation should be performed when there is a pipeline failure
 // and new datanodes are to be added to the pipeline (only necessary when data has
-// already been sent to the block, including for appends).
+// already been sent to the block, including for appends). That is, a transfer
+// should be done when new datanodes are added to a pipeline and a
+// HDFS_DN_RECOVERY_APPEND_SETUP or HDFS_DN_RECOVERY_STREAMING recovery datanode
+// write will be performed to complete the write.
 struct hdfs_error	hdfs_datanode_transfer(struct hdfs_datanode *d,
 			struct hdfs_transfer_targets *targets);
 
@@ -775,7 +860,10 @@ struct hdfs_error	hdfs_datanode_transfer_nb_init(struct hdfs_datanode *d,
 //
 // Such a transfer operation should be performed when there is a pipeline failure
 // and new datanodes are to be added to the pipeline (only necessary when data has
-// already been sent to the block, including for appends).
+// already been sent to the block, including for appends). That is, a transfer
+// should be done when new datanodes are added to a pipeline and a
+// HDFS_DN_RECOVERY_APPEND_SETUP or HDFS_DN_RECOVERY_STREAMING recovery datanode
+// write will be performed to complete the write.
 //
 // For convenience purposes this function will initialize and/or finalize the
 // connection to the datanode if not already done so. This allows users to not
