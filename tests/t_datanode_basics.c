@@ -375,22 +375,69 @@ START_TEST(test_dn_append_buf)
 	begin = _now();
 	do {
 		if (first) { // Only write up to a complete block
+			struct hdfs_object *ubfp_lb, *oldblock, *newblock, *nodes, *storageids;
 			first = false;
 			prev = NULL;
 			wblk = _min(TOWRITE - wtot, BLOCKSZ - (wtot % BLOCKSZ));
 			bl = hdfs_append(h, tf, client, &e);
+			ck_assert_msg(bl, "append returned NULL");
+			ck_assert_int_eq(bl->ob_type, H_LOCATED_BLOCK);
+
+			// Note that hdfs_append() can return NULL for its located_block -- this occurs if the
+			// last block in the file is already full. In that case you continue in the usual way
+			// by adding a new block. We do not check for that case here since do not close the
+			// file at a full block above
+
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+			    format_error(err),
+			    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+			    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+			// Block appends require some extra pipeline setup
+			oldblock = hdfs_block_from_located_block(bl);
+			ubfp_lb = hdfs2_updateBlockForPipeline(h, oldblock, client, &e);
+			if (e)
+				fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			// update our located block with the info received from the updateBlockForPipeline
+			// RPC. This MUST happen after the call to hdfs_datanode_init() or hdfs_datanode_new()
+			hdfs_located_block_update_from_update_block_for_pipeline(bl, ubfp_lb);
+			hdfs_object_free(ubfp_lb);
+			newblock = hdfs_block_from_located_block(bl);
+
+			// normal append --- not recovery
+			err = hdfs_datanode_write_set_append_or_recovery(dn, bl, HDFS_DN_RECOVERY_NONE,
+			    -1/*maxbytesrcvd--ignored for NONE*/);
+			fail_if(hdfs_is_error(err), "error setting append: %s", format_error(err));
+
+			// setup the append pipeline
+			err = hdfs_datanode_write_setup_pipeline(dn, _i/*sendcrcs*/, &err_idx);
+			fail_if(hdfs_is_error(err), "error setting up append pipeline: %s", format_error(err));
+			ck_assert_int_lt(err_idx, 0);
+
+			// inform the namenode of the updated pipeline
+			nodes = hdfs_array_datanode_info_from_located_block(bl);
+			storageids = hdfs_storage_ids_array_string_from_located_block(bl);
+			hdfs2_updatePipeline(h, client, oldblock, newblock, nodes, storageids, &e);
+			if (e)
+				fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+			hdfs_object_free(oldblock);
+			hdfs_object_free(newblock);
+			hdfs_object_free(nodes);
+			hdfs_object_free(storageids);
 		} else  {
 			wblk = _min(TOWRITE - wtot, BLOCKSZ);
 			bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
+			dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+			ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
+			    format_error(err),
+			    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+			    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 		}
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
-		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
-		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
-		    format_error(err),
-		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
-		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
 		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
