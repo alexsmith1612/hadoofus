@@ -47,9 +47,13 @@ static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verif
 				off_t len);
 static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 				void *buf, ssize_t *nread);
+static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
+				off_t len, int fd, off_t fdoff, void *buf);
 static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
+				int fd, off_t len, off_t fdoff);
 static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
@@ -467,6 +471,12 @@ hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 // Datanode write operations
 
 EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs)
+{
+	return _datanode_write_init(d, sendcrcs);
+}
+
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
@@ -475,17 +485,28 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
+// XXX do we want to expose error_idx through the blocking dn write interfaces?
+// and perhaps nwritten/nacked/nread in the case of an error?
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len, bool sendcrcs)
+hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
+	bool sendcrcs)
 {
 	ASSERT(buf);
 	ASSERT(len > 0);
 
-	// TODO write blocking wrapper around non-blocking interface
-	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, sendcrcs);
+	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/);
 }
 
-// TODO hdfs_datanode_write_file_nb()
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
+	ssize_t *nwritten, ssize_t *nacked, int *error_idx)
+{
+	ASSERT(offset >= 0);
+	ASSERT(fd >= 0);
+	ASSERT(len > 0);
+
+	return _datanode_write(d, NULL/*buf*/, fd, len, offset, nwritten, nacked, error_idx);
+}
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
@@ -495,8 +516,7 @@ hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offse
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	// TODO write blocking wrapper around non-blocking interface
-	return _datanode_write(d, NULL, fd, len, offset, sendcrcs);
+	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -533,8 +553,9 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 		d->dn_last = true;
 	}
 
+	// will write the last packet if necessary and check for any outstanding ACKs
 	error = _datanode_write(d, NULL/*buf*/, -1/*fd*/, 0/*len*/, -1/*fdoff*/,
-	    0/*sendcrcs*/, &t_nwritten, nacked, error_idx);
+	    &t_nwritten, nacked, error_idx);
 
 	// Only return HDFS_SUCCESS once all of the packets have been acknowledged
 	if (!hdfs_is_error(error)) {
@@ -556,25 +577,49 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 
 // Datanode read operations
 
+// XXX this indirection really isn't necessary except for the function name
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
-	bool verifycrc)
+hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t bloff,
+	off_t len, bool verifycrcs)
 {
-	ASSERT(buf);
-
-	return _datanode_read(d, off, len, -1/*fd*/, -1/*fdoff*/, buf,
-	    verifycrc);
+	return _datanode_read_init(d, verifycrcs, bloff, len);
 }
 
 EXPORT_SYM struct hdfs_error
-hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
-	int fd, off_t fdoff, bool verifycrc)
+hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, void *buf, ssize_t *nread)
 {
-	ASSERT(bloff >= 0);
+	ASSERT(buf);
+
+	return _datanode_read(d, len, -1/*fd*/, -1/*fdoff*/, buf, nread);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_read(struct hdfs_datanode *d, size_t off, size_t len, void *buf,
+	bool verifycrcs)
+{
+	ASSERT(buf);
+
+	return _datanode_read_blocking(d, verifycrcs, off, len, -1/*fd*/, -1/*fdoff*/, buf);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
+	off_t fdoff, ssize_t *nread)
+{
+	ASSERT(fd >= 0);
+	ASSERT(fdoff >= 0);
+
+	return _datanode_read(d, len, fd, fdoff, NULL/*buf*/, nread);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd, off_t fdoff,
+	bool verifycrcs)
+{
 	ASSERT(fdoff >= 0);
 	ASSERT(fd >= 0);
 
-	return _datanode_read(d, bloff, len, fd, fdoff, NULL/*buf*/, verifycrc);
+	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff, NULL/*buf*/);
 }
 
 static struct hdfs_error
@@ -946,6 +991,42 @@ out:
 }
 
 static struct hdfs_error
+_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t len,
+	int fd, off_t fdoff, void *buf)
+{
+	struct hdfs_error error;
+	ssize_t nr = 0;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+
+	error = _datanode_read_init(d, verifycrcs, bloff, len);
+	if (hdfs_is_error(error))
+		goto out;
+
+	while (true) {
+		error = _datanode_read(d, len, fd, fdoff, buf, &nr);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		if (buf)
+			buf = (char *)buf + nr;
+		fdoff += nr;
+		len -= nr;
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
 _datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
@@ -978,7 +1059,7 @@ _datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
 // call to writev() is made.
 static struct hdfs_error
 _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
-	off_t offset, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+	off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
 	ssize_t wlen, t_nacked = 0;
 	struct hdfs_error error = HDFS_SUCCESS, ret;
@@ -1048,7 +1129,7 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	case HDFS_DN_ST_PKT:
 		d->dn_pstate.buf = __DECONST(void *, buf);
 		d->dn_pstate.fd = fd;
-		d->dn_pstate.fdoffset = offset;
+		d->dn_pstate.fdoffset = fdoff;
 		while (d->dn_pstate.remains_tot > 0 || d->dn_last) {
 			// Try to drain any acks if we have many outstanding packets
 			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
@@ -1094,6 +1175,57 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	case HDFS_DN_ST_ERROR:
 	default:
 		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
+	int fd, off_t len, off_t fdoff)
+{
+	struct hdfs_error error;
+	ssize_t nw = 0, na = 0;
+	int ei = -1;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+
+	error = _datanode_write_init(d, sendcrcs);
+	if (hdfs_is_error(error))
+		goto out;
+
+	while (true) {
+		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, &ei);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		if (buf)
+			buf = (const char *)buf + nw;
+		fdoff += nw;
+		len -= nw;
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+	while (true) {
+		error = hdfs_datanode_finish_block(d, &na, &ei);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
 	}
 
 out:
