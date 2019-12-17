@@ -78,6 +78,16 @@ struct hdfs_packet_state {
 	struct hdfs_unacked_packets unacked;
 };
 
+struct hdfs_read_info {
+	int64_t client_offset,
+		server_offset; // XXX this is unused, remove?
+	size_t rlen;
+	int32_t chunk_size;
+	bool has_crcs,
+	     bad_crcs,
+	     lastpacket;
+};
+
 // XXX perhaps move to net.c and only use opaque pointers here?
 struct hdfs_conn_ctx {
 	struct addrinfo  *ai;
@@ -127,6 +137,7 @@ struct hdfs_datanode {
 	struct hdfs_heap_buf dn_hdrbuf;
 	struct hdfs_heap_buf dn_recvbuf;
 	struct hdfs_packet_state dn_pstate;
+	struct hdfs_read_info dn_rinfo;
 };
 
 extern _Thread_local int hdfs_datanode_unknown_status;
