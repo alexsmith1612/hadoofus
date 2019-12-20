@@ -3,20 +3,13 @@
 
 #include <sys/types.h>
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
-#include <pthread.h>
-
 #include <protobuf-c/protobuf-c.h>
 
-struct hdfs_rpc_response_future {
-	pthread_mutex_t fu_lock;
-	pthread_cond_t fu_cond;
-	struct hdfs_object *fu_res;
-	bool fu_inited : 1;
-	bool fu_invoked : 1;
-};
+#include <hadoofus/lowlevel.h>
 
 #define nelem(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -56,6 +49,8 @@ void	assert_fail(const char *fmt, ...)
 # define EXPORT_SYM __attribute__((visibility("default")))
 #endif
 
+#define PTR_FREE(p) do { if ((p) != NULL) free(p); (p) = NULL; } while (false)
+
 static inline off_t
 _min(off_t a, off_t b)
 {
@@ -64,8 +59,31 @@ _min(off_t a, off_t b)
 	return b;
 }
 
-uint32_t	_be32dec(void *);
-void		_be32enc(void *, uint32_t);
+static inline uint32_t
+_be32dec(void *void_p)
+{
+	uint8_t *p = void_p;
+	uint32_t res;
+
+	res =
+	    ((uint32_t)p[0] << 24) |
+	    ((uint32_t)p[1] << 16) |
+	    ((uint32_t)p[2] << 8) |
+	    (uint32_t)p[3];
+
+	return res;
+}
+
+static inline void
+_be32enc(void *void_p, uint32_t v)
+{
+	uint8_t *p = void_p;
+
+	p[0] = (uint8_t)(v >> 24);
+	p[1] = (uint8_t)((v >> 16) & 0xff);
+	p[2] = (uint8_t)((v >> 8) & 0xff);
+	p[3] = (uint8_t)(v & 0xff);
+}
 
 uint64_t	_now_ms(void);
 

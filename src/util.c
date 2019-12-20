@@ -15,32 +15,6 @@
 
 #include "util.h"
 
-uint32_t
-_be32dec(void *void_p)
-{
-	uint8_t *p = void_p;
-	uint32_t res;
-
-	res =
-	    ((uint32_t)p[0] << 24) |
-	    ((uint32_t)p[1] << 16) |
-	    ((uint32_t)p[2] << 8) |
-	    (uint32_t)p[3];
-
-	return res;
-}
-
-void
-_be32enc(void *void_p, uint32_t v)
-{
-	uint8_t *p = void_p;
-
-	p[0] = (uint8_t)(v >> 24);
-	p[1] = (uint8_t)((v >> 16) & 0xff);
-	p[2] = (uint8_t)((v >> 8) & 0xff);
-	p[3] = (uint8_t)(v & 0xff);
-}
-
 uint64_t
 _now_ms(void)
 {
@@ -92,7 +66,9 @@ hdfs_error_str_kind(struct hdfs_error error)
 	ASSERT(false);	// unreachable
 }
 
+// TODO standardize the capitalization in these error messages
 static const char *hdfs_strerror_table[] = {
+	[HDFS_ERR_AGAIN] = "Operation in progress: continue with API when resources are available", // TODO reconsider this message
 	[HDFS_ERR_END_OF_STREAM] = "EOS; socket was closed",
 	[HDFS_ERR_END_OF_FILE] = "unexpected EOF from file",
 
@@ -101,6 +77,7 @@ static const char *hdfs_strerror_table[] = {
 
 	[HDFS_ERR_DATANODE_NO_CRCS] = "Server doesn't send CRCs, can't verify",
 	[HDFS_ERR_ZERO_DATANODES] = "LocatedBlock has zero datanodes",
+	[HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM] = "Server sent an unsupported checksum type",
 
 	[HDFS_ERR_DN_ERROR] = "Datanode error, aborting write",
 	[HDFS_ERR_DN_ERROR_CHECKSUM] = "Datanode checksum error, aborting write",
@@ -115,6 +92,7 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_INVALID_PACKETHEADERPROTO] = "bad protocol: could not decode PacketHeaderProto",
 	[HDFS_ERR_INVALID_PIPELINEACKPROTO] = "bad protocol: could not decode PipelineAckProto",
 	[HDFS_ERR_V1_DATANODE_PROTOCOL] = "invalid Datanode protocol data",
+	[HDFS_ERR_NAMENODE_BAD_MSGNO] = "unexpected msgno received from Namenode",
 	[HDFS_ERR_NAMENODE_PROTOCOL] = "could not parse response from Namenode",
 
 	[HDFS_ERR_INVALID_DN_OPRESP_MSG] = "successful datanode operation had non-empty error message",

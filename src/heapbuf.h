@@ -7,8 +7,24 @@
 
 #include <hadoofus/objects.h>
 
-/* Allocate enough space to store size bytes at ->buf[->used]. */
-void	_hbuf_reserve(struct hdfs_heap_buf *, size_t);
+// If fewer than resize_at bytes can be stored at _hbuf_writeptr(h),
+// increase the buffer size by resize_by (0 upsizes enough to store
+// resize_at bytes)
+void	_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by);
+// Allocate enough space to store size bytes at _hbuf_writeptr(h).
+#define	_hbuf_reserve(h, size) _hbuf_resize((h), (size), 0)
+
+static inline char *	_hbuf_writeptr(struct hdfs_heap_buf *h) { return h->buf + h->used; }
+static inline int	_hbuf_remsize(struct hdfs_heap_buf *h) { return h->size - h->used; }
+static inline void	_hbuf_append(struct hdfs_heap_buf *h, size_t num) { h->used += num; }
+static inline char *	_hbuf_readptr(struct hdfs_heap_buf *h) { return h->buf + h->pos; }
+static inline int	_hbuf_readlen(struct hdfs_heap_buf *h) { return h->used - h->pos; }
+static inline void	_hbuf_consume(struct hdfs_heap_buf *h, size_t num) { h->pos += num; }
+static inline void	_hbuf_reset(struct hdfs_heap_buf *h) { h->pos = h->used = 0; }
+
+// Return the number of bytes needed to encode the input as a vlint
+// Note, this is in heapbuf.{c,h} to keep it with _bappend_vlint()
+int	_get_vlint_encoding_size(int64_t);
 
 // Append serialized data to the passed buf. Resizes the underlying (malloc'd)
 // buf as needed; 'size' is kept current (and is the size of the underlying
@@ -41,7 +57,6 @@ char *		_bslurp_text(struct hdfs_heap_buf *);
 // the end of the returned buf.
 void		_bslurp_mem1(struct hdfs_heap_buf *, size_t, char **);
 
-void	_sasl_encode_inplace(sasl_conn_t *, struct hdfs_heap_buf *);
-int	_sasl_decode_at_offset(sasl_conn_t *, char **bufp, size_t offset, int r, int *remain);
+struct hdfs_error	_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset);
 
-#endif
+#endif // _HADOOFUS_HEAPBUF_H

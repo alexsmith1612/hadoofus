@@ -137,6 +137,7 @@ START_TEST(test_vlint_roundtrip)
 		buf.used = 0;
 	}
 
+	free(buf.buf);
 	close(fd);
 }
 END_TEST

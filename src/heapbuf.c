@@ -10,19 +10,41 @@
 #define _MAX(a, b) (((a) > (b))? (a) : (b))
 
 void
-_hbuf_reserve(struct hdfs_heap_buf *h, size_t space)
+_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
 {
-	int remain, toalloc;
+	size_t toalloc;
 
-	remain = h->size - h->used;
-	if ((size_t)remain >= space)
+	// No significant data left in the buffer, so reset
+	if (_hbuf_readlen(h) == 0)
+		_hbuf_reset(h);
+
+	// Enough space at the end
+	if ((size_t)_hbuf_remsize(h) >= resize_at)
 		return;
 
-	toalloc = _MAX(32, space - remain + 16);
+	// Enough space after compacting
+	if ((size_t)(_hbuf_remsize(h) + h->pos) >= resize_at) {
+		memmove(h->buf, _hbuf_readptr(h), _hbuf_readlen(h));
+		h->used -= h->pos;
+		h->pos = 0;
+		return;
+	}
 
-	h->buf = realloc(h->buf, h->size + toalloc);
+	// Otherwise we need to allocate more space
+	if (resize_by == 0) // use default
+		toalloc = h->size + _MAX(32, resize_at - _hbuf_remsize(h) + 16);
+	else
+		toalloc = h->size + resize_by;
+
+	// If we don't care about any data currently in the buffer,
+	// free()/malloc(), otherwise realloc
+	if (h->used == 0) {
+		free(h->buf);
+		h->buf = malloc(toalloc);
+	} else
+		h->buf = realloc(h->buf, toalloc);
 	ASSERT(h->buf);
-	h->size += toalloc;
+	h->size = toalloc;
 }
 
 void
@@ -103,6 +125,19 @@ _bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
 			lb |= 0x80;
 		_bappend_s8(h, (int8_t)lb);
 	} while (val);
+}
+
+int
+_get_vlint_encoding_size(int64_t i64)
+{
+	uint64_t val;
+	int ret = 1;
+
+	val = (uint64_t)i64;
+
+	while (val >>= 7) { ret++; }
+
+	return ret;
 }
 
 void
@@ -297,61 +332,29 @@ _bslurp_text(struct hdfs_heap_buf *b)
 	return res;
 }
 
-void
-_sasl_encode_inplace(sasl_conn_t *ctx, struct hdfs_heap_buf *b)
+struct hdfs_error
+_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
 {
 	const char *out;
 	unsigned outlen;
-	int r;
+	int r, toencode;
 
-	r = sasl_encode(ctx, b->buf, b->used, &out, &outlen);
-	if (r != SASL_OK) {
-		fprintf(stderr, "sasl_encode: %s\n",
-		    sasl_errstring(r, NULL, NULL));
-		abort();
-	}
+	ASSERT(offset >= 0);
+	ASSERT(offset < h->used);
+	ASSERT(offset >= h->pos);
 
-	free(b->buf);
-	b->buf = malloc(4 + outlen);
-	ASSERT(b->buf);
+	toencode = h->used - offset;
+	r = sasl_encode(ctx, h->buf + offset, toencode, &out, &outlen);
+	if (r != SASL_OK)
+		return error_from_sasl(r);
+
+	h->used = offset; // "remove" the plaintext data from the buffer
+	_hbuf_reserve(h, outlen + 4); // allocate enough space for the length prefix and encoded data
 
 	// copy in length-prefixed encoded bits
-	_be32enc(b->buf, outlen);
-	memcpy(b->buf + 4, out, outlen);
-	b->used = b->size = 4 + outlen;
-}
+	_be32enc(_hbuf_writeptr(h), outlen);
+	memcpy(_hbuf_writeptr(h) + 4, out, outlen);
+	_hbuf_append(h, 4 + outlen);
 
-// Returns decoded size; sets remain; resizes bufp/remain if needed.
-// On error, returns SASL error code (negative)
-int
-_sasl_decode_at_offset(sasl_conn_t *ctx, char **bufp, size_t offset, int r, int *remain)
-{
-	const char *out;
-	unsigned outlen;
-	int s;
-	uint32_t sasl_len;
-
-	// this is pretty fragile. at the moment we expect to slurp exactly one
-	// kerb reply in a given read(). fixing it will require adding another
-	// buffer to the read code when the connection is sasl'd, which is more
-	// work for now (it's not clear that hadoop supports ssf > 0 anyway).
-	if (r < 4)
-		abort();
-
-	sasl_len = _be32dec(*bufp + offset);
-	if ((unsigned)r - 4 != sasl_len)
-		abort();
-
-	s = sasl_decode(ctx, *bufp + offset + 4, sasl_len, &out, &outlen);
-	if (s != SASL_OK)
-		return s;
-
-	if (outlen > (unsigned)*remain) {
-		*remain = outlen + 4*1024;
-		*bufp = realloc(*bufp, offset + *remain);
-		ASSERT(*bufp);
-	}
-
-	memcpy(*bufp + offset, out, outlen);
-	return outlen;
+	return HDFS_SUCCESS;
 }

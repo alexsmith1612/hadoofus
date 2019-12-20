@@ -2,6 +2,7 @@
 #define HADOOFUS_OBJECTS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,11 +18,15 @@ enum hdfs_error_kind {
 };
 #define _he_num_kinds (he_hdfserr + 1)
 
-#define _HDFS_ERR_MINIMUM HDFS_ERR_END_OF_STREAM
+#define _HDFS_ERR_MINIMUM HDFS_ERR_AGAIN
 enum hdfs_error_numeric {
+	// Non-blocking API indicates that we are waiting on some events
+	// or resources to proceed
+	// XXX Perhaps rename? HDFS_ERR_INPROGRESS?
+	HDFS_ERR_AGAIN = 1,
 	// I.e., remote end closed the TCP connection or middleman injected
 	// RST.
-	HDFS_ERR_END_OF_STREAM = 1,
+	HDFS_ERR_END_OF_STREAM,
 	// Input file shorter than expected, or unexpected zero write(2)ing
 	// output.
 	HDFS_ERR_END_OF_FILE,
@@ -35,6 +40,8 @@ enum hdfs_error_numeric {
 	HDFS_ERR_DATANODE_NO_CRCS,
 	// Need at least one datanode to connect, obviously.
 	HDFS_ERR_ZERO_DATANODES,
+	// Datanode is providing a checksum type we do no support
+	HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM,
 
 // Direct translations of Datanode STATUS codes.  More information may be
 // available in the hdfs_datanode_opresult_message (optionally provided by HDFS
@@ -63,6 +70,8 @@ enum hdfs_error_numeric {
 	// v1 DN wire protocol errors
 	HDFS_ERR_V1_DATANODE_PROTOCOL,
 
+	// Namenode gave unexpected msgno
+	HDFS_ERR_NAMENODE_BAD_MSGNO,
 	// Other namenode protocol response parsing failures
 	HDFS_ERR_NAMENODE_PROTOCOL,
 
@@ -104,9 +113,21 @@ _Static_assert(sizeof(struct hdfs_error) == sizeof(uint32_t),
     "for now, attempt to return a 32-bit value for 32-bit platforms where a "
     "64-bit return is slightly more expenisve");
 
-#define HDFS_SUCCESS	(struct hdfs_error) {}
+#define HDFS_SUCCESS	(struct hdfs_error) { 0 }
+// XXX Perhaps rename? AGAIN to INPROGRESS?
+#define HDFS_AGAIN      (struct hdfs_error) { .her_kind = he_hdfserr, .her_num = HDFS_ERR_AGAIN }
+
+static inline bool
+hdfs_is_again(struct hdfs_error herr)
+{
+	return (herr.her_kind == he_hdfserr && herr.her_num == HDFS_ERR_AGAIN);
+}
 
 // Return true if the struct represents an unsucessful result.
+// XXX Do we want this to indicate HDFS_AGAIN as failure or success?
+// The current implementation assumes that hdfs_is_error() returns
+// true for HDFS_AGAIN. Perhaps add hdfs_is_fatal() or something
+// like that that returns false for HDFS_SUCCESS and HDFS_AGAIN
 static inline bool
 hdfs_is_error(struct hdfs_error herr)
 {
@@ -207,8 +228,6 @@ enum hdfs_exception_type {
 	H_SASL_EXCEPTION,
 	H_RPC_EXCEPTION,
 	H_RPC_NO_SUCH_METHOD_EXCEPTION,
-	/* Namenode recv_worker encountered an error, or was destroyed. */
-	H_HADOOFUS_RPC_ABORTED,
 
 	_H_EXCEPTION_END,
 };
@@ -406,10 +425,7 @@ struct hdfs_fsserverdefaults {
 };
 
 struct hdfs_exception {
-	union {
-		char *_msg;
-		struct hdfs_error _error;
-	};
+	char *_msg;
 	enum hdfs_exception_type _etype;
 };
 
@@ -485,8 +501,6 @@ struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
 			const char * /*user*/, const char * /*real user*/,
 			enum hdfs_kerb);
 struct hdfs_object *	hdfs_protocol_exception_new(enum hdfs_exception_type, const char *);
-struct hdfs_object *	hdfs_pseudo_exception_new(struct hdfs_error);
-struct hdfs_error	hdfs_pseudo_exception_get_error(const struct hdfs_object *);
 struct hdfs_object *	hdfs_token_new(const char *, const char *, const char *, const char *);
 struct hdfs_object *	hdfs_token_new_empty(void);
 struct hdfs_object *	hdfs_token_new_nulsafe(const char *id, size_t idlen,
@@ -520,7 +534,8 @@ void	hdfs_array_datanode_info_append_datanode_info(
 // pointed to by hbuf to all zeros.
 struct hdfs_heap_buf {
 	char *buf;
-	int used,
+	int pos,
+	    used,
 	    size;
 };
 void	hdfs_object_serialize(struct hdfs_heap_buf *hbuf, struct hdfs_object *obj);

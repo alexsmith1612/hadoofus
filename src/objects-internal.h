@@ -58,12 +58,13 @@
 struct _hdfs_result {
 	int64_t rs_msgno;
 	struct hdfs_object *rs_obj;
+	int rs_size;
 };
 
 struct _hdfs_pending {
 	int64_t pd_msgno;
-	struct hdfs_rpc_response_future *pd_future;
 	struct hdfs_object *(*pd_slurper)(struct hdfs_heap_buf *);
+	void *pd_userdata;
 };
 
 void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
@@ -73,16 +74,14 @@ void			_rpc_invocation_set_clientid(struct hdfs_object *, uint8_t *);
 
 void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
 
-// Returns _HDFS_INVALID_PROTO if the buffer contains invalid protocol data.
-// Returns NULL if we can't decode a response from the available buffer.
-// Otherwise, returns a result object.
-struct _hdfs_result *	_hdfs_result_deserialize(char *buf, int buflen, int *obj_size);
-struct _hdfs_result *	_hdfs_result_deserialize_v2(char *buf, int buflen, int *obj_size,
+// Returns HDFS_SUCCESS and populates *res on success.
+// Returns HDFS_AGAIN if we can't decode a response from the available buffer.
+// Returns other error code otherwise.
+struct hdfs_error	_hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res);
+struct hdfs_error	_hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdfs_result *res,
 			struct _hdfs_pending *pend, int npend);
-struct _hdfs_result *	_hdfs_result_deserialize_v2_2(char *buf, int buflen, int *obj_size,
+struct hdfs_error	_hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 			struct _hdfs_pending *pend, int npend);
-
-void			_hdfs_result_free(struct _hdfs_result *);
 
 enum hdfs_object_type	_string_to_type(const char *);
 
@@ -91,8 +90,6 @@ streq(const char *a, const char *b)
 {
 	return strcmp(a, b) == 0;
 }
-
-extern struct _hdfs_result *_HDFS_INVALID_PROTO;
 
 // HDFSv2+ protobuf-to-hdfs_object converters
 enum hdfs_checksum_type	_hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto);
