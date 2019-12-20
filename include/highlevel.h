@@ -160,6 +160,8 @@ struct hdfs_object *	hdfs_create(struct hdfs_namenode *, const char *path,
 struct hdfs_error	hdfs_append_nb(struct hdfs_namenode *, const char *path,
 			const char *client, int64_t *msgno, void *userdata);
 
+// For versions older than v2.7 the file status member of the
+// located_block_with_status will always be NULL
 struct hdfs_object *	hdfs_append(struct hdfs_namenode *, const char *path,
 			const char *client, struct hdfs_object **exception_out);
 
@@ -342,13 +344,10 @@ struct hdfs_error	hdfs_setSafeMode_nb(struct hdfs_namenode *, const char *safemo
 bool			hdfs_setSafeMode(struct hdfs_namenode *, const char *safemodeaction,
 			struct hdfs_object **exception_out);
 
-#define			HDFS_DNREPORT_ALL	"ALL"
-#define			HDFS_DNREPORT_LIVE	"LIVE"
-#define			HDFS_DNREPORT_DEAD	"DEAD"
-struct hdfs_error	hdfs_getDatanodeReport_nb(struct hdfs_namenode *, const char *dnreporttype,
+struct hdfs_error	hdfs_getDatanodeReport_nb(struct hdfs_namenode *, enum hdfs_datanode_report_type type,
 			int64_t *msgno, void *userdata);
 
-struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, const char *dnreporttype,
+struct hdfs_object *	hdfs_getDatanodeReport(struct hdfs_namenode *, enum hdfs_datanode_report_type type,
 			struct hdfs_object **exception_out);
 
 struct hdfs_error	hdfs_reportBadBlocks_nb(struct hdfs_namenode *, struct hdfs_object *blocks,
@@ -424,14 +423,43 @@ struct hdfs_error	hdfs2_getLinkTarget_nb(struct hdfs_namenode *, const char *,
 struct hdfs_object *	hdfs2_getLinkTarget(struct hdfs_namenode *, const char *,
 			struct hdfs_object **exception_out);
 
+struct hdfs_error	hdfs2_getAdditionalDatanode_nb(struct hdfs_namenode *, const char *path,
+			struct hdfs_object *block, struct hdfs_object *existings,
+			struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+			struct hdfs_object *existing_storage_uuids, int64_t fileid,
+			int64_t *msgno, void *userdata);
+
+struct hdfs_object *	hdfs2_getAdditionalDatanode(struct hdfs_namenode *, const char *path,
+			struct hdfs_object *block, struct hdfs_object *existings,
+			struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+			struct hdfs_object *existing_storage_uuids, int64_t fileid,
+			struct hdfs_object **exception_out);
+
+struct hdfs_error	hdfs2_updateBlockForPipeline_nb(struct hdfs_namenode *, struct hdfs_object *block,
+			const char *client, int64_t *msgno, void *userdata);
+
+struct hdfs_object *	hdfs2_updateBlockForPipeline(struct hdfs_namenode *, struct hdfs_object *block,
+			const char *client, struct hdfs_object **exception_out);
+
+struct hdfs_error	hdfs2_updatePipeline_nb(struct hdfs_namenode *, const char *client,
+			struct hdfs_object *oldblock, struct hdfs_object *newblock,
+			struct hdfs_object *newnodes, struct hdfs_object *storageids,
+			int64_t *msgno, void *userdata);
+
+void			hdfs2_updatePipeline(struct hdfs_namenode *, const char *client,
+			struct hdfs_object *oldblock, struct hdfs_object *newblock,
+			struct hdfs_object *newnodes, struct hdfs_object *storageids,
+			struct hdfs_object **exception_out);
+
 //
 // High-level Datanode API
 //
 
 // Creates a new datanode connection (blocking). On error, returns NULL and sets
-// *error_out to an error value.
+// *error_out to an error value. See hdfs_datanode_init() (lowlevel.h) for
+// description of the arguments
 struct hdfs_datanode *	hdfs_datanode_new(struct hdfs_object *located_block,
-			const char *client, int proto,
+			const char *client, int proto, enum hdfs_datanode_op op,
 			struct hdfs_error *error_out);
 
 // Destroys the connection and frees memory.

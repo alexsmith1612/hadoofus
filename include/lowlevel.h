@@ -98,9 +98,11 @@ struct hdfs_packet_state {
 	void *buf;
 	struct hdfs_heap_buf *hdrbuf;
 	struct hdfs_heap_buf *recvbuf;
+	int *unknown_status;
 	int sock,
 	    proto,
 	    fd;
+	unsigned pipelinesize;
 	bool sendcrcs;
 	struct hdfs_unacked_packets unacked;
 };
@@ -127,12 +129,18 @@ enum hdfs_datanode_state {
 	HDFS_DN_ST_FINISHED
 };
 
-// These are HDFS wire values (except NONE)
+// These are HDFS wire values
 enum hdfs_datanode_op {
-	HDFS_DN_OP_NONE = 0,
 	HDFS_DN_OP_WRITE_BLOCK = 0x50,
-	HDFS_DN_OP_READ_BLOCK = 0x51
-	// TODO HDFS_DN_OP_TRANSFER_BLOCK = 0x56
+	HDFS_DN_OP_READ_BLOCK = 0x51,
+	HDFS_DN_OP_TRANSFER_BLOCK = 0x56
+};
+
+enum hdfs_datanode_write_recovery_type {
+	HDFS_DN_RECOVERY_NONE = 0,
+	HDFS_DN_RECOVERY_APPEND_SETUP,
+	HDFS_DN_RECOVERY_STREAMING,
+	HDFS_DN_RECOVERY_CLOSE
 };
 
 // hdfs_datanode structs must either be created with hdfs_datanode_alloc() or
@@ -144,29 +152,38 @@ struct hdfs_datanode {
 	int64_t dn_blkid,
 		dn_gen,
 		dn_offset,
-		dn_size;
+		dn_size,
+		dn_newgen,
+		dn_maxbytesrcvd;
 	struct hdfs_object *dn_token;
 	struct hdfs_object **dn_locs;
+	char **dn_storage_ids; // either NULL or counted by dn_nlocs
+	enum hdfs_storage_type *dn_storage_types; // either NULL or counted by dn_nlocs
 	int dn_nlocs;
 	char *dn_client;
 	int dn_sock,
 	    dn_proto,
 	    dn_conn_idx;
-	bool dn_last,
-	     dn_crcs;
+	bool dn_op_inited,
+	     dn_append_or_recovery,
+	     dn_last,
+	     dn_crcs,
+	     dn_blocking_pipeline_setup;
+	enum hdfs_datanode_write_recovery_type dn_recovery;
 
 	/* v2+ */
 	char *dn_pool_id;
+	struct hdfs_transfer_targets *dn_ttrgs;
 
 	struct hdfs_conn_ctx dn_cctx;
 	struct hdfs_heap_buf dn_hdrbuf;
 	struct hdfs_heap_buf dn_recvbuf;
 	struct hdfs_packet_state dn_pstate;
 	struct hdfs_read_info dn_rinfo;
-};
 
-extern _Thread_local int hdfs_datanode_unknown_status;
-extern _Thread_local const char *hdfs_datanode_opresult_message;
+	int dn_unknown_status;
+	const char *dn_opresult_message;
+};
 
 //
 // Namenode operations
@@ -420,9 +437,23 @@ struct hdfs_datanode *	hdfs_datanode_alloc(void);
 //
 // A datanode object may be reused by calling hdfs_datanode_clean() prior to
 // calling hdfs_datanode_init() again.
-void			hdfs_datanode_init(struct hdfs_datanode *d,
+//
+// The argument op specifies the operation for which this datanode struct will be
+// used. It is an error to use this struct for a different operation than
+// specified here (without first cleaning and reinitializing the struct)
+//
+// located_block should NOT be or have been updated from the response to an
+// updateBlockForPipeline RPC. Such a located block should be passed to
+// hdfs_datanode_write_set_append_or_recovery()
+//
+// Note that for op HDFS_DN_OP_TRANSFER_BLOCK, located_block should have been
+// received from a call to hdfs_get_transfer_data() following a
+// getAdditionalDatanode() RPC.
+//
+// Returns HDFS_SUCCESS or an error code on failure
+struct hdfs_error	hdfs_datanode_init(struct hdfs_datanode *d,
 			struct hdfs_object *located_block, const char *client,
-			int proto);
+			int proto, enum hdfs_datanode_op op);
 
 // Sets the pool_id (required in HDFSv2+). This should not be called by users who
 // pass a located_block to hdfs_datanode_init().
@@ -441,6 +472,73 @@ void			hdfs_datanode_clean(struct hdfs_datanode *d);
 // Destroy a datanode object (caller should free).
 void			hdfs_datanode_destroy(struct hdfs_datanode *);
 
+// Initialize the datanode struct for write appends and/or pipeline recovery.
+//
+// Returns HDFS_SUCCESS or another error code on failure.
+//
+// This function should be followed by use of the datanode write setup pipeline
+// APIs and then the updatePipeline RPC following successful pipeline setup.
+//
+// ubfp_lb is a located_block returned from the updateBlockForPipeline RPC (or a
+// real located block updated from the updateBlockForPipeline via
+// hdfs_located_block_update_from_update_block_for_pipeline()). Note that this is
+// different from the located block passed to hdfs_datanode_init() or
+// hdfs_datanode_new(), as that should not yet have been updated by an
+// updateBlockForPipeline RPC response.
+//
+// The recovery types that can by passed to this function are as follows:
+//
+// HDFS_DN_RECOVERY_NONE:
+//     This should be used for normal (i.e. non-recovery) block appends.
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+// HDFS_DN_RECOVERY_APPEND_SETUP:
+//     This should be used to recover from errors that occur when setting up a
+//     write pipeline for appending to a block. If an error occurs during an
+//     append write after any data has been written to the pipeline, use
+//     HDFS_DN_RECOVERY_STREAMING instead.
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+// HDFS_DN_RECOVERY_STREAMING:
+//     This should be used to recover from errors that occur once data has already
+//     been written into a write pipeline and there is more data to be written or
+//     acknowledged.
+//
+//     The length in the located_block object passed to hdfs_datanode_init()
+//     should have been set to include any bytes that were acknowledged prior to
+//     the pipeline error.
+//
+//     maxbytesrcvd should be set to the total number of bytes that have been
+//     written to this block, regardless of whether or not they had been
+//     acknowledged. If this number is the same as the above-mentioned
+//     located_block length, maxbytesrcvd can be passed as a negative value for
+//     convenience.
+//
+// HDFS_DN_RECOVERY_CLOSE:
+//     This should be used to recover from errors that occur when there is no more
+//     data to be written to the pipeline and all written bytes have been
+//     acknowledged, but the block was not successfully finalized.
+//
+//     The length in the located_block object passed to hdfs_datanode_init()
+//     should have been set to include the total number of bytes in this block
+//     (i.e. including any bytes that were written/acknowledged prior to the
+//     pipeline error).
+//
+//     maxbytesrcvd is ignored for this recovery type.
+//
+//     Since this closes the replicas in the datanode pipeline, it is an error to
+//     try to write data to this pipeline follwing successful pipeline setup.
+//
+// Note that the above does not mention the case in which an error occurs when
+// setting up a write pipeline for a new block. In such a case this function
+// should not be called, as the recovery procedure is to simply call abandonBlock
+// and then addBlock with any problematic datanodes excluded.
+struct hdfs_error	hdfs_datanode_write_set_append_or_recovery(struct hdfs_datanode *d,
+			struct hdfs_object *ubfp_lb,
+			enum hdfs_datanode_write_recovery_type type, off_t maxbytesrcvd);
+
 //
 // Blocking Datanode API
 //
@@ -452,19 +550,67 @@ void			hdfs_datanode_destroy(struct hdfs_datanode *);
 // Should only be called on a freshly-initialized datanode struct.
 struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *d);
 
+// Attempt to set up (blocking) the write pipeline for the block associated with
+// this struct.
+//
+// Returns HDFS_SUCCESS if the pipeline was successfully created, or another error
+// code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
+//
+// This function only needs to be explicitly called when setting up an append or
+// recovery pipeline, as the updatePipeline RPC should be sent to the namenode
+// following successful pipeline creation, but before data is sent to the datanode
+// pipeline. hdfs_datanode_write() and hdfs_datanode_write_file() handle pipeline
+// setup themselves (if necessary), so it is unnecessary to call this function
+// unless an action must be taken after pipeline setup but prior to data
+// transmission (e.g. sending the updatePipelineRPC).
+//
+// After this function successfully returns, the user can call
+// hdfs_datanode_write() or hdfs_datanode_write_file() to actually write to the
+// block associated with this connection. The parameter sendcrcs is ignored in
+// hdfs_datanode_write() and hdfs_datanode_write_file() if they follow a call to
+// hdfs_datanode_write_setup_pipeline().
+struct hdfs_error	hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d,
+			bool sendcrcs, int *error_idx);
+
 // Attempt to write (blocking) a buffer to the block associated with this
 // connection.
 //
+// *nwritten is set to the number of bytes that have been written. This will be
+// equal to len on success.
+//
+// *nacked is set to the number of bytes that have been acknowledged. This will be
+// equal to len on success.
+//
 // Returns HDFS_SUCCESS or an error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
-			size_t len, bool sendcrcs);
+			size_t len, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked,
+			int *error_idx);
 
 // Attempt to write (blocking) from an fd at the given offset to the block
 // associated with this connection.
 //
+// *nwritten is set to the number of bytes that have been written. This will be
+// equal to len on success.
+//
+// *nacked is set to the number of bytes that have been acknowledged. This will be
+// equal to len on success.
+//
 // Returns HDFS_SUCCESS or an error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
-			off_t len, off_t offset, bool sendcrcs);
+			off_t len, off_t offset, bool sendcrcs, ssize_t *nwritten,
+			ssize_t *nacked, int *error_idx);
 
 // Attempt to read (blocking) from the block associated with this connection into
 // the given buffer.
@@ -483,6 +629,24 @@ struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
 			int fd, off_t fdoff, bool verifycrcs);
+
+// Attempt to transfer (blocking) the block associated with this connection to the
+// target datanodes.
+//
+// targets must be a struct hdfs_transfer_targets received from a call to
+// hdfs_get_transfer_data() (the same call that produced the located_block passed
+// to hdfs_datanode_init() for this struct hdfs_datanode instance)
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+//
+// Such a transfer operation should be performed when there is a pipeline failure
+// and new datanodes are to be added to the pipeline (only necessary when data has
+// already been sent to the block, including for appends). That is, a transfer
+// should be done when new datanodes are added to a pipeline and a
+// HDFS_DN_RECOVERY_APPEND_SETUP or HDFS_DN_RECOVERY_STREAMING recovery datanode
+// write will be performed to complete the write.
+struct hdfs_error	hdfs_datanode_transfer(struct hdfs_datanode *d,
+			struct hdfs_transfer_targets *targets);
 
 //
 // Non-blocking Datanode API
@@ -550,10 +714,39 @@ struct hdfs_error	hdfs_datanode_connect_finalize(struct hdfs_datanode *d);
 // not crcs should be calculated and sent during the write.
 //
 // This function must be called prior to the first invocation of
-// hdfs_datanode_write_nb() or hdfs_datanode_write_file_nb().
+// hdfs_datanode_write_setup_pipeline_nb(), hdfs_datanode_write_nb() or
+// hdfs_datanode_write_file_nb().
 //
 // Returns HDFS_SUCCESS or another error code on failure.
 struct hdfs_error	hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs);
+
+// Attempt to set up (non-blocking) the write pipeline for the block associated
+// with this struct.
+//
+// Returns HDFS_SUCCESS if the pipeline was successfully created, HDFS_AGAIN if
+// there are resources that must be waited on before continuing with the pipeline
+// setup, or another error code on failure.
+//
+// If an error is received by a datanode along the pipeline, *error_idx is set to
+// the index of the datanode in the pipeline that reported the error; in all other
+// cases *error_idx is set to -1.
+//
+// This function should be repeatedly called until it returns a value other than
+// HDFS_AGAIN.
+//
+// For convenience purposes this function will initialize and/or finalize the
+// connection to the datanode if not already done so. This allows users to not
+// have to maintain state information regarding the connection setup.
+//
+// This function only needs to be explicitly called when setting up an append or
+// recovery pipeline, as the updatePipeline RPC should be sent to the namenode
+// following successful pipeline creation, but before data is sent to the datanode
+// pipeline. hdfs_datanode_write() and hdfs_datanode_write_file() handle pipeline
+// setup themselves (if necessary), so it is unnecessary to call this function
+// unless an action must be taken after pipeline setup but prior to data
+// transmission (e.g. sending the updatePipelineRPC).
+struct hdfs_error	hdfs_datanode_write_setup_pipeline_nb(struct hdfs_datanode *d,
+			int *error_idx);
 
 // Attempt to write (non-blocking) a buffer to the block associated with this
 // connection.
@@ -630,9 +823,10 @@ struct hdfs_error	hdfs_datanode_check_acks(struct hdfs_datanode *d, ssize_t *nac
 //
 // This function should only be called after hdfs_datanode_write_nb() or
 // hdfs_datanode_write_file_nb() have indicated that all data passed to them have
-// been sent to the datanode (but not necessarily acknowledged). *nacked is set to
-// the number of bytes that have been acknowledged during this invocation (which
-// may be 0).
+// been sent to the datanode (but not necessarily acknowledged).
+//
+// *nacked is set to the number of bytes that have been acknowledged during this
+// invocation (which may be 0).
 //
 // Returns HDFS_SUCCESS if all written bytes have been acknowledged and the
 // pipeline has acknowledged that we have finished writing to the block. Returns
@@ -697,5 +891,41 @@ struct hdfs_error	hdfs_datanode_read_nb(struct hdfs_datanode *d, size_t len, voi
 // if the user has set it to be non-blocking
 struct hdfs_error	hdfs_datanode_read_file_nb(struct hdfs_datanode *d, off_t len, int fd,
 			off_t fdoff, ssize_t *nread);
+
+// Initialize the datanode struct with the target datanodes for a block transfer
+// operation
+//
+// targets must be a struct hdfs_transfer_targets received from a call to
+// hdfs_get_transfer_data() (the same call that produced the located_block passed
+// to hdfs_datanode_init() for this struct hdfs_datanode instance)
+//
+// This function must be called prior to the first invocation of
+// hdfs_datanode_transfer_nb()
+//
+// Return HDFS_SUCCESS or another error code on failure
+struct hdfs_error	hdfs_datanode_transfer_nb_init(struct hdfs_datanode *d,
+			struct hdfs_transfer_targets *targets);
+
+// Attempt to transfer (non-blocking) the block associated with this connection to
+// the target datanodes as specified in an earlier call to
+// hdfs_datanode_transfer_nb_init().
+//
+// Returns HDFS_SUCCESS if the block tranfer operation was completed succesfully,
+// HDFS_AGAIN if we are waiting on I/O, or another error code on failure.
+//
+// This function should be called repeatedly until a value other than HDFS_AGAIN is
+// returned.
+//
+// Such a transfer operation should be performed when there is a pipeline failure
+// and new datanodes are to be added to the pipeline (only necessary when data has
+// already been sent to the block, including for appends). That is, a transfer
+// should be done when new datanodes are added to a pipeline and a
+// HDFS_DN_RECOVERY_APPEND_SETUP or HDFS_DN_RECOVERY_STREAMING recovery datanode
+// write will be performed to complete the write.
+//
+// For convenience purposes this function will initialize and/or finalize the
+// connection to the datanode if not already done so. This allows users to not
+// have to maintain state information regarding the connection setup.
+struct hdfs_error	hdfs_datanode_transfer_nb(struct hdfs_datanode *d);
 
 #endif // HADOOFUS_LOWLEVEL_H

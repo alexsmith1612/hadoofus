@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <hadoofus/lowlevel.h>
 #include <hadoofus/objects.h>
@@ -28,7 +29,8 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 	 * structure go here.
 	 */
 
-#define ENCODE_POSTSCRIPT(lower_case)							\
+// Consider an approach that avoids local mallocs/frees if possible
+#define ENCODE_POSTSCRIPT_EX(lower_case, destructor_ex)					\
 	sz = hadoop__hdfs__ ## lower_case ## _request_proto__get_packed_size(&req);	\
 	if (dest) {									\
 		_hbuf_reserve(dest, sz);						\
@@ -36,8 +38,11 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 		    (void *)_hbuf_writeptr(dest));					\
 		_hbuf_append(dest, sz);							\
 	}										\
+	destructor_ex;									\
 	return sz;									\
 }
+
+#define ENCODE_POSTSCRIPT(lower_case) ENCODE_POSTSCRIPT_EX(lower_case, )
 
 /* New in v2 methods */
 ENCODE_PREAMBLE(getServerDefaults, GetServerDefaults, GET_SERVER_DEFAULTS)
@@ -225,6 +230,8 @@ ENCODE_POSTSCRIPT(abandon_block)
 
 ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 	Hadoop__Hdfs__ExtendedBlockProto previous = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+	Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
 {
 	// XXX keeping the arg order as is to keep some compatibility with the v1 RPC
 	ASSERT(rpc->_nargs >= 3 || rpc->_nargs <= 5);
@@ -256,11 +263,43 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 		req.previous = NULL;
 	}
 
-	if (rpc->_args[2]->ob_type != H_NULL) {
-		/* XXX not yet implemented, but it could be */
-		ASSERT(rpc->_args[2]->ob_val._array_datanode_info._len == 0);
-	}
 	req.n_excludenodes = 0;
+	if (rpc->_args[2]->ob_type != H_NULL
+	    || rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
+		req.n_excludenodes = rpc->_args[2]->ob_val._array_datanode_info._len;
+		req.excludenodes = malloc(req.n_excludenodes * sizeof(*req.excludenodes));
+		ASSERT(req.excludenodes);
+
+		dinfo_arr = malloc(req.n_excludenodes * sizeof(*dinfo_arr));
+		ASSERT(dinfo_arr);
+		did_arr = malloc(req.n_excludenodes * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < req.n_excludenodes; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[2]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			req.excludenodes[i] = dinfo;
+		}
+	}
 
 	if (rpc->_nargs >= 5) {
 		struct hdfs_object *fobj = rpc->_args[4];
@@ -273,7 +312,13 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 
 	req.n_favorednodes = 0;
 }
-ENCODE_POSTSCRIPT(add_block)
+ENCODE_POSTSCRIPT_EX(add_block,
+	if (req.n_excludenodes > 0) {
+		free(req.excludenodes);
+		free(dinfo_arr);
+		free(did_arr);
+	}
+)
 
 ENCODE_PREAMBLE(rename, Rename, RENAME)
 {
@@ -412,6 +457,273 @@ ENCODE_PREAMBLE(getLinkTarget, GetLinkTarget, GET_LINK_TARGET)
 }
 ENCODE_POSTSCRIPT(get_link_target)
 
+ENCODE_PREAMBLE(getDatanodeReport, GetDatanodeReport, GET_DATANODE_REPORT)
+{
+	ASSERT(rpc->_nargs == 1);
+	ASSERT(rpc->_args[0]->ob_type == H_DNREPORTTYPE);
+
+	req.type = _hdfs_datanode_report_type_to_proto(rpc->_args[0]->ob_val._dnreporttype._type);
+}
+ENCODE_POSTSCRIPT(get_datanode_report)
+
+ENCODE_PREAMBLE(getAdditionalDatanode, GetAdditionalDatanode, GET_ADDITIONAL_DATANODE)
+	Hadoop__Hdfs__ExtendedBlockProto blk = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__DatanodeInfoProto *existings_dinfo_arr = NULL;
+	Hadoop__Hdfs__DatanodeIDProto *existings_did_arr = NULL;
+	Hadoop__Hdfs__DatanodeInfoProto *excludes_dinfo_arr = NULL;
+	Hadoop__Hdfs__DatanodeIDProto *excludes_did_arr = NULL;
+{
+	struct hdfs_block *hb;
+
+	ASSERT(rpc->_nargs >= 7 || rpc->_nargs <= 8);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[2]->ob_type == H_ARRAY_DATANODE_INFO ||
+	    (rpc->_args[2]->ob_type == H_NULL &&
+	     rpc->_args[2]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+	ASSERT(rpc->_args[3]->ob_type == H_ARRAY_DATANODE_INFO ||
+	    (rpc->_args[3]->ob_type == H_NULL &&
+	     rpc->_args[3]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+	ASSERT(rpc->_args[4]->ob_type == H_INT); // XXX technically should be uint32
+	ASSERT(rpc->_args[5]->ob_type == H_STRING);
+	ASSERT(rpc->_args[6]->ob_type == H_ARRAY_STRING ||
+	    (rpc->_args[6]->ob_type == H_NULL &&
+	     rpc->_args[6]->ob_val._null._type == H_ARRAY_STRING));
+	ASSERT(rpc->_nargs <= 7 || rpc->_args[7]->ob_type == H_LONG); // XXX technically should be uint64
+
+	req.src = rpc->_args[0]->ob_val._string._val;
+
+	hb = &rpc->_args[1]->ob_val._block;
+	blk.poolid = hb->_pool_id;
+	blk.blockid = hb->_blkid;
+	blk.generationstamp = hb->_generation;
+	blk.has_numbytes = true;
+	blk.numbytes = hb->_length;
+	req.blk = &blk;
+
+	req.n_existings = 0;
+	if (rpc->_args[2]->ob_type != H_NULL
+	    || rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
+		req.n_existings = rpc->_args[2]->ob_val._array_datanode_info._len;
+		req.existings = malloc(req.n_existings * sizeof(*req.existings));
+		ASSERT(req.existings);
+
+		existings_dinfo_arr = malloc(req.n_existings * sizeof(*existings_dinfo_arr));
+		ASSERT(existings_dinfo_arr);
+		existings_did_arr = malloc(req.n_existings * sizeof(*existings_did_arr));
+		ASSERT(existings_did_arr);
+
+		for (unsigned i = 0; i < req.n_existings; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[2]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &existings_dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &existings_did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			req.existings[i] = dinfo;
+		}
+	}
+
+	req.n_excludes = 0;
+	if (rpc->_args[3]->ob_type != H_NULL
+	    || rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
+		req.n_excludes = rpc->_args[3]->ob_val._array_datanode_info._len;
+		req.excludes = malloc(req.n_excludes * sizeof(*req.excludes));
+		ASSERT(req.excludes);
+
+		excludes_dinfo_arr = malloc(req.n_excludes * sizeof(*excludes_dinfo_arr));
+		ASSERT(excludes_dinfo_arr);
+		excludes_did_arr = malloc(req.n_excludes * sizeof(*excludes_did_arr));
+		ASSERT(excludes_did_arr);
+
+		for (unsigned i = 0; i < req.n_excludes; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[3]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &excludes_dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &excludes_did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			req.excludes[i] = dinfo;
+		}
+	}
+
+	req.numadditionalnodes = rpc->_args[4]->ob_val._int._val;
+	req.clientname = rpc->_args[5]->ob_val._string._val;
+
+	req.n_existingstorageuuids = 0;
+	if (rpc->_args[6]->ob_type != H_NULL
+	    || rpc->_args[6]->ob_val._array_string._len > 0) {
+		req.n_existingstorageuuids = rpc->_args[6]->ob_val._array_string._len;
+		req.existingstorageuuids = malloc(req.n_existingstorageuuids * sizeof(req.existingstorageuuids));
+		ASSERT(req.existingstorageuuids);
+
+		for (unsigned i = 0; i < req.n_existingstorageuuids; i++) {
+			req.existingstorageuuids[i] = rpc->_args[6]->ob_val._array_string._val[i];
+		}
+	}
+
+	if (rpc->_nargs >= 8) {
+		struct hdfs_long *flong = &rpc->_args[7]->ob_val._long;
+
+		if (flong->_val != 0) {
+			req.has_fileid = true;
+			req.fileid = flong->_val;
+		}
+	}
+}
+ENCODE_POSTSCRIPT_EX(get_additional_datanode,
+	if (req.n_existings > 0) {
+		free(req.existings);
+		free(existings_dinfo_arr);
+		free(existings_did_arr);
+	}
+	if (req.n_excludes > 0) {
+		free(req.excludes);
+		free(excludes_dinfo_arr);
+		free(excludes_did_arr);
+	}
+	if (req.n_existingstorageuuids > 0) {
+		free(req.existingstorageuuids);
+	}
+)
+
+ENCODE_PREAMBLE(updateBlockForPipeline, UpdateBlockForPipeline, UPDATE_BLOCK_FOR_PIPELINE)
+	Hadoop__Hdfs__ExtendedBlockProto eb = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+{
+	struct hdfs_block *hb;
+
+	ASSERT(rpc->_nargs == 2);
+	ASSERT(rpc->_args[0]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[1]->ob_type == H_STRING);
+
+	hb = &rpc->_args[0]->ob_val._block;
+	eb.poolid = hb->_pool_id;
+	eb.blockid = hb->_blkid;
+	eb.generationstamp = hb->_generation;
+	eb.has_numbytes = true;
+	eb.numbytes = hb->_length;
+	req.block = &eb;
+
+	req.clientname = rpc->_args[1]->ob_val._string._val;
+}
+ENCODE_POSTSCRIPT(update_block_for_pipeline)
+
+ENCODE_PREAMBLE(updatePipeline, UpdatePipeline, UPDATE_PIPELINE)
+	Hadoop__Hdfs__ExtendedBlockProto oldblock = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__ExtendedBlockProto newblock = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+	Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
+{
+	struct hdfs_block *hb;
+
+	ASSERT(rpc->_nargs == 5);
+	ASSERT(rpc->_args[0]->ob_type == H_STRING);
+	ASSERT(rpc->_args[1]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[2]->ob_type == H_BLOCK);
+	ASSERT(rpc->_args[3]->ob_type == H_ARRAY_DATANODE_INFO ||
+	    (rpc->_args[3]->ob_type == H_NULL &&
+	     rpc->_args[3]->ob_val._null._type == H_ARRAY_DATANODE_INFO));
+	ASSERT(rpc->_args[4]->ob_type == H_ARRAY_STRING ||
+	    (rpc->_args[4]->ob_type == H_NULL &&
+	     rpc->_args[4]->ob_val._null._type == H_ARRAY_STRING));
+
+	req.clientname = rpc->_args[0]->ob_val._string._val;
+
+	hb = &rpc->_args[1]->ob_val._block;
+	oldblock.poolid = hb->_pool_id;
+	oldblock.blockid = hb->_blkid;
+	oldblock.generationstamp = hb->_generation;
+	oldblock.has_numbytes = true;
+	oldblock.numbytes = hb->_length;
+	req.oldblock = &oldblock;
+
+	hb = &rpc->_args[2]->ob_val._block;
+	newblock.poolid = hb->_pool_id;
+	newblock.blockid = hb->_blkid;
+	newblock.generationstamp = hb->_generation;
+	newblock.has_numbytes = true;
+	newblock.numbytes = hb->_length;
+	req.newblock = &newblock;
+
+	req.n_newnodes = 0;
+	if (rpc->_args[3]->ob_type != H_NULL
+	    || rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
+		req.n_newnodes = rpc->_args[3]->ob_val._array_datanode_info._len;
+		req.newnodes = malloc(req.n_newnodes * sizeof(*req.newnodes));
+		ASSERT(req.newnodes);
+
+		did_arr = malloc(req.n_newnodes * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < req.n_newnodes; i++) {
+			struct hdfs_object *h_dinfo_obj = rpc->_args[3]->ob_val._array_datanode_info._values[i];
+			struct hdfs_datanode_info *h_dinfo = &h_dinfo_obj->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			req.newnodes[i] = did;
+		}
+	}
+
+	req.n_storageids = 0;
+	if (rpc->_args[4]->ob_type != H_NULL
+	    || rpc->_args[4]->ob_val._array_string._len > 0) {
+		req.n_storageids = rpc->_args[4]->ob_val._array_string._len;
+		req.storageids = malloc(req.n_storageids * sizeof(*req.storageids));
+		ASSERT(req.storageids);
+
+		for (unsigned i = 0; i < req.n_storageids; i++) {
+			req.storageids[i] = rpc->_args[4]->ob_val._array_string._val[i];
+		}
+	}
+}
+ENCODE_POSTSCRIPT_EX(update_pipeline,
+	if (req.n_newnodes > 0) {
+		free(req.newnodes);
+		free(did_arr);
+	}
+	if (req.n_storageids > 0) {
+		free(req.storageids);
+	}
+)
+
 typedef size_t (*_rpc2_encoder)(struct hdfs_heap_buf *, struct hdfs_rpc_invocation *);
 static struct _rpc2_enc_lut {
 	const char *	re_method;
@@ -442,6 +754,10 @@ static struct _rpc2_enc_lut {
 	_RENC(getFileLinkInfo),
 	_RENC(createSymlink),
 	_RENC(getLinkTarget),
+	_RENC(getDatanodeReport),
+	_RENC(getAdditionalDatanode),
+	_RENC(updateBlockForPipeline),
+	_RENC(updatePipeline),
 	{ NULL, NULL, },
 #undef _RENC
 };
@@ -515,6 +831,10 @@ _oslurp_ ## lowerCamel (struct hdfs_heap_buf *buf)					\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,				\
 	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield))
 
+#define DECODE_PB_ARRAY(lowerCamel, CamelCase, lower_case, objbuilder, respfield)	\
+	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,					\
+	    result = _hdfs_ ## objbuilder ## _new_proto(resp->respfield, resp->n_ ## respfield))
+
 #define _DECODE_PB_NULLABLE(lowerCamel, CamelCase, lower_case, objbuilder, respfield, nullctor)	\
 	DECODE_PB_EX(lowerCamel, CamelCase, lower_case,					\
 		if (resp->respfield != NULL) {						\
@@ -545,8 +865,8 @@ DECODE_PB_NULLABLE(getBlockLocations, GetBlockLocations, get_block_locations, lo
  */
 DECODE_PB_NULLABLE(create, Create, create, file_status, fs, H_FILE_STATUS)
 DECODE_PB(delete, Delete, delete, boolean, result)
-DECODE_PB_NULLABLE(append, Append, append, located_block, block,
-    H_LOCATED_BLOCK);
+DECODE_PB_EX(append, Append, append,
+    result = _hdfs_located_block_with_status_new_proto(resp->block, resp->stat));
 DECODE_PB(setReplication, SetReplication, set_replication, boolean, result)
 DECODE_PB_VOID(setPermission, SetPermission, set_permission)
 DECODE_PB_VOID(setOwner, SetOwner, set_owner)
@@ -566,6 +886,10 @@ DECODE_PB_NULLABLE(getFileLinkInfo, GetFileLinkInfo, get_file_link_info, file_st
 DECODE_PB_VOID(createSymlink, CreateSymlink, create_symlink)
 DECODE_PB_EX(getLinkTarget, GetLinkTarget, get_link_target,
 	result = hdfs_string_new(resp->targetpath))
+DECODE_PB_ARRAY(getDatanodeReport, GetDatanodeReport, get_datanode_report, array_datanode_info, di)
+DECODE_PB(getAdditionalDatanode, GetAdditionalDatanode, get_additional_datanode, located_block, block)
+DECODE_PB(updateBlockForPipeline, UpdateBlockForPipeline, update_block_for_pipeline, located_block, block)
+DECODE_PB_VOID(updatePipeline, UpdatePipeline, update_pipeline)
 
 static struct _rpc2_dec_lut {
 	const char *		rd_method;
@@ -596,6 +920,10 @@ static struct _rpc2_dec_lut {
 	_RDEC(getFileLinkInfo),
 	_RDEC(createSymlink),
 	_RDEC(getLinkTarget),
+	_RDEC(getDatanodeReport),
+	_RDEC(getAdditionalDatanode),
+	_RDEC(updateBlockForPipeline),
+	_RDEC(updatePipeline),
 	{ NULL, NULL, },
 #undef _RDEC
 };

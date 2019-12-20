@@ -44,18 +44,18 @@ enum hdfs_error_numeric {
 	HDFS_ERR_DATANODE_UNSUPPORTED_CHECKSUM,
 
 // Direct translations of Datanode STATUS codes.  More information may be
-// available in the hdfs_datanode_opresult_message (optionally provided by HDFS
-// datanode).  If no message was provided, the pointer will be NULL.
+// available in dn_opresult_message (optionally provided by HDFS datanode) in
+// struct hdfs_datanode.  If no message was provided, the pointer will be NULL.
 	HDFS_ERR_DN_ERROR,
 	HDFS_ERR_DN_ERROR_CHECKSUM,
 	HDFS_ERR_DN_ERROR_INVALID,
 	HDFS_ERR_DN_ERROR_EXISTS,
 	HDFS_ERR_DN_ERROR_ACCESS_TOKEN,
 	// Or STATUS code not recognized by libhadoofus; check
-	// hdfs_datanode_unknown_status to determine value.
+	// dn_unknown_status in struct hdfs_datanode to determine value.
 	HDFS_ERR_UNRECOGNIZED_DN_ERROR,
 	// STATUS code was recognized, but not valid in the scenario.  The
-	// value can be checked with hdfs_datanode_unknown_status.
+	// value can be checked with dn_unknown_status in struct hdfs_datanode.
 	HDFS_ERR_INVALID_DN_ERROR,
 
 // Protocol encoding errors
@@ -97,6 +97,15 @@ enum hdfs_error_numeric {
 	HDFS_ERR_KERBEROS_DOWNGRADE,
 	// Unexpected and unhandled error negotiating kerberos
 	HDFS_ERR_KERBEROS_NEGOTIATION,
+	// A located block object has storage ids but not the same number as
+	// datanode_infos/locations
+	HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS,
+	// A located block object has storage types but not the same number as
+	// datanode_infos/locations
+	HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES,
+	// The located block passed to hdfs_datanode_write_set_append_or_recovery()
+	// does not have a generation stamp larger than the old generation stamp
+	HDFS_ERR_APPEND_OR_RECOVERY_BAD_GENERATION,
 	_HDFS_ERR_END
 };
 #define _HDFS_ERR_MAXIMUM (_HDFS_ERR_END - 1)
@@ -154,17 +163,54 @@ enum hdfs_namenode_proto {
 };
 
 enum hdfs_checksum_type {
-	/* Chosen to match wire values in HDFS2 */
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
 	HDFS_CSUM_NULL = 0,
 	HDFS_CSUM_CRC32 = 1,
 	HDFS_CSUM_CRC32C = 2,
 };
 
 enum hdfs_file_type {
-	/* Chosen to match wire values in HDFS2 */
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
 	HDFS_FT_DIR = 1,
 	HDFS_FT_FILE = 2,
 	HDFS_FT_SYMLINK = 3,
+};
+
+enum hdfs_storage_type {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_STORAGE_DISK = 1,
+	HDFS_STORAGE_SSD = 2,
+	HDFS_STORAGE_ARCHIVE = 3,
+	HDFS_STORAGE_RAM_DISK = 4,
+	HDFS_STORAGE_PROVIDED = 5,
+};
+
+enum hdfs_datanode_report_type {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_DNREPORT_ALL = 1,
+	HDFS_DNREPORT_LIVE = 2,
+	HDFS_DNREPORT_DEAD = 3,
+	HDFS_DNREPORT_DECOMMISSIONING = 4,
+	HDFS_DNREPORT_ENTERING_MAINTENANCE = 5,
+	HDFS_DNREPORT_IN_MAINTENANCE = 6,
+};
+
+enum hdfs_cipher_suite {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_CS_UNKNOWN = 1,
+	HDFS_CS_AES_CTR_NOPADDING = 2,
+};
+
+enum hdfs_crypto_proto_version {
+	// Chosen to match wire values in HDFS2. Note that additional values may
+	// be received if the hdfs protocol is updated.
+	HDFS_CPV_UNKNOWN = 1,
+	HDFS_CPV_ENCRYPTION_ZONES = 2,
 };
 
 enum hdfs_object_type {
@@ -202,6 +248,8 @@ enum hdfs_object_type {
 	/* v2+ types */
 	H_FS_SERVER_DEFAULTS,
 	_H_V2_START = H_FS_SERVER_DEFAULTS,
+	H_FILE_ENCRYPTION_INFO,
+	H_LOCATED_BLOCK_WITH_STATUS,
 
 	/* end of valid non-exception type range */
 	_H_END,
@@ -219,7 +267,7 @@ enum hdfs_exception_type {
 	H_IO_EXCEPTION,
 	H_LEASE_EXPIRED_EXCEPTION,
 	H_SECURITY_EXCEPTION,
-	H_QUOTA_EXCEPTION,
+	H_DSQUOTA_EXCEPTION,
 	H_ILLEGAL_ARGUMENT_EXCEPTION,
 	H_INVALID_TOKEN_EXCEPTION,
 	H_INVALID_PATH_EXCEPTION,
@@ -228,6 +276,15 @@ enum hdfs_exception_type {
 	H_SASL_EXCEPTION,
 	H_RPC_EXCEPTION,
 	H_RPC_NO_SUCH_METHOD_EXCEPTION,
+	H_HADOOP_ILLEGAL_ARGUMENT_EXCEPTION,
+	H_SAFEMODE_EXCEPTION,
+	H_PARENT_NOT_DIRECTORY_EXCEPTION,
+	H_QUOTA_EXCEPTION,
+	H_NSQUOTA_EXCEPTION,
+	H_UNSUPPORTED_OPERATION_EXCEPTION,
+	H_NOT_REPLICATED_YET_EXCEPTION,
+	H_PATH_NOT_DIRECTORY_EXCEPTION,
+	H_PATH_NOT_EMPTY_DIRECTORY_EXCEPTION,
 
 	_H_EXCEPTION_END,
 };
@@ -279,6 +336,17 @@ struct hdfs_located_block {
 	/* v2+ */
 	char *_pool_id;
 	bool _corrupt;
+
+	char **_storage_ids;
+	int _num_storage_ids;
+
+	enum hdfs_storage_type *_storage_types;
+	int _num_storage_types;
+};
+
+struct hdfs_located_block_with_status {
+	struct hdfs_object *_block/* type: hdfs_located_block or NULL */;
+	struct hdfs_object *_status/* type: hdfs_file_status (NULL for versions before 2.7) */;
 };
 
 struct hdfs_located_blocks {
@@ -305,8 +373,10 @@ struct hdfs_datanode_info {
 	char *_location/* rack */;
 	char *_ipaddr,
 	     *_hostname,
-	     *_port;
-	uint16_t _namenodeport;
+	     *_port,
+	     *_uuid;
+	uint16_t _namenodeport,
+		 _infoport;
 	/* "name" is hostname:port, "hostname" is just hostname */
 };
 
@@ -332,6 +402,7 @@ struct hdfs_file_status {
 	char *_symlink_target;		/* NULL iff not a symlink */
 	uint64_t _fileid;
 	int32_t _num_children;
+	struct hdfs_object *_encryption_info/* type: hdfs_file_encryption_info. NULL iff not encrypted */;
 };
 
 struct hdfs_content_summary {
@@ -356,7 +427,7 @@ struct hdfs_array_byte {
 };
 
 struct hdfs_rpc_invocation {
-	struct hdfs_object *_args[8];
+	struct hdfs_object *_args[10];
 	char *_method;
 	int _nargs,
 	    _msgno;
@@ -402,6 +473,10 @@ struct hdfs_array_string {
 	char **_val;
 };
 
+struct hdfs_dnreporttype {
+	enum hdfs_datanode_report_type _type;
+};
+
 struct hdfs_fsperms {
 	int16_t _perms;
 };
@@ -424,6 +499,17 @@ struct hdfs_fsserverdefaults {
 	enum hdfs_checksum_type _checksumtype;
 };
 
+struct hdfs_file_encryption_info {
+	enum hdfs_cipher_suite _suite;
+	enum hdfs_crypto_proto_version _crypto_proto_version;
+	uint8_t *_key;
+	uint32_t _key_len;
+	uint8_t *_iv;
+	uint32_t _iv_len;
+	char *_key_name;
+	char *_ez_key_version_name;
+};
+
 struct hdfs_exception {
 	char *_msg;
 	enum hdfs_exception_type _etype;
@@ -439,6 +525,7 @@ struct hdfs_object {
 		struct hdfs_long _long;
 		struct hdfs_array_long _array_long;
 		struct hdfs_located_block _located_block;
+		struct hdfs_located_block_with_status _located_block_with_status;
 		struct hdfs_located_blocks _located_blocks;
 		struct hdfs_directory_listing _directory_listing;
 		struct hdfs_datanode_info _datanode_info;
@@ -452,10 +539,12 @@ struct hdfs_object {
 		struct hdfs_exception _exception;
 		struct hdfs_token _token;
 		struct hdfs_string _string;
+		struct hdfs_dnreporttype _dnreporttype;
 		struct hdfs_fsperms _fsperms;
 		struct hdfs_array_string _array_string;
 		struct hdfs_upgrade_status_report _upgrade_status;
 		struct hdfs_fsserverdefaults _server_defaults;
+		struct hdfs_file_encryption_info _file_encryption_info;
 	} ob_val;
 	enum hdfs_object_type ob_type;
 };
@@ -479,10 +568,11 @@ struct hdfs_object *	hdfs_located_blocks_new(bool beingcreated, int64_t size);
 struct hdfs_object *	hdfs_directory_listing_new(void);
 struct hdfs_object *	hdfs_located_directory_listing_new(void);
 struct hdfs_object *	hdfs_datanode_info_new(const char *ipaddr, const char *host, const char *port,
-			const char *rack, uint16_t namenodeport);
+			const char *rack, const char *uuid, uint16_t namenodeport, uint16_t infoport);
 struct hdfs_object *	hdfs_datanode_info_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_datanode_info_new(void);
 struct hdfs_object *	hdfs_array_datanode_info_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_array_datanode_info_from_located_block(struct hdfs_object *lb);
 struct hdfs_object *	hdfs_file_status_new(const char *logical_name, const struct stat *st,
 			const char *owner, const char *group);
 struct hdfs_object *	hdfs_file_status_new_ex(const char *logical_name, int64_t size,
@@ -495,6 +585,7 @@ struct hdfs_object *	hdfs_array_byte_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_array_string_new(int32_t len, const char **strings); /* copies */
 void			hdfs_array_string_add(struct hdfs_object *, const char *); /* copies */
 struct hdfs_object *	hdfs_array_string_copy(struct hdfs_object *);
+struct hdfs_object *	hdfs_storage_ids_array_string_from_located_block(struct hdfs_object *lb);
 struct hdfs_object *	hdfs_rpc_invocation_new(const char *name, ...);
 struct hdfs_object *	hdfs_authheader_new(const char *user);
 struct hdfs_object *	hdfs_authheader_new_ext(enum hdfs_namenode_proto,
@@ -511,7 +602,7 @@ struct hdfs_object *	hdfs_string_new(const char *);
 struct hdfs_object *	hdfs_text_new(const char *);
 struct hdfs_object *	hdfs_fsperms_new(int16_t);
 struct hdfs_object *	hdfs_safemodeaction_new(const char *);
-struct hdfs_object *	hdfs_dnreporttype_new(const char *);
+struct hdfs_object *	hdfs_dnreporttype_new(enum hdfs_datanode_report_type type);
 struct hdfs_object *	hdfs_array_locatedblock_new(void);
 struct hdfs_object *	hdfs_array_locatedblock_copy(struct hdfs_object *);
 struct hdfs_object *	hdfs_upgradeaction_new(const char *);
@@ -520,6 +611,10 @@ struct hdfs_object *	hdfs_upgrade_status_report_new(int32_t, int16_t);
 // Caller loses references to objects that are being appended into arrays.
 void	hdfs_located_block_append_datanode_info(
 	struct hdfs_object *located_block, struct hdfs_object *datanode_info);
+void	hdfs_located_block_append_storage_id(
+	struct hdfs_object *located_block, char *storage_id);
+void	hdfs_located_block_append_storage_type(
+	struct hdfs_object *located_block, enum hdfs_storage_type type);
 void	hdfs_located_blocks_append_located_block(
 	struct hdfs_object *located_blocks, struct hdfs_object *located_block);
 void	hdfs_array_locatedblock_append_located_block(
@@ -549,5 +644,59 @@ struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
 
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
+
+// Update a H_LOCATED_BLOCK object with the relevant fields from the located
+// block returned by getAdditionalDatanode. Not all of the located block fields
+// are meaningfully populated in the response to getAdditionalDatanode, so
+// instead of directly using said returned located block, this function should
+// be used to update an existing located block.
+//
+// Following this function call, dst is suitable for passing to
+// hdfs_get_transfer_data() and then for passing to hdfs_datanode_new() or
+// hdfs_datanode_init() for a recovery block write (NOTE dst's located block
+// length must separately be appended to include any bytes that were
+// acknowledged while before pipeline failure)
+void	hdfs_located_block_update_from_get_additional_datanode(struct hdfs_object *dst,
+	struct hdfs_object *gad_res);
+
+// Specifies the datanode targets for a datanode block transfer operation.
+struct hdfs_transfer_targets {
+	int _num_targets; // length of all three arrays (unless _storage_ids
+			  // and _storage_types are not given)
+	struct hdfs_object **_locs; // type: struct hdfs_datanode_info[]
+	char **_storage_ids; // NULL if none
+	enum hdfs_storage_type *_storage_types; // NULL if none
+};
+
+// Get the information required for a datanode transfer from a located_block
+// that was updated with the response from a getAdditionalDatanode RPC call (via
+// hdfs_located_block_update_from_get_additional_datanode()) and the list of
+// existing datanodes given as an argument to the getAdditionalDatanode RPC.
+//
+// On success *transfer_lb is set to a located block object suitable for use
+// with hdfs_datanode_new() or hdfs_datanode_init() for the datanode block
+// transfer operation. *transfer_lb should be freed with hdfs_object_free()
+//
+// On success *targets is set to a struct hdfs_transfer_targets instance that is
+// suitable for use with hdfs_datanode_transfer() or
+// hdfs_datanode_transfer_nb_init(). *targets should be freed with
+// hdfs_transfer_targets_free()
+//
+// Returns HDFS_SUCCESS or an error code on failure.
+struct hdfs_error	hdfs_get_transfer_data(struct hdfs_object *located_block,
+			struct hdfs_object *existing, struct hdfs_object **transfer_lb,
+			struct hdfs_transfer_targets **targets);
+
+// Frees a struct hdfs_transfer_targets instance as allocated by
+// hdfs_get_transfer_data()
+void	hdfs_transfer_targets_free(struct hdfs_transfer_targets *trg);
+
+// Update a H_LOCATED_BLOCK object with the relevant fields form the located
+// block returned by updateBlockForPipeline. Not all of the located block fields
+// are meaningfully populated in the response to updateBlockForPipeline, so
+// instead of directly using said returned located block, this function should
+// be used to update an existing located block.
+void	hdfs_located_block_update_from_update_block_for_pipeline(struct hdfs_object *dst,
+	struct hdfs_object *ubfp_res);
 
 #endif

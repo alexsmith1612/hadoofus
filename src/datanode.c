@@ -22,9 +22,6 @@
 
 // TODO look into datatransfer encryption
 
-_Thread_local int hdfs_datanode_unknown_status EXPORT_SYM;
-_Thread_local const char *hdfs_datanode_opresult_message EXPORT_SYM;
-
 static char DN_V1_CHECKSUM_OK[2] = {
 	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK >> 8),
 	(char)(HADOOP__HDFS__STATUS__CHECKSUM_OK & 0xff),
@@ -40,7 +37,7 @@ static const int MAX_UNACKED_PACKETS = 80 /*same as apache*/,
 	     PACKET_SIZE = 64 * 1024;
 static const long HEART_BEAT_SEQNO = -1L;
 
-static struct hdfs_error	error_from_datanode(int);
+static struct hdfs_error	error_from_datanode(int err, int *unknown_status);
 
 static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
 				off_t len);
@@ -49,22 +46,28 @@ static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int 
 static struct hdfs_error	_datanode_read_blocking(struct hdfs_datanode *d, bool verifycrcs, off_t bloff,
 				off_t len, int fd, off_t fdoff, void *buf);
 static struct hdfs_error	_datanode_write_init(struct hdfs_datanode *d, bool sendcrcs);
+static struct hdfs_error	_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx);
+static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx);
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
 static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
-				int fd, off_t len, off_t fdoff);
+				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+static struct hdfs_error	_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
+static struct hdfs_error	_datanode_transfer(struct hdfs_datanode *d);
+static struct hdfs_error	_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets);
 static struct hdfs_error	_read_read_status(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_read_status2(struct hdfs_datanode *, struct hdfs_heap_buf *,
 				struct hdfs_read_info *);
 static struct hdfs_error	_read_write_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
-static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *);
+static struct hdfs_error	_read_write_status2(struct hdfs_datanode *, struct hdfs_heap_buf *, int *err_idx);
+static struct hdfs_error	_read_transfer_status(struct hdfs_datanode *, struct hdfs_heap_buf *);
 static struct hdfs_error	_recv_packet(struct hdfs_packet_state *, struct hdfs_read_info *);
 static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
 static struct hdfs_error	_recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri);
-static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps);
-static void			_set_opres_msg(const char *);
+static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx);
+static void			_set_opres_msg(struct hdfs_datanode *d, const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen);
 static struct hdfs_error	_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
@@ -77,30 +80,37 @@ static struct hdfs_error	_check_acks(struct hdfs_packet_state *ps, ssize_t *nack
 
 EXPORT_SYM struct hdfs_datanode *
 hdfs_datanode_new(struct hdfs_object *located_block, const char *client,
-	int proto, struct hdfs_error *error_out)
+	int proto, enum hdfs_datanode_op op, struct hdfs_error *error_out)
 {
-	struct hdfs_datanode *d;
-	struct hdfs_error error;
+	struct hdfs_datanode *d = NULL;
+	struct hdfs_error error = HDFS_SUCCESS;
 
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
 
 	/* Bail early if the LB is non-actionable */
 	if (__predict_false(located_block->ob_val._located_block._num_locs == 0)) {
-		*error_out = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
-		return NULL;
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
 	}
 
 	d = hdfs_datanode_alloc();
-	hdfs_datanode_init(d, located_block, client, proto);
+	error = hdfs_datanode_init(d, located_block, client, proto, op);
+	if (hdfs_is_error(error))
+		goto out;
 	error = hdfs_datanode_connect(d);
-	if (!hdfs_is_error(error))
-		return d;
+	if (hdfs_is_error(error))
+		goto out;
 
-	hdfs_datanode_destroy(d);
-	free(d);
-	*error_out = error;
-	return NULL;
+out:
+	if (hdfs_is_error(error)) {
+		if (d) {
+			hdfs_datanode_delete(d);
+			d = NULL;
+		}
+		*error_out = error;
+	}
+	return d;
 }
 
 EXPORT_SYM void
@@ -137,10 +147,13 @@ hdfs_datanode_alloc(void)
 // instead of using hdfs_datanode_connect()/hdfs_datanode_connect_nb(). If
 // not, then we should probably make hdfs_datanode_set_pool_id() static (or
 // just remove it entirely and move its functionality to hdfs_datanode_init())
-EXPORT_SYM void
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
-	const char *client, int proto)
+	const char *client, int proto, enum hdfs_datanode_op op)
 {
+	struct hdfs_error error = HDFS_SUCCESS;
+	struct hdfs_located_block *lb;
+
 	ASSERT(d);
 	ASSERT(located_block);
 	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
@@ -149,35 +162,75 @@ hdfs_datanode_init(struct hdfs_datanode *d, struct hdfs_object *located_block,
 	    proto == HDFS_DATANODE_AP_2_0);
 	ASSERT(d->dn_state == HDFS_DN_ST_ZERO);
 
+	lb = &located_block->ob_val._located_block;
+
+	/* Bail early if the LB is non-actionable */
+	if (__predict_false(lb->_num_locs == 0)) {
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
+	}
+
+	// ensure that the located block arrays are consistent
+	if (__predict_false(lb->_num_storage_ids != lb->_num_storage_ids)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (__predict_false(lb->_num_storage_ids > 0 && lb->_num_storage_ids != lb->_num_locs)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_IDS);
+		goto out;
+	}
+	if (__predict_false(lb->_num_storage_types > 0 && lb->_num_storage_types != lb->_num_locs)) {
+		error = error_from_hdfs(HDFS_ERR_LOCATED_BLOCK_BAD_STORAGE_TYPES);
+		goto out;
+	}
+
 	d->dn_sock = -1;
 	d->dn_proto = proto;
+	d->dn_op = op;
 	d->dn_client = strdup(client);
 	ASSERT(d->dn_client);
 
-	d->dn_blkid = located_block->ob_val._located_block._blockid;
-	d->dn_size = located_block->ob_val._located_block._len;
-	d->dn_gen = located_block->ob_val._located_block._generation;
-	d->dn_offset = located_block->ob_val._located_block._offset;
-	d->dn_nlocs = located_block->ob_val._located_block._num_locs;
-	if (d->dn_nlocs > 0) {
-		d->dn_locs = malloc(d->dn_nlocs * sizeof(*d->dn_locs));
-		ASSERT(d->dn_locs);
+	d->dn_blkid = lb->_blockid;
+	d->dn_size = lb->_len;
+	d->dn_maxbytesrcvd = d->dn_size; // gets adjusted in set_recovery() if need be
+	d->dn_gen = lb->_generation;
+	d->dn_newgen = lb->_generation;
+	d->dn_offset = lb->_offset;
+
+	d->dn_nlocs = lb->_num_locs;
+	ASSERT(d->dn_nlocs > 0);
+	d->dn_locs = malloc(d->dn_nlocs * sizeof(*d->dn_locs));
+	ASSERT(d->dn_locs);
+	for (int i = 0; i < d->dn_nlocs; i++) {
+		d->dn_locs[i] = hdfs_datanode_info_copy(lb->_locs[i]);
+	}
+	ASSERT(lb->_num_storage_ids == lb->_num_storage_types);
+	if (lb->_num_storage_ids > 0) {
+		d->dn_storage_ids = malloc(d->dn_nlocs * sizeof(*d->dn_storage_ids));
+		ASSERT(d->dn_storage_ids);
+		d->dn_storage_types = malloc(d->dn_nlocs * sizeof(*d->dn_storage_types));
+		ASSERT(d->dn_storage_types);
+
 		for (int i = 0; i < d->dn_nlocs; i++) {
-			struct hdfs_object *di = located_block->ob_val._located_block._locs[i];
-			d->dn_locs[i] = hdfs_datanode_info_copy(di);
+			char *sid_copy = strdup(lb->_storage_ids[i]);
+			ASSERT(sid_copy);
+			d->dn_storage_ids[i] = sid_copy;
+			d->dn_storage_types[i] = lb->_storage_types[i];
 		}
 	}
 
-	if (located_block->ob_val._located_block._token)
-		d->dn_token = hdfs_token_copy(located_block->ob_val._located_block._token);
+	if (lb->_token)
+		d->dn_token = hdfs_token_copy(lb->_token);
 	else
 		d->dn_token = hdfs_token_new_empty();
 
 	if (proto >= HDFS_DATANODE_AP_2_0)
-		hdfs_datanode_set_pool_id(d,
-		    located_block->ob_val._located_block._pool_id);
+		hdfs_datanode_set_pool_id(d, lb->_pool_id);
 
 	d->dn_state = HDFS_DN_ST_INITED;
+
+out:
+	return error;
 }
 
 EXPORT_SYM void
@@ -262,8 +315,23 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 		hdfs_object_free(d->dn_locs[i]);
 	}
 	PTR_FREE(d->dn_locs);
+	if (d->dn_storage_ids) {
+		for (int i = 0; i < d->dn_nlocs; i++) {
+			free(d->dn_storage_ids[i]);
+		}
+	}
+	PTR_FREE(d->dn_storage_ids);
+	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
 	hdfs_conn_ctx_free(&d->dn_cctx);
+	if (d->dn_opresult_message)
+		free(__DECONST(char *, d->dn_opresult_message));
+	d->dn_opresult_message = NULL;
+
+	if (d->dn_ttrgs) {
+		hdfs_transfer_targets_free(d->dn_ttrgs);
+		d->dn_ttrgs = NULL;
+	}
 
 	_packet_state_clean(&d->dn_pstate, reuse);
 	_read_info_clean(&d->dn_rinfo, reuse);
@@ -272,9 +340,12 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 		_hbuf_reset(&d->dn_hdrbuf);
 		_hbuf_reset(&d->dn_recvbuf);
 		d->dn_state = HDFS_DN_ST_ZERO;
-		d->dn_op = HDFS_DN_OP_NONE;
+		d->dn_op_inited = false;
+		d->dn_append_or_recovery = false;
 		d->dn_conn_idx = 0;
 		d->dn_last = false;
+		d->dn_blocking_pipeline_setup = false;
+		d->dn_recovery = HDFS_DN_RECOVERY_NONE;
 	} else {
 		PTR_FREE(d->dn_hdrbuf.buf);
 		PTR_FREE(d->dn_recvbuf.buf);
@@ -322,27 +393,14 @@ hdfs_datanode_connect_nb(struct hdfs_datanode *d)
 	ASSERT(d);
 	ASSERT(d->dn_state == HDFS_DN_ST_INITED || d->dn_state == HDFS_DN_ST_CONNPENDING);
 
+	// XXX consider moving this to hdfs_datanode_init()
+	// XXX consider checking this against the replication factor?
 	if (d->dn_nlocs <= 0) {
 		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
 		d->dn_state = HDFS_DN_ST_ERROR;
 		goto out;
 	}
 
-	// TODO adjust loop behavior based on operation (i.e. don't loop for writes for proper pipelining)
-
-	// TODO only try to connect to the first datanode for proper pipeline creation
-	// Need to hold on to the located block (or at least the datanode_info array)
-	// to be used for excluding nodes in event of pipeline error (perhaps just punt
-	// that to the user)
-
-	// TODO look into how connections should be created for block read (and transfer) operations
-	// It looks like read and transfer operations can connect to any of the nodes for a given
-	// block, while writes should only connect to the first and pass the rest of the nodes
-	// to the connected node as part of the pipeline setup. Perhaps there should be an
-	// enum hdfs_datanode_op argument to hdfs_datanode_new() to determine which behavior we
-	// should do. For now assume that older versions had the same pipelining process as v2+
-
-	// XXX should we report to the user which datanodes we failed to connect to?
 	do {
 		if (d->dn_state == HDFS_DN_ST_INITED) {
 			struct hdfs_object *di = d->dn_locs[d->dn_conn_idx];
@@ -354,7 +412,11 @@ hdfs_datanode_connect_nb(struct hdfs_datanode *d)
 		} else {
 			error = hdfs_datanode_connect_finalize(d);
 		}
-		if (d->dn_state == HDFS_DN_ST_ERROR && d->dn_conn_idx + 1 < d->dn_nlocs) {
+		// Only try to connect to the first datanode listed for block writes for pipeline setup
+		// XXX should we report to the user which datanodes we failed to connect to?
+		if (d->dn_state == HDFS_DN_ST_ERROR && d->dn_op != HDFS_DN_OP_WRITE_BLOCK
+		    && d->dn_conn_idx + 1 < d->dn_nlocs)
+		{
 			d->dn_state = HDFS_DN_ST_INITED;
 			d->dn_conn_idx++;
 		}
@@ -466,9 +528,74 @@ hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 // Datanode write operations
 
 EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_set_append_or_recovery(struct hdfs_datanode *d, struct hdfs_object *ubfp_lb,
+	enum hdfs_datanode_write_recovery_type type, off_t maxbytesrcvd)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	// Cannot be called after passing data to _datanode_write()
+	ASSERT(d->dn_pstate.remains_tot == 0);
+	ASSERT(d->dn_recovery == HDFS_DN_RECOVERY_NONE);
+	ASSERT(ubfp_lb);
+	ASSERT(ubfp_lb->ob_type == H_LOCATED_BLOCK);
+
+	// Generation stamp must monotonically increase
+	if (ubfp_lb->ob_val._located_block._generation <= d->dn_gen) {
+		error = error_from_hdfs(HDFS_ERR_APPEND_OR_RECOVERY_BAD_GENERATION);
+		goto out;
+	}
+
+	// we use the token immediately
+	hdfs_object_free(d->dn_token);
+	d->dn_token = hdfs_token_copy(ubfp_lb->ob_val._located_block._token);
+
+	// the generation stamp gets sent as lastgenerationstamp in the blockop
+	d->dn_newgen = ubfp_lb->ob_val._located_block._generation;
+
+	d->dn_recovery = type;
+
+	switch (d->dn_recovery) {
+	case HDFS_DN_RECOVERY_NONE: // Regular append
+	case HDFS_DN_RECOVERY_APPEND_SETUP:
+	case HDFS_DN_RECOVERY_CLOSE:
+		ASSERT(d->dn_size > 0);
+		break;
+
+	case HDFS_DN_RECOVERY_STREAMING:
+		// if maxbytes received is negative just leave it as d->dn_size
+		if (maxbytesrcvd >= 0) {
+			ASSERT(maxbytesrcvd >= d->dn_size);
+			d->dn_maxbytesrcvd = maxbytesrcvd;
+		}
+		break;
+
+	default:
+		ASSERT(false);
+	}
+
+	// XXX consider a better API for setting dn_size (i.e. pstate.offset and
+	// minbytesrcvd) than having the user manually adjust the located block
+	// length
+
+	d->dn_append_or_recovery = true;
+
+out:
+	return error;
+}
+
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs)
 {
 	return _datanode_write_init(d, sendcrcs);
+}
+
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_setup_pipeline_nb(struct hdfs_datanode *d, int *error_idx)
+{
+	return _setup_write_pipeline(d, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -480,16 +607,21 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	return _datanode_write(d, buf, -1/*fd*/, len, -1/*fdoff*/, nwritten, nacked, error_idx);
 }
 
-// XXX do we want to expose error_idx through the blocking dn write interfaces?
-// and perhaps nwritten/nacked/nread in the case of an error?
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d, bool sendcrcs, int *error_idx)
+{
+	return _setup_write_pipeline_blocking(d, sendcrcs, error_idx);
+}
+
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write(struct hdfs_datanode *d, const void *buf, size_t len,
-	bool sendcrcs)
+	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(buf);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/);
+	return _datanode_write_blocking(d, sendcrcs, buf, -1/*fd*/, len, -1/*fdoff*/,
+	    nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -505,13 +637,14 @@ hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t of
 
 EXPORT_SYM struct hdfs_error
 hdfs_datanode_write_file(struct hdfs_datanode *d, int fd, off_t len, off_t offset,
-	bool sendcrcs)
+	bool sendcrcs, ssize_t *nwritten, ssize_t *nacked, int *error_idx)
 {
 	ASSERT(offset >= 0);
 	ASSERT(fd >= 0);
 	ASSERT(len > 0);
 
-	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset);
+	return _datanode_write_blocking(d, sendcrcs, NULL/*buf*/, fd, len, offset,
+	    nwritten, nacked, error_idx);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -617,11 +750,35 @@ hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len, int fd,
 	return _datanode_read_blocking(d, verifycrcs, bloff, len, fd, fdoff, NULL/*buf*/);
 }
 
+// Datanode transfer operations
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer_nb_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	return _datanode_transfer_init(d, targets);
+}
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer_nb(struct hdfs_datanode *d)
+{
+	return _datanode_transfer(d);
+}
+
+// XXX this indirection really isn't necessary except for the function name
+EXPORT_SYM struct hdfs_error
+hdfs_datanode_transfer(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	return _datanode_transfer_blocking(d, targets);
+}
+
 static struct hdfs_error
-error_from_datanode(int dnstatus)
+error_from_datanode(int dnstatus, int *unknown_status)
 {
 	enum hdfs_error_numeric ecode;
 
+	ASSERT(unknown_status);
 	ASSERT(dnstatus != HADOOP__HDFS__STATUS__SUCCESS);
 
 	switch (dnstatus) {
@@ -642,11 +799,11 @@ error_from_datanode(int dnstatus)
 		break;
 	case HADOOP__HDFS__STATUS__CHECKSUM_OK:
 		ecode = HDFS_ERR_INVALID_DN_ERROR;
-		hdfs_datanode_unknown_status = dnstatus;
+		*unknown_status = dnstatus;
 		break;
 	default:
 		ecode = HDFS_ERR_UNRECOGNIZED_DN_ERROR;
-		hdfs_datanode_unknown_status = dnstatus;
+		*unknown_status = dnstatus;
 		break;
 	}
 	return error_from_hdfs(ecode);
@@ -766,7 +923,8 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		Hadoop__Hdfs__ChecksumProto csum = HADOOP__HDFS__CHECKSUM_PROTO__INIT;
 		Hadoop__Hdfs__OpWriteBlockProto op = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__INIT;
 
-		// TODO add DatanodeInfoProto targets for proper pipeline creation
+		Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+		Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
 
 		struct hdfs_token *h_token;
 		size_t sz;
@@ -801,26 +959,149 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 
 		op.header = &hdr;
 
-		// XXX TODO add support for recovery stages. Need to look into this more,
-		// but there likely needs to be a way for the user to specify the offset
-		// into the block at which they will begin writing (since they would start
-		// by writing the first unacked bytes) in addition to simply specifying
-		// that this will be a recovery pipeline. This could be done by having the
-		// user directly mess with the located block object that gets passed to
-		// _new()/_init(), but there should probably be a more clear way. Perhaps
-		// hdfs_datanode_set_recovery(off_t off) to be called between _init() and
-		// _connect() calls
+		ASSERT(!d->dn_storage_ids == !d->dn_storage_types); // either both or neither are defined
+		if (d->dn_storage_ids) {
+			ASSERT(d->dn_storage_types);
+			op.storageid = d->dn_storage_ids[0];
+			op.storagetype = _hdfs_storage_type_to_proto(d->dn_storage_types[0]);
+		}
 
-		if (d->dn_size > 0)
-			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND;
-		else
-			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+		// Tell this datanode about the others in the pipeline
+		if (d->dn_nlocs > 1) {
+			// TODO try to avoid these local malloc()s
+			op.n_targets = d->dn_nlocs - 1;
+			op.targets = malloc(op.n_targets * sizeof(*op.targets));
+			ASSERT(op.targets);
+			dinfo_arr = malloc(op.n_targets * sizeof(*dinfo_arr));
+			ASSERT(dinfo_arr);
+			did_arr = malloc(op.n_targets * sizeof(*did_arr));
+			ASSERT(did_arr);
 
-		/* Not sure about any of this: */
-		op.pipelinesize = 1; // XXX TODO update when adding proper pipeline creation
+			for (unsigned i = 0; i < op.n_targets; i++) {
+				struct hdfs_datanode_info *h_dinfo = &d->dn_locs[i + 1]->ob_val._datanode_info;
+				Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+				Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+				hadoop__hdfs__datanode_info_proto__init(dinfo);
+				hadoop__hdfs__datanode_idproto__init(did);
+
+				did->ipaddr = h_dinfo->_ipaddr;
+				did->hostname = h_dinfo->_hostname;
+				did->datanodeuuid = h_dinfo->_uuid;
+				did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+				did->infoport = h_dinfo->_infoport;
+				did->ipcport = h_dinfo->_namenodeport;
+
+				dinfo->id = did;
+				if (h_dinfo->_location[0] != '\0')
+					dinfo->location = h_dinfo->_location;
+				// All of the other fields are listed as optional. It's unclear
+				// what's actually necessary to include here
+
+				op.targets[i] = dinfo;
+			}
+
+			if (d->dn_storage_ids) {
+				// no allocation necessary
+				op.n_targetstorageids = d->dn_nlocs - 1;
+				op.targetstorageids = d->dn_storage_ids + 1;
+				op.n_targetstoragetypes = d->dn_nlocs - 1;
+				op.targetstoragetypes = _hdfs_storage_type_ptr_to_proto(d->dn_storage_types + 1);
+			}
+		}
+
+		// When to send each block construction stage:
+		//
+		// PIPELINE_SETUP_CREATE:
+		//     Writing to a new block that has never had any data sent to
+		//     it. There is no corresponding recovery stage, as errors
+		//     that occur prior to sending any data/pipeline creation are
+		//     handled by simply abandoning the block and adding a new
+		//     block with any problematic datanodes excluded. minbytesrcvd
+		//     and maxbytesrcvd do not really matter in this case, but in
+		//     principle they should both be 0.
+		//
+		// PIPELINE_SETUP_APPEND:
+		//     Writing to a block that already exists and was finalized
+		//     (and has more space remaining). The key point being that
+		//     the block/replica to be written to MUST be finalized prior
+		//     to this. minbytesrcvd must be the number of bytes already
+		//     in the finalized replica to be appended. maxbytesrcvd does
+		//     not really matter in this case, but in principle should be
+		//     equal to minbytesrcvd.
+		//
+		// PIPELINE_SETUP_APPEND_RECOVERY:
+		//     Recovering a failed attempt at setting up a
+		//     PIPELINE_SETUP_APPEND pipeline. If an error occurred after
+		//     an append pipeline was successfully created/data was
+		//     written to the pipeline, then this should not be sent;
+		//     PIPELINE_SETUP_STREAMING_RECOVERY should be sent
+		//     instead. minbytesrcvd must be the number of bytes already
+		//     in the finalized replica to be appended. maxbytesrcvd does
+		//     not really matter in this case, but in principle should be
+		//     equal to minbytesrcvd.
+		//
+		// PIPELINE_SETUP_STREAMING_RECOVERY:
+		//     Recovering a pipeline that was successfully created and for
+		//     which there is still more data to be sent and/or
+		//     acknowledged. minbytesrcvd should be the number of bytes
+		//     that are known to be in all of the replicas in the
+		//     pipeline, that is, the number of bytes acknowledged in the
+		//     pipeline that is being recovered plus the number of bytes
+		//     that were already in the replica prior to the failed
+		//     pipeline (i.e. the minbytes received sent to that
+		//     pipeline). maxbytesrcvd should be the total number of bytes
+		//     sent to this replica in the previous pipeline, including
+		//     any that already existed in the replica.
+		//
+		// PIPELINE_CLOSE_RECOVERY:
+		//     Recovering a pipeline was being closed. That is, a pipeline
+		//     for which all data has already been acknowledged but the
+		//     lastpacketinblock packet was either not sent or not
+		//     acknowledged. minbytesrcvd MUST be the number of bytes in
+		//     the to-be-finalized replica. maxbytesrcvd does not really
+		//     matter, but in principle should be equal to minbytesrcvd.
+
+		switch (d->dn_recovery) {
+		case HDFS_DN_RECOVERY_NONE:
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			if (d->dn_size > 0) {
+				ASSERT(d->dn_append_or_recovery);
+				op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND;
+			} else {
+				ASSERT(!d->dn_append_or_recovery);
+				op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_CREATE;
+			}
+			break;
+
+		case HDFS_DN_RECOVERY_APPEND_SETUP:
+			ASSERT(d->dn_size > 0);
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_APPEND_RECOVERY;
+			break;
+
+		case HDFS_DN_RECOVERY_STREAMING:
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd >= d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_SETUP_STREAMING_RECOVERY;
+			break;
+
+		case HDFS_DN_RECOVERY_CLOSE:
+			ASSERT(d->dn_size > 0);
+			ASSERT(d->dn_append_or_recovery);
+			ASSERT(d->dn_maxbytesrcvd == d->dn_size);
+			op.stage = HADOOP__HDFS__OP_WRITE_BLOCK_PROTO__BLOCK_CONSTRUCTION_STAGE__PIPELINE_CLOSE_RECOVERY;
+			break;
+
+		default:
+			ASSERT(false);
+		}
+
+		op.pipelinesize = d->dn_nlocs;
 		op.minbytesrcvd = d->dn_size;
-		op.maxbytesrcvd = d->dn_size;
-		op.latestgenerationstamp = d->dn_gen;
+		op.maxbytesrcvd = d->dn_maxbytesrcvd;
+		op.latestgenerationstamp = d->dn_newgen;
 		op.requestedchecksum = &csum;
 
 		sz = hadoop__hdfs__op_write_block_proto__get_packed_size(&op);
@@ -828,6 +1109,12 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		_hbuf_reserve(h, sz);
 		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
 		_hbuf_append(h, sz);
+
+		if (d->dn_nlocs > 1) {
+			free(dinfo_arr);
+			free(did_arr);
+			free(op.targets);
+		}
 	} else {
 		// TODO pipelining/datanode targets?
 		_bappend_s64(h, d->dn_blkid);
@@ -843,6 +1130,110 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 	}
 }
 
+static void
+_compose_transfer_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
+{
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+
+	_bappend_s16(h, d->dn_proto);
+	_bappend_s8(h, HDFS_DN_OP_TRANSFER_BLOCK);
+
+	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
+		Hadoop__Common__TokenProto token =
+		    HADOOP__COMMON__TOKEN_PROTO__INIT;
+		Hadoop__Hdfs__ExtendedBlockProto ebp = HADOOP__HDFS__EXTENDED_BLOCK_PROTO__INIT;
+		Hadoop__Hdfs__BaseHeaderProto bhdr = HADOOP__HDFS__BASE_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__ClientOperationHeaderProto hdr =
+		    HADOOP__HDFS__CLIENT_OPERATION_HEADER_PROTO__INIT;
+		Hadoop__Hdfs__OpTransferBlockProto op = HADOOP__HDFS__OP_TRANSFER_BLOCK_PROTO__INIT;
+
+		Hadoop__Hdfs__DatanodeInfoProto *dinfo_arr = NULL;
+		Hadoop__Hdfs__DatanodeIDProto *did_arr = NULL;
+
+		struct hdfs_token *h_token;
+		size_t sz;
+
+		h_token = &d->dn_token->ob_val._token;
+
+		ASSERT(d->dn_pool_id);
+		ebp.poolid = d->dn_pool_id;
+		ebp.blockid = d->dn_blkid;
+		ebp.generationstamp = d->dn_gen;
+
+		token.identifier.len = h_token->_lens[0];
+		token.identifier.data = (void *)h_token->_strings[0];
+		token.password.len = h_token->_lens[1];
+		token.password.data = (void *)h_token->_strings[1];
+		token.kind = h_token->_strings[2];
+		token.service = h_token->_strings[3];
+
+		bhdr.block = &ebp;
+		bhdr.token = &token;
+
+		hdr.baseheader = &bhdr;
+		hdr.clientname = d->dn_client;
+
+		op.header = &hdr;
+
+		// TODO try to avoid these local mallocs
+		op.n_targets = d->dn_ttrgs->_num_targets;
+		op.targets = malloc(op.n_targets * sizeof(*op.targets));
+		ASSERT(op.targets);
+		dinfo_arr = malloc(op.n_targets * sizeof(*dinfo_arr));
+		ASSERT(dinfo_arr);
+		did_arr = malloc(op.n_targets * sizeof(*did_arr));
+		ASSERT(did_arr);
+
+		for (unsigned i = 0; i < op.n_targets; i++) {
+			struct hdfs_datanode_info *h_dinfo = &d->dn_ttrgs->_locs[i]->ob_val._datanode_info;
+			Hadoop__Hdfs__DatanodeInfoProto *dinfo = &dinfo_arr[i];
+			Hadoop__Hdfs__DatanodeIDProto *did = &did_arr[i];
+
+			hadoop__hdfs__datanode_info_proto__init(dinfo);
+			hadoop__hdfs__datanode_idproto__init(did);
+
+			did->ipaddr = h_dinfo->_ipaddr;
+			did->hostname = h_dinfo->_hostname;
+			did->datanodeuuid = h_dinfo->_uuid;
+			did->xferport = strtol(h_dinfo->_port, NULL, 10); // XXX ep/error checking?
+			did->infoport = h_dinfo->_infoport;
+			did->ipcport = h_dinfo->_namenodeport;
+
+			dinfo->id = did;
+			if (h_dinfo->_location[0] != '\0')
+				dinfo->location = h_dinfo->_location;
+			// All of the other fields are listed as optional. It's unclear
+			// what's actually necessary to include here
+
+			op.targets[i] = dinfo;
+		}
+
+		// either both or neither of th target storage ids and storage types must be given
+		ASSERT(!d->dn_ttrgs->_storage_ids == !d->dn_ttrgs->_storage_types);
+		if (d->dn_ttrgs->_storage_ids) {
+			// no allocation necessary
+			op.n_targetstorageids = d->dn_ttrgs->_num_targets;
+			op.targetstorageids = d->dn_ttrgs->_storage_ids;
+			op.n_targetstoragetypes = d->dn_ttrgs->_num_targets;
+			op.targetstoragetypes = _hdfs_storage_type_ptr_to_proto(d->dn_ttrgs->_storage_types);
+		}
+
+		sz = hadoop__hdfs__op_transfer_block_proto__get_packed_size(&op);
+		_bappend_vlint(h, sz);
+		_hbuf_reserve(h, sz);
+		hadoop__hdfs__op_transfer_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
+		_hbuf_append(h, sz);
+
+		free(dinfo_arr);
+		free(did_arr);
+		free(op.targets);
+	} else {
+		// It's unclear if v1 had a transfer block operation nor what it's format
+		// looked like if it existed
+		ASSERT(false);
+	}
+}
+
 static struct hdfs_error
 _datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t len)
 {
@@ -852,12 +1243,13 @@ _datanode_read_init(struct hdfs_datanode *d, bool verifycrcs, off_t bloff, off_t
 	ASSERT(len > 0);
 	ASSERT(bloff >= 0);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
-	ASSERT(d->dn_op == HDFS_DN_OP_NONE);
+	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
+	ASSERT(!d->dn_op_inited);
 
 	d->dn_crcs = verifycrcs;
 	d->dn_pstate.remains_tot = len;
 	d->dn_rinfo.client_offset = bloff;
-	d->dn_op = HDFS_DN_OP_READ_BLOCK;
+	d->dn_op_inited = true;
 
 	return error;
 }
@@ -881,6 +1273,7 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 	ASSERT(nread);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
+	ASSERT(d->dn_op_inited);
 
 	*nread = 0;
 
@@ -1029,11 +1422,102 @@ _datanode_write_init(struct hdfs_datanode *d, bool sendcrcs)
 
 	ASSERT(d);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
-	ASSERT(d->dn_op == HDFS_DN_OP_NONE);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(!d->dn_op_inited);
 
 	d->dn_crcs = sendcrcs;
-	d->dn_op = HDFS_DN_OP_WRITE_BLOCK;
+	d->dn_op_inited = true;
 
+	return error;
+}
+
+static struct hdfs_error
+_setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t wlen;
+
+	ASSERT(d);
+	ASSERT(err_idx);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_RECVOP);
+	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(d->dn_op_inited);
+
+	*err_idx = -1;
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		error = hdfs_datanode_connect_nb(d);
+		// state transitions handled by hdfs_datanode_connect_nb()
+		if (hdfs_is_again(error)) {
+			goto out;
+		} else if (hdfs_is_error(error)) {
+			*err_idx = 0;
+			goto out;
+		}
+		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
+		// fall through
+	case HDFS_DN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		_compose_write_header(&d->dn_hdrbuf, d);
+		d->dn_state = HDFS_DN_ST_SENDOP;
+		// fall through
+	case HDFS_DN_ST_SENDOP:
+		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		if (wlen < 0) {
+			*err_idx = 0;
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		if (hdfs_is_again(error))
+			goto out;
+		// complete write
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		d->dn_state = HDFS_DN_ST_RECVOP;
+		// fall through
+	case HDFS_DN_ST_RECVOP:
+		if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
+			error = _read_write_status2(d, &d->dn_recvbuf, err_idx);
+		else
+			error = _read_write_status(d, &d->dn_recvbuf);
+		if (hdfs_is_again(error)) {
+			goto out; // no state or buffer change.
+		} else if (hdfs_is_error(error)) {
+			// Say the primary datanode failed if err_idx not already
+			// set (e.g. a read(2) error)
+			if (*err_idx < 0)
+				*err_idx = 0;
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		// Success!
+		if (d->dn_recovery == HDFS_DN_RECOVERY_CLOSE) {
+			// If we sent PIPELINE_CLOSE_RECOVERY we are done
+			d->dn_state = HDFS_DN_ST_FINISHED;
+			break;
+		}
+		d->dn_pstate.sock = d->dn_sock;
+		d->dn_pstate.sendcrcs = d->dn_crcs;
+		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
+		d->dn_pstate.recvbuf = &d->dn_recvbuf;
+		d->dn_pstate.proto = d->dn_proto;
+		d->dn_pstate.unknown_status = &d->dn_unknown_status;
+		d->dn_pstate.offset = d->dn_size;
+		d->dn_pstate.pipelinesize = d->dn_nlocs;
+		d->dn_state = HDFS_DN_ST_PKT;
+		break;
+
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_PKT:
+	case HDFS_DN_ST_FINISHED:
+	case HDFS_DN_ST_ERROR:
+		ASSERT(false);
+	}
+
+out:
 	return error;
 }
 
@@ -1057,7 +1541,7 @@ static struct hdfs_error
 _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
 {
-	ssize_t wlen, t_nacked = 0;
+	ssize_t t_nacked = 0;
 	struct hdfs_error error = HDFS_SUCCESS, ret;
 
 	ASSERT(d);
@@ -1066,61 +1550,31 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	ASSERT(err_idx);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
+	ASSERT(d->dn_op_inited);
 	ASSERT(len >= d->dn_pstate.remains_tot);
 	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
+	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
+	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
+	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
 
-	*nwritten = 0;
 	*nacked = 0;
 	*err_idx = -1;
+	// *nwritten is set in the out label, so it will always be initialized before return
 
 	d->dn_pstate.remains_tot = len;
 
 	switch (d->dn_state) {
 	case HDFS_DN_ST_INITED:
 	case HDFS_DN_ST_CONNPENDING:
-		error = hdfs_datanode_connect_nb(d);
-		// state transitions handled by hdfs_datanode_connect_nb()
+	case HDFS_DN_ST_CONNECTED:
+	case HDFS_DN_ST_SENDOP:
+	case HDFS_DN_ST_RECVOP:
+		ASSERT(!d->dn_append_or_recovery); // appends/recovery must call setup pipeline separately
+		error = _setup_write_pipeline(d, err_idx);
+		// state transitions handled by _setup_write_pipeline()
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
-		// fall through
-	case HDFS_DN_ST_CONNECTED:
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		_compose_write_header(&d->dn_hdrbuf, d);
-		d->dn_state = HDFS_DN_ST_SENDOP;
-		// fall through
-	case HDFS_DN_ST_SENDOP:
-		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
-		if (wlen < 0) {
-			d->dn_state = HDFS_DN_ST_ERROR;
-			goto out;
-		}
-		_hbuf_consume(&d->dn_hdrbuf, wlen);
-		if (hdfs_is_again(error))
-			goto out;
-		// complete write
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
-		d->dn_state = HDFS_DN_ST_RECVOP;
-		// fall through
-	case HDFS_DN_ST_RECVOP:
-		if (d->dn_proto >= HDFS_DATANODE_AP_2_0)
-			error = _read_write_status2(d, &d->dn_recvbuf);
-		else
-			error = _read_write_status(d, &d->dn_recvbuf);
-		if (hdfs_is_again(error)) {
-			goto out; // no state or buffer change.
-		} else if (hdfs_is_error(error)) {
-			d->dn_state = HDFS_DN_ST_ERROR;
-			goto out;
-		}
-		// Success!
-		d->dn_pstate.sock = d->dn_sock;
-		d->dn_pstate.sendcrcs = d->dn_crcs;
-		d->dn_pstate.hdrbuf = &d->dn_hdrbuf;
-		d->dn_pstate.recvbuf = &d->dn_recvbuf;
-		d->dn_pstate.proto = d->dn_proto;
-		d->dn_pstate.offset = d->dn_size;
-		d->dn_state = HDFS_DN_ST_PKT;
+		ASSERT(d->dn_state == HDFS_DN_ST_PKT);
 		// fall through
 	case HDFS_DN_ST_PKT:
 		d->dn_pstate.buf = __DECONST(void *, buf);
@@ -1130,14 +1584,14 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 			// Try to drain any acks if we have many outstanding packets
 			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
 				ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+				*nacked += t_nacked; // update nacked even if there's an ACK error
 				if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
 					error = ret;
 					d->dn_state = HDFS_DN_ST_ERROR;
 					goto out;
 				}
-				*nacked += t_nacked;
 			}
-			error = _send_packet(&d->dn_pstate);
+			error = _send_packet(&d->dn_pstate, err_idx);
 			if (hdfs_is_again(error)) {
 				break; // proceed to check acks below
 			} else if (hdfs_is_error(error)) {
@@ -1152,19 +1606,16 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 				break;
 			}
 		}
-		// XXX do we care about telling the user about the number of
-		// written bytes if there's any error?
-		*nwritten = len - d->dn_pstate.remains_tot;
 		// fall through
 	case HDFS_DN_ST_FINISHED:
 		// Check if there are any acks to drain (without clobbering return value)
 		ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
+		*nacked += t_nacked; // update nacked even if there's an ACK error
 		if (hdfs_is_error(ret) && !hdfs_is_again(ret)) {
 			error = ret;
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		*nacked += t_nacked;
 		break;
 
 	case HDFS_DN_ST_ZERO:
@@ -1174,26 +1625,79 @@ _datanode_write(struct hdfs_datanode *d, const void *buf, int fd, off_t len,
 	}
 
 out:
+	// ensure *nwritten is set even if there is an error
+	*nwritten = len - d->dn_pstate.remains_tot;
 	return error;
 }
 
 static struct hdfs_error
-_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
-	int fd, off_t len, off_t fdoff)
+_setup_write_pipeline_blocking(struct hdfs_datanode *d, bool sendcrcs, int *err_idx)
 {
 	struct hdfs_error error;
-	ssize_t nw = 0, na = 0;
-	int ei = -1;
 	struct pollfd pfd = { 0 };
 
+	ASSERT(d);
+	ASSERT(err_idx);
 	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
 
+	d->dn_blocking_pipeline_setup = true;
+	*err_idx = -1;
 	error = _datanode_write_init(d, sendcrcs);
 	if (hdfs_is_error(error))
 		goto out;
 
 	while (true) {
-		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, &ei);
+		error = _setup_write_pipeline(d, err_idx);
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf,
+	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+{
+	struct hdfs_error error;
+	ssize_t nw = 0, na = 0;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d);
+	ASSERT(nwritten);
+	ASSERT(nacked);
+	ASSERT(err_idx);
+
+	*nwritten = 0;
+	*nacked = 0;
+	*err_idx = -1;
+
+	// Only call _datanode_write_init() if it hasn't already been called by
+	// hdfs_datanode_write_setup_pipeline()
+	if (d->dn_blocking_pipeline_setup) {
+		ASSERT(d->dn_state == HDFS_DN_ST_PKT);
+		ASSERT(d->dn_pstate.remains_tot == 0);
+		ASSERT(d->dn_pstate.unacked.ua_num == 0);
+	} else {
+		ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+		error = _datanode_write_init(d, sendcrcs);
+		if (hdfs_is_error(error))
+			goto out;
+	}
+
+	while (true) {
+		error = _datanode_write(d, buf, fd, len, fdoff, &nw, &na, err_idx);
+		*nwritten += nw; // update even in error case
+		*nacked += na;
 		if (!hdfs_is_error(error)) // success
 			break;
 		if (!hdfs_is_again(error)) // error
@@ -1211,7 +1715,126 @@ _datanode_write_blocking(struct hdfs_datanode *d, bool sendcrcs, const void *buf
 	}
 
 	while (true) {
-		error = hdfs_datanode_finish_block(d, &na, &ei);
+		error = hdfs_datanode_finish_block(d, &na, err_idx);
+		*nacked += na; // update even in error case
+		if (!hdfs_is_error(error)) // success
+			break;
+		if (!hdfs_is_again(error)) // error
+			goto out;
+		// again
+		error = hdfs_datanode_get_eventfd(d, &pfd.fd, &pfd.events);
+		if (hdfs_is_error(error))
+			goto out;
+		poll(&pfd, 1, -1);
+		// XXX check that poll returns 1 (EINTR?) and/or check revents?
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_transfer_init(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+	ASSERT(!d->dn_op_inited);
+	ASSERT(!d->dn_ttrgs);
+	ASSERT(targets);
+
+	if (targets->_num_targets <= 0) {
+		error = error_from_hdfs(HDFS_ERR_ZERO_DATANODES);
+		goto out;
+	}
+
+	d->dn_ttrgs = _hdfs_transfer_targets_copy(targets);
+	d->dn_op_inited = true;
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_transfer(struct hdfs_datanode *d)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	ssize_t wlen;
+
+	ASSERT(d);
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED);
+	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
+	ASSERT(d->dn_op_inited);
+	ASSERT(d->dn_ttrgs);
+
+	switch (d->dn_state) {
+	case HDFS_DN_ST_INITED:
+	case HDFS_DN_ST_CONNPENDING:
+		error = hdfs_datanode_connect_nb(d);
+		// state transitions handled by hdfs_datanode_connect_nb()
+		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+			goto out;
+		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
+		// fall through
+	case HDFS_DN_ST_CONNECTED:
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		_compose_transfer_header(&d->dn_hdrbuf, d);
+		d->dn_state = HDFS_DN_ST_SENDOP;
+		// fall through
+	case HDFS_DN_ST_SENDOP:
+		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		if (wlen < 0) {
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		if (hdfs_is_again(error))
+			goto out;
+		// complete write
+		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		d->dn_state = HDFS_DN_ST_RECVOP;
+		// fall through
+	case HDFS_DN_ST_RECVOP:
+		error = _read_transfer_status(d, &d->dn_recvbuf);
+		if (hdfs_is_again(error)) {
+			goto out; // no state or buffer change.
+		} else if (hdfs_is_error(error)) {
+			d->dn_state = HDFS_DN_ST_ERROR;
+			goto out;
+		}
+		// Success!
+		d->dn_state = HDFS_DN_ST_FINISHED;
+		break;
+
+	case HDFS_DN_ST_ZERO:
+	case HDFS_DN_ST_PKT:
+	case HDFS_DN_ST_FINISHED:
+	case HDFS_DN_ST_ERROR:
+	default:
+		ASSERT(false);
+	}
+
+out:
+	return error;
+}
+
+static struct hdfs_error
+_datanode_transfer_blocking(struct hdfs_datanode *d, struct hdfs_transfer_targets *targets)
+{
+	struct hdfs_error error;
+	struct pollfd pfd = { 0 };
+
+	ASSERT(d->dn_state >= HDFS_DN_ST_INITED && d->dn_state <= HDFS_DN_ST_CONNECTED);
+
+	error = _datanode_transfer_init(d, targets);
+	if (hdfs_is_error(error))
+		goto out;
+
+	while (true) {
+		error = _datanode_transfer(d);
 		if (!hdfs_is_error(error)) // success
 			break;
 		if (!hdfs_is_again(error)) // error
@@ -1252,7 +1875,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	ASSERT(obuf.used > 0); // should not be able to fail
 
 	if (status != HADOOP__HDFS__STATUS__SUCCESS) {
-		error = error_from_datanode(status);
+		error = error_from_datanode(status, &d->dn_unknown_status);
 		goto out;
 	}
 
@@ -1340,18 +1963,15 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		goto out;
 	}
 
-	_set_opres_msg(opres->message);
+	_set_opres_msg(d, opres->message);
 
 	if (opres->status != HADOOP__HDFS__STATUS__SUCCESS)
-		error = error_from_datanode(opres->status);
+		error = error_from_datanode(opres->status, &d->dn_unknown_status);
 	// Shouldn't happen, I believe; call it a protocol error.
 	else if (opres->message != NULL)
 		error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 
-	if (hdfs_is_error(error))
-		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
-	else
-		*opres_out = opres;
+	*opres_out = opres;
 
 	// Skip recvbuf past stuff we parsed here
 	_hbuf_consume(h, obuf.used);
@@ -1455,14 +2075,14 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	statussz += obuf.used;
 
 	if (status == HADOOP__HDFS__STATUS__SUCCESS && strlen(statusmsg) == 0)
-		_set_opres_msg(NULL);
+		_set_opres_msg(d, NULL);
 	else {
 		// Shouldn't happen, I believe; call it a protocol error.
 		if (status == HADOOP__HDFS__STATUS__SUCCESS)
 			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
 		else
-			error = error_from_datanode(status);
-		_set_opres_msg(statusmsg);
+			error = error_from_datanode(status, &d->dn_unknown_status);
+		_set_opres_msg(d, statusmsg);
 	}
 
 	// Skip the recv buffer past the read objects
@@ -1475,10 +2095,42 @@ out:
 }
 
 static struct hdfs_error
-_read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
+_read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
+
+	error = _read_blockop_resp_status(d, h, &opres);
+
+	if (opres && opres->firstbadlink && opres->firstbadlink[0] != '\0') {
+		int i;
+		for (i = 0; i < d->dn_nlocs; i++) {
+			char buf[32]; // big enough for 111.222.333.444:65535
+			struct hdfs_datanode_info *di = &d->dn_locs[i]->ob_val._datanode_info;
+			snprintf(buf, sizeof(buf), "%s:%s", di->_ipaddr, di->_port);
+			if (!strcmp(opres->firstbadlink, buf))
+				*err_idx = i;
+		}
+		// This shouldn't happend, but if the status was SUCCESS or the
+		// badfirstlink doesn't match any of the targets, set an error
+		if (!hdfs_is_error(error) || i == d->dn_nlocs) {
+			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
+		}
+	}
+
+	if (opres)
+		hadoop__hdfs__block_op_response_proto__free_unpacked(opres, NULL);
+	return error;
+}
+
+static struct hdfs_error
+_read_transfer_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
+{
+	struct hdfs_error error = HDFS_SUCCESS;
+	Hadoop__Hdfs__BlockOpResponseProto *opres = NULL;
+
+	// TODO change this if v1 support is added
+	ASSERT(d->dn_proto == HDFS_DATANODE_AP_2_0);
 
 	error = _read_blockop_resp_status(d, h, &opres);
 
@@ -1681,7 +2333,7 @@ out:
 }
 
 static struct hdfs_error
-_send_packet(struct hdfs_packet_state *ps)
+_send_packet(struct hdfs_packet_state *ps, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	size_t crclen = 0;
@@ -1691,6 +2343,8 @@ _send_packet(struct hdfs_packet_state *ps)
 	struct iovec ios[2];
 	int wlen_hdr = 0, wlen_data = 0;
 	bool is_new;
+
+	*err_idx = -1;
 
 	// if we have no data left to send from the last/current packet we're creating a new one
 	is_new = (_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
@@ -1822,8 +2476,10 @@ _send_packet(struct hdfs_packet_state *ps)
 	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
 		ASSERT(_hbuf_readlen(ps->hdrbuf) > 0);
 		error = _writev(ps->sock, ios, 1, &wlen);
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0;
 			goto out;
+		}
 		wlen_hdr = wlen;
 	} else if (data) {
 		ios[1].iov_base = data;
@@ -1835,8 +2491,10 @@ _send_packet(struct hdfs_packet_state *ps)
 		} else {
 			error = _writev(ps->sock, ios + 1, 1, &wlen);
 		}
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0;
 			goto out;
+		}
 		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 	} else {
@@ -1846,15 +2504,19 @@ _send_packet(struct hdfs_packet_state *ps)
 		do {
 			if (_hbuf_readlen(ps->hdrbuf) > 0) {
 				error = _writev(ps->sock, ios, 1, &wlen);
-				if (wlen < 0)
+				if (wlen < 0) {
+					*err_idx = 0;
 					goto out; // XXX clear TCP_CORK?
+				}
 				wlen_hdr = wlen;
 				if (hdfs_is_again(error))
 					break;
 			}
 			error = _sendfile(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt, &wlen);
-			if (wlen < 0)
+			if (wlen < 0) {
+				*err_idx = 0; // XXX could technically be an error reading the local file
 				goto out; // XXX clear TCP_CORK?
+			}
 			wlen_data = wlen;
 		} while (0); // not a loop
 
@@ -1867,8 +2529,10 @@ _send_packet(struct hdfs_packet_state *ps)
 			error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
 			    NULL, 0, &wlen);
 		}
-		if (wlen < 0)
+		if (wlen < 0) {
+			*err_idx = 0; // XXX could technically be an error reading the local file
 			goto out;
+		}
 		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 #else
@@ -1892,15 +2556,15 @@ out:
 }
 
 static void
-_set_opres_msg(const char *newmsg)
+_set_opres_msg(struct hdfs_datanode *d, const char *newmsg)
 {
-	if (hdfs_datanode_opresult_message != NULL)
-		free(__DECONST(char *, hdfs_datanode_opresult_message));
+	if (d->dn_opresult_message != NULL)
+		free(__DECONST(char *, d->dn_opresult_message));
 	if (newmsg == NULL)
-		hdfs_datanode_opresult_message = NULL;
+		d->dn_opresult_message = NULL;
 	else {
-		hdfs_datanode_opresult_message = strdup(newmsg);
-		ASSERT(hdfs_datanode_opresult_message != NULL);
+		d->dn_opresult_message = strdup(newmsg);
+		ASSERT(d->dn_opresult_message != NULL);
 	}
 }
 
@@ -1989,7 +2653,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ASSERT(obuf.used >= 0); // should not be able to fail
 
 		// We only connect to one datanode, we should only get one ack:
-		if (nacks != 1) { // XXX TODO update when proper pipelining implemented
+		if (nacks != 1) { // XXX TODO update when proper pipelining implemented for v1
 			error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 			goto out;
 		}
@@ -2008,8 +2672,8 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ps->unacked.ua_list_pos++;
 		ps->unacked.ua_num--;
 	} else {
-		error = error_from_datanode(ack);
-		*err_idx = 0; // XXX TODO change this when implementing full pipelining
+		error = error_from_datanode(ack, ps->unknown_status);
+		*err_idx = 0; // XXX TODO change this when implementing full pipelining for v1
 	}
 
 	// Skip the recv buffer past the ack
@@ -2095,18 +2759,26 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		goto out;
 	}
 
-	// We only connect to one datanode, we should only get one ack:
-	if (ack->n_reply != 1) { // XXX TODO update when proper pipelining implemented
+	// First check that we don't have too many replies, but still check the statuses
+	// if there are too few in order to report err_idx
+	if (ack->n_reply > ps->pipelinesize) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
 		goto out;
 	}
 
 	for (unsigned i = 0; i < ack->n_reply; i++) {
 		if (ack->reply[i] != HADOOP__HDFS__STATUS__SUCCESS) {
-			error = error_from_datanode(ack->reply[i]);
+			error = error_from_datanode(ack->reply[i], ps->unknown_status);
 			*err_idx = i;
 			goto out;
 		}
+	}
+
+	// Now that we've confirmed all of the replies are success, ensure that we got the
+	// correct number of replies
+	if (ack->n_reply != ps->pipelinesize) {
+		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_ACK_COUNT);
+		goto out;
 	}
 
 	// Pop the length of this acked packet off of the list
@@ -2125,20 +2797,27 @@ out:
 }
 
 struct hdfs_error
-_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *error_idx)
+_check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	ssize_t t_nacked;
 	struct hdfs_unacked_packets *ua = &ps->unacked;
 
 	*nacked = 0;
-	*error_idx = -1;
+	*err_idx = -1;
 
 	while (ua->ua_num > 0) {
 		if (ps->proto >= HDFS_DATANODE_AP_2_0)
-			error = _check_one_ack2(ps, &t_nacked, error_idx);
+			error = _check_one_ack2(ps, &t_nacked, err_idx);
 		else
-			error = _check_one_ack(ps, &t_nacked, error_idx);
+			error = _check_one_ack(ps, &t_nacked, err_idx);
+		if (hdfs_is_again(error)) {
+			break;
+		} else if (hdfs_is_error(error)) {
+			if (*err_idx < 0)
+				*err_idx = 0;
+			goto out;
+		}
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			break;
 		*nacked += t_nacked;
@@ -2152,5 +2831,6 @@ _check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *error_idx)
 		ua->ua_list_pos = 0;
 	}
 
+out:
 	return error;
 }

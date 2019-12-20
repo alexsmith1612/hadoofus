@@ -4,6 +4,7 @@
 
 #include <hadoofus/highlevel.h>
 
+#include "objects-internal.h"
 #include "util.h"
 
 #define BAIL_ON_ERR(error) do {						\
@@ -196,6 +197,13 @@ do { \
 
 #define _HDFS_OBJ_RPC_RET(void_ok, htype) \
 do { \
+	/* Convert H_LOCATED_BLOCK from v1 appends to H_LOCATED_BLOCK_WITH_STATUS */ \
+	if (htype == H_LOCATED_BLOCK_WITH_STATUS && \
+	    (object->ob_type == H_LOCATED_BLOCK || \
+	     (object->ob_type == H_NULL && object->ob_val._null._type == H_LOCATED_BLOCK))) { \
+		object = _hdfs_located_block_with_status_from_located_block(object); \
+	} \
+\
 	ASSERT(object->ob_type == htype || \
 	    (object->ob_type == H_NULL && object->ob_val._null._type == htype) || \
 	    (void_ok && object->ob_type == H_VOID) || \
@@ -318,12 +326,7 @@ _HDFS_OBJ_RPC_BODY_VOID_OK(create,
 	blocksize
 )
 
-// XXX As of v2.7.0 AppendResponseProto includes an HdfsFileStatusProto in
-// addition to the LocatedBlockProto so that one does not need to subsequently
-// call getFileInfo in order to get the block size, etc. TODO update append to
-// handle this (perhaps make an H_LOCATED_BLOCK_WITH_STATUS object?)
 // XXX flags (bit values from CreateFlagProto)
-// XXX return LocatedBlockProto and HdfsFileStatusProto (perhaps both may be NULL?)
 _HDFS_RPC_NB_DECL(append,
 	const char *path, const char *client)
 _HDFS_RPC_NB_BODY(
@@ -338,7 +341,7 @@ _HDFS_RPC_NB_BODY(
 _HDFS_OBJ_RPC_DECL(append,
 	const char *path, const char *client)
 _HDFS_OBJ_RPC_BODY(append,
-	H_LOCATED_BLOCK,
+	H_LOCATED_BLOCK_WITH_STATUS,
 	path,
 	client
 )
@@ -878,22 +881,21 @@ _HDFS_PRIM_RPC_BODY(setSafeMode,
 	mode
 )
 
-// XXX TODO implement for v2
 _HDFS_RPC_NB_DECL(getDatanodeReport,
-	const char *mode)
+	enum hdfs_datanode_report_type type)
 _HDFS_RPC_NB_BODY(
 	/*fall through to v2*/,
 	/*fall through to v2.2*/,
 	_HDFS_RPC_CASE(getDatanodeReport,
-		hdfs_dnreporttype_new(mode)
+		hdfs_dnreporttype_new(type)
 	)
 )
 
 _HDFS_OBJ_RPC_DECL(getDatanodeReport,
-	const char *mode)
+	enum hdfs_datanode_report_type type)
 _HDFS_OBJ_RPC_BODY(getDatanodeReport,
 	H_ARRAY_DATANODE_INFO,
-	mode
+	type
 )
 
 // XXX TODO implement for v2
@@ -1138,4 +1140,90 @@ _HDFS2_OBJ_RPC_DECL(getLinkTarget, const char *path)
 _HDFS2_OBJ_RPC_BODY(getLinkTarget,
 	H_STRING,
 	path
+)
+
+_HDFS2_RPC_NB_DECL(getAdditionalDatanode,
+	const char *path, struct hdfs_object *block, struct hdfs_object *existings,
+	struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+	struct hdfs_object *existing_storage_uuids, int64_t fileid)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(getAdditionalDatanode,
+		hdfs_string_new(path),
+		hdfs_block_copy(block),
+		hdfs_array_datanode_info_copy(existings),
+		hdfs_array_datanode_info_copy(excludes),
+		hdfs_int_new(num_additional_nodes),
+		hdfs_string_new(client),
+		(existing_storage_uuids ? hdfs_array_string_copy(existing_storage_uuids) : hdfs_array_string_new(0, NULL)),
+		hdfs_long_new(fileid)
+	)
+)
+
+_HDFS2_OBJ_RPC_DECL(getAdditionalDatanode,
+	const char *path, struct hdfs_object *block, struct hdfs_object *existings,
+	struct hdfs_object *excludes, int32_t num_additional_nodes, const char *client,
+	struct hdfs_object *existing_storage_uuids, int64_t fileid)
+_HDFS2_OBJ_RPC_BODY(getAdditionalDatanode,
+	H_LOCATED_BLOCK,
+	path,
+	block,
+	existings,
+	excludes,
+	num_additional_nodes,
+	client,
+	existing_storage_uuids,
+	fileid
+)
+
+_HDFS2_RPC_NB_DECL(updateBlockForPipeline,
+	struct hdfs_object *block, const char *client)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(updateBlockForPipeline,
+		hdfs_block_copy(block),
+		hdfs_string_new(client)
+	)
+)
+
+_HDFS2_OBJ_RPC_DECL(updateBlockForPipeline,
+	struct hdfs_object *block, const char *client)
+_HDFS2_OBJ_RPC_BODY(updateBlockForPipeline,
+	H_LOCATED_BLOCK,
+	block,
+	client
+)
+
+_HDFS2_RPC_NB_DECL(updatePipeline,
+	const char *client, struct hdfs_object *oldblock,
+	struct hdfs_object *newblock, struct hdfs_object *newnodes,
+	struct hdfs_object *storageids)
+_HDFS_RPC_NB_BODY(
+	ASSERT(false),
+	/*fall through to v2.2*/,
+	_HDFS_RPC_CASE(updatePipeline,
+		hdfs_string_new(client),
+		hdfs_block_copy(oldblock),
+		hdfs_block_copy(newblock),
+		hdfs_array_datanode_info_copy(newnodes),
+		(storageids ? hdfs_array_string_copy(storageids) : hdfs_array_string_new(0, NULL))
+	)
+)
+
+_HDFS2_PRIM_RPC_DECL(void, updatePipeline,
+	const char *client, struct hdfs_object *oldblock,
+	struct hdfs_object *newblock, struct hdfs_object *newnodes,
+	struct hdfs_object *storageids)
+_HDFS2_PRIM_RPC_BODY(updatePipeline,
+	H_VOID,
+	,
+	,
+	,
+	client,
+	oldblock,
+	newblock,
+	newnodes,
+	storageids
 )
