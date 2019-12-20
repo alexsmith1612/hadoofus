@@ -56,7 +56,7 @@ has no spec; we do the best we can.
 Some RPCs that exist in HDFSv1 do not exist in HDFSv2+ — e.g.
 `getProtocolVersion` does not exist in v2.
 
-The Datanode API is somewhat fragile and v2 CRC32C support isn't there yet.
+The Datanode API is somewhat fragile.
 
 #### HDFS Semantics
 
@@ -91,9 +91,12 @@ Found a bug? Please file it on github. Thanks!
 
 #### License
 
-Unless otherwise noted, files in this source distribution are released under
-the terms of the MIT license. (Some files which are not compiled into installed
-binaries or otherwise installed by this package's Makefiles come from the
-Apache Hadoop sources and have different licenses. These licenses are clearly
-specified at the beginning of the files.) For the full text of the MIT license,
-see the file `LICENSE` included with this source distribution.
+Unless otherwise noted, files in this source distribution are released under the
+terms of the MIT license. Some files used for CRC32C support come from elsewhere
+have non-MIT, but similarly permissive licenses (namely the BSD 2-clause license
+and Mark Adler's license, which he also uses for zlib), which are clearly
+specified at the top of their files (Some files which are not compiled into
+installed binaries or otherwise installed by this package's Makefiles come from
+the Apache Hadoop sources and have different licenses. These licenses are
+clearly specified at the beginning of the files.) For the full text of the MIT
+license, see the file `LICENSE` included with this source distribution.
