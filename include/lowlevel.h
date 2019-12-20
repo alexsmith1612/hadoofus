@@ -108,7 +108,7 @@ struct hdfs_packet_state {
 	    proto,
 	    fd;
 	unsigned pipelinesize;
-	bool sendcrcs;
+	enum hdfs_checksum_type sendcsum_type;
 	struct hdfs_unacked_packets unacked;
 };
 
@@ -118,8 +118,8 @@ struct hdfs_read_info {
 	size_t rlen,
 	       iov_offt;
 	int32_t chunk_size;
-	bool has_crcs,
-	     bad_crcs,
+	enum hdfs_checksum_type csum_type;
+	bool bad_crcs,
 	     lastpacket;
 };
 
@@ -173,8 +173,8 @@ struct hdfs_datanode {
 	bool dn_op_inited,
 	     dn_append_or_recovery,
 	     dn_last,
-	     dn_crcs,
 	     dn_blocking_pipeline_setup;
+	enum hdfs_checksum_type dn_csum;
 	enum hdfs_datanode_write_recovery_type dn_recovery;
 
 	/* v2+ */
@@ -559,6 +559,10 @@ struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *d);
 // Attempt to set up (blocking) the write pipeline for the block associated with
 // this struct.
 //
+// csum indicates what type of checksum should be sent during this
+// write. HDFS_CSUM_NULL means no checksums should be sent. HDFS_CSUM_CRC32C is only
+// supported in v2.0+
+//
 // Returns HDFS_SUCCESS if the pipeline was successfully created, or another error
 // code on failure.
 //
@@ -576,14 +580,18 @@ struct hdfs_error	hdfs_datanode_connect(struct hdfs_datanode *d);
 //
 // After this function successfully returns, the user can call
 // hdfs_datanode_write() or hdfs_datanode_write_file() to actually write to the
-// block associated with this connection. The parameter sendcrcs is ignored in
+// block associated with this connection. The parameter csum is ignored in
 // hdfs_datanode_write() and hdfs_datanode_write_file() if they follow a call to
 // hdfs_datanode_write_setup_pipeline().
 struct hdfs_error	hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d,
-			bool sendcrcs, int *error_idx);
+			enum hdfs_checksum_type csum, int *error_idx);
 
 // Attempt to write (blocking) a buffer to the block associated with this
 // connection.
+//
+// csum indicates what type of checksum should be sent during this
+// write. HDFS_CSUM_NULL means no checksums should be sent. HDFS_CSUM_CRC32C is only
+// supported in v2.0+
 //
 // *nwritten is set to the number of bytes that have been written. This will be
 // equal to len on success.
@@ -597,8 +605,8 @@ struct hdfs_error	hdfs_datanode_write_setup_pipeline(struct hdfs_datanode *d,
 // the index of the datanode in the pipeline that reported the error; in all other
 // cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
-			size_t len, bool sendcrcs, ssize_t *nwritten, ssize_t *nacked,
-			int *error_idx);
+			size_t len, enum hdfs_checksum_type csum, ssize_t *nwritten,
+			ssize_t *nacked, int *error_idx);
 
 // Attempt to write (blocking) an array of iovecs to the block associated with this
 // connection.
@@ -615,11 +623,15 @@ struct hdfs_error	hdfs_datanode_write(struct hdfs_datanode *d, const void *buf,
 // the index of the datanode in the pipeline that reported the error; in all other
 // cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_writev(struct hdfs_datanode *d,
-			const struct iovec *iov, int iovcnt, bool sendcrcs,
+			const struct iovec *iov, int iovcnt, enum hdfs_checksum_type csum,
 			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
 
 // Attempt to write (blocking) from an fd at the given offset to the block
 // associated with this connection.
+//
+// csum indicates what type of checksum should be sent during this
+// write. HDFS_CSUM_NULL means no checksums should be sent. HDFS_CSUM_CRC32C is only
+// supported in v2.0+
 //
 // *nwritten is set to the number of bytes that have been written. This will be
 // equal to len on success.
@@ -633,8 +645,8 @@ struct hdfs_error	hdfs_datanode_writev(struct hdfs_datanode *d,
 // the index of the datanode in the pipeline that reported the error; in all other
 // cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
-			off_t len, off_t offset, bool sendcrcs, ssize_t *nwritten,
-			ssize_t *nacked, int *error_idx);
+			off_t len, off_t offset, enum hdfs_checksum_type csum,
+			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
 
 // Attempt to read (blocking) from the block associated with this connection into
 // the given buffer.
@@ -643,7 +655,7 @@ struct hdfs_error	hdfs_datanode_write_file(struct hdfs_datanode *d, int fd,
 //
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
-			size_t len, void *buf, bool verifycrcs);
+			size_t len, void *buf, bool verifycsum);
 
 // Attempt to read (blocking) from the block associated with this connection into the
 // given array of iovecs.
@@ -654,7 +666,7 @@ struct hdfs_error	hdfs_datanode_read(struct hdfs_datanode *d, size_t off,
 //
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_readv(struct hdfs_datanode *d, size_t off,
-			const struct iovec *iov, int iovcnt, bool verifycrcs);
+			const struct iovec *iov, int iovcnt, bool verifycsum);
 
 // Attempt to read (blocking) from the block associated with this connection.
 //
@@ -663,7 +675,7 @@ struct hdfs_error	hdfs_datanode_readv(struct hdfs_datanode *d, size_t off,
 //
 // Returns HDFS_SUCCESS or an error code on failure.
 struct hdfs_error	hdfs_datanode_read_file(struct hdfs_datanode *d, off_t bloff, off_t len,
-			int fd, off_t fdoff, bool verifycrcs);
+			int fd, off_t fdoff, bool verifycsum);
 
 // Attempt to transfer (blocking) the block associated with this connection to the
 // target datanodes.
@@ -745,15 +757,19 @@ struct hdfs_error	hdfs_datanode_connect_init(struct hdfs_datanode *d, const char
 // called by users; use hdfs_datanode_connect_nb() instead.
 struct hdfs_error	hdfs_datanode_connect_finalize(struct hdfs_datanode *d);
 
-// Initialize the datanode struct for non-blocking writes, and specifiy whether or
-// not crcs should be calculated and sent during the write.
+// Initialize the datanode struct for non-blocking writes.
+//
+// csum indicates what type of checksum should be sent during this
+// write. HDFS_CSUM_NULL means no checksums should be sent. HDFS_CSUM_CRC32C is only
+// supported in v2.0+
 //
 // This function must be called prior to the first invocation of
 // hdfs_datanode_write_setup_pipeline_nb(), hdfs_datanode_write_nb() or
 // hdfs_datanode_write_file_nb().
 //
 // Returns HDFS_SUCCESS or another error code on failure.
-struct hdfs_error	hdfs_datanode_write_nb_init(struct hdfs_datanode *d, bool sendcrcs);
+struct hdfs_error	hdfs_datanode_write_nb_init(struct hdfs_datanode *d,
+			enum hdfs_checksum_type csum);
 
 // Attempt to set up (non-blocking) the write pipeline for the block associated
 // with this struct.
@@ -896,7 +912,7 @@ struct hdfs_error	hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *n
 //
 // Returns HDFS_SUCCESS or another error code on failure.
 struct hdfs_error	hdfs_datanode_read_nb_init(struct hdfs_datanode *d, off_t bloff,
-			off_t len, bool verifycrcs);
+			off_t len, bool verifycsum);
 
 // Attempt to read (non-blocking) up to len bytes from the block associated with
 // this connection into the given buffer.

@@ -6,7 +6,11 @@ PY_CPPFLAGS=
 CFLAGS=-O2 -g -pipe -Wall -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
 		-mtune=generic $(PY_CFLAGS) -I/usr/local/include
 
-OBJS = datanode.o \
+OBJS = crc32c.o \
+	 crc32c_armv8.o \
+	 crc32c_sse42.o \
+	 crc32c_sw.o \
+	 datanode.o \
 	 heapbuf.o \
 	 heapbufobjs.o \
 	 highlevel.o \
@@ -79,6 +83,9 @@ $(OBJS): $(PB_H)
 %_static.o: %.c
 	$(CC) -I../include $(FLAGS) -DNO_EXPORT_SYMS -o $@ -c $<
 
+%_static.o: %.S
+	$(CC) -I../include $(FLAGS) -DNO_EXPORT_SYMS -o $@ -c $<
+
 # Similarly, we use a different stem (%) from prequisite (%.pb-c) to disable
 # strict aliasing optimizations (and warnings) from protobuf-c generated code,
 # which (ab)uses pointer aliasing.
@@ -86,6 +93,9 @@ $(OBJS): $(PB_H)
 	$(CC) -I../include $(FLAGS) -fno-strict-aliasing -o $@ -c $<
 
 %.o: %.c
+	$(CC) -I../include $(FLAGS) -c $<
+
+%.o: %.S
 	$(CC) -I../include $(FLAGS) -c $<
 
 %.o: %.pb-c.c

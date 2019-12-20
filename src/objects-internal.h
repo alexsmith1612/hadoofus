@@ -137,6 +137,12 @@ _hdfs_csum_from_proto(Hadoop__Hdfs__ChecksumTypeProto pr)
 	return (unsigned)pr;
 }
 
+static inline Hadoop__Hdfs__ChecksumTypeProto
+_hdfs_csum_to_proto(enum hdfs_checksum_type csum)
+{
+	return (unsigned)csum;
+}
+
 _Static_assert((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_DIR == HDFS_FT_DIR,
     "Protobufs DIR file type enum does not match our DIR file type enum");
 _Static_assert((unsigned)HADOOP__HDFS__HDFS_FILE_STATUS_PROTO__FILE_TYPE__IS_FILE == HDFS_FT_FILE,
