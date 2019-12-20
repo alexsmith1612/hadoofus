@@ -2,10 +2,7 @@ PREFIX=/usr/local
 DISTDIR=
 LIB = src/libhadoofus.so
 
-all: build all-examples all-test all-wrappers
-
-all-wrappers: wrappers $(LIB)
-	$(MAKE) -C wrappers all
+all: build all-examples all-test
 
 all-examples: examples $(LIB)
 	$(MAKE) -C examples all
@@ -23,7 +20,6 @@ clean: cov-clean
 	$(MAKE) -C src clean
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
-	$(MAKE) -C wrappers clean
 
 cov-clean:
 	rm -rf hadoofus-coverage
@@ -49,4 +45,3 @@ install:
 	$(MAKE) -C src install
 	$(MAKE) -C include install
 	$(MAKE) -C examples install
-	$(MAKE) -C wrappers install

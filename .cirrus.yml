@@ -4,11 +4,10 @@ freebsd_instance:
 freebsd_task:
   install_script:
     - uname -a
-    - "pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf protobuf-c
-      py27-cython"
+    - "pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf protobuf-c"
   test_script:
     - uname -a
-    - gmake -j$(sysctl -n hw.ncpu) all all-test
+    - gmake -j$(sysctl -n hw.ncpu) all
 
 # only_if feature seems to be broken, at least on FreeBSD, or documented
 # incorrectly :/.  The environment variable is populated during scripts, but
