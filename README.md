@@ -11,14 +11,6 @@ pipelining and out-of-order execution.
 It provides a C API for directly calling Namenode RPCs and performing Datanode
 block read and write operations.
 
-There is an example `libhdfs`-compatible interface using libhadoofus provided
-in a seperate library (`libhdfs_hadoofus.so`).  It should be considered alpha
-quality, provided as a proof of concept.
-
-Hadoofus also includes a Python 2 wrapper module, implemented in Cython.
-(Cython compiles to a C Python module.) For more information on that, see
-`/wrappers/README.md`.
-
 Unlike libhdfs, Hadoofus speaks multiple versions of the HDFS protocol. At your
 option, you may speak with Hadoop 0.20.203 through 1.x.y (`HDFS_NN_v1` /
 `HDFS_DATANODE_AP_1_0`), Hadoop 2.0.x (`HDFS_NN_v2` / `HDFS_DATANODE_AP_2_0`),
