@@ -18,21 +18,9 @@ const char *H_ADDR, *H_USER = "root", *H_PORT = "8020";
 enum hdfs_namenode_proto H_VER = _HDFS_NN_vLATEST; // XXX consider default version
 enum hdfs_kerb H_KERB = HDFS_NO_KERB;
 
-static const char *
-format_error(struct hdfs_error error)
-{
-	static char buf[1024];
-
-	snprintf(buf, sizeof(buf), "%s:%s", hdfs_error_str_kind(error),
-	    hdfs_error_str(error));
-	return buf;
-}
-
 int
 main()
 {
-	struct hdfs_error error;
-	struct hdfs_namenode *nn;
 	char *ver, *kerb;
 	bool success = true;
 	Suite *(* suites[])(void) = {
@@ -96,32 +84,6 @@ main()
 		rc = sasl_client_init(NULL);
 		assert(rc == SASL_OK);
 	}
-
-	// Test basic connectivity
-	nn = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
-	    H_VER, &error);
-	if (!nn)
-		errx(EXIT_FAILURE,
-		    "Could not connect to %s=%s @ %s=%s (%s=%s): %s",
-		    HDFS_T_USER, H_USER, HDFS_T_ADDR, H_ADDR,
-		    HDFS_T_PORT, H_PORT, format_error(error));
-
-	// XXX this only works for v1. TODO remove, have a version switch, or do
-	// something version agnostic (getStats once it's implemented for v2+?)
-#if 0
-	// And verify liveness at a protocol level
-	proto_ver = hdfs_getProtocolVersion(nn, HADOOFUS_CLIENT_PROTOCOL_STR,
-	    61L, &exception);
-	if (exception)
-		errx(EXIT_FAILURE,
-		    "getProtocolVersion failed: %s",
-		    hdfs_exception_get_message(exception));
-	if (proto_ver != 61L)
-		errx(EXIT_FAILURE,
-		    "Got unexpected protocol version: %ld", proto_ver);
-#endif
-
-	hdfs_namenode_delete(nn);
 
 	fprintf(stderr, "\n");
 	// Find and run all tests
