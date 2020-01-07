@@ -10,9 +10,14 @@ addons:
       - libsasl2-dev
       - libsasl2-2
       - check
+env:
+  global:
+    CK_VERBOSITY: verbose
+    HDFS_TEST_NODE_ADDRESS: localhost
 
 # TODO:
 # make test requires live HDFS cluster...
-# For now, just compile everything.
-script: >
-  make -j$(nproc) WARNS_NEW= all
+# For now only run the unit suite which doesn't deal directly with HDFS
+script:
+  - make -j$(nproc) WARNS_NEW= all
+  - env CK_RUN_SUITE=unit make test
