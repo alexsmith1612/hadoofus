@@ -1,6 +1,4 @@
-dist: xenial
 language: c
-compiler: gcc
 addons:
   apt:
     packages:
@@ -15,9 +13,87 @@ env:
     CK_VERBOSITY: verbose
     HDFS_TEST_NODE_ADDRESS: localhost
 
+# Travis doesn't allow dist to be a sequence, so in order to test on both
+# Ubuntu 16.04 and 18.04 we need to explicitly describe the build matrix
+jobs:
+  include:
+    - dist: xenial
+      compiler: gcc
+      arch: amd64
+      env:
+        # gcc on 16.04 doesn't support -Wnull-dereference, so clear WARNS_NEW
+        WARNS_NEW:
+
+    - dist: xenial
+      compiler: clang
+      arch: amd64
+
+    - dist: bionic
+      compiler: gcc
+      arch: amd64
+
+    - dist: bionic
+      compiler: clang
+      arch: amd64
+
+    # arm64 allows us to test the armv8 hardware crc32c implementation
+    - dist: xenial
+      compiler: gcc
+      arch: arm64
+      env:
+        # gcc on 16.04 doesn't support -Wnull-dereference, so clear WARNS_NEW
+        WARNS_NEW:
+        # gcc has a false positive for __has_attribute(ifunc) on arm64 for
+        # Ubuntu 16.04, so force use of the non-ifunc fallback code
+        CFLAGS: -DNO_IFUNC
+
+    - dist: xenial
+      compiler: clang
+      arch: arm64
+
+    - dist: bionic
+      compiler: gcc
+      arch: arm64
+      env:
+        # gcc has a false positive for __has_attribute(ifunc) on arm64 for
+        # Ubuntu 18.04, so force use of the non-ifunc fallback code
+        CFLAGS: -DNO_IFUNC
+
+    - dist: bionic
+      compiler: clang
+      arch: arm64
+
+    # s390x allows us to test the big endian software crc32c implementation
+    - dist: xenial
+      compiler: gcc
+      arch: s390x
+      env:
+        # gcc on 16.04 doesn't support -Wnull-dereference, so clear WARNS_NEW
+        WARNS_NEW:
+        # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
+        ARCH_CFLAGS:
+
+    - dist: xenial
+      compiler: clang
+      arch: s390x
+      env:
+        # clang's -fstack-protector does not properly link on s390x xenial
+        CFLAGS: -fno-stack-protector
+
+    - dist: bionic
+      compiler: gcc
+      arch: s390x
+      env:
+        # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
+        ARCH_CFLAGS:
+
+    - dist: bionic
+      compiler: clang
+      arch: s390x
+
 # TODO:
 # make test requires live HDFS cluster...
 # For now only run the unit suite which doesn't deal directly with HDFS
 script:
-  - make -j$(nproc) WARNS_NEW= all
+  - make -j$(nproc) all
   - env CK_RUN_SUITE=unit make test
