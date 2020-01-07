@@ -1,15 +1,16 @@
 dist: xenial
 language: c
 compiler: gcc
-before_install:
-  - sudo apt-get -y install check libsasl2-dev libsasl2-2
-  - wget https://github.com/google/protobuf/releases/download/v2.6.0/protobuf-2.6.0.tar.gz
-  - tar -xzf protobuf-2.6.0.tar.gz
-  - ( cd protobuf-2.6.0 && ./configure --prefix=/usr && make && sudo make install )
-  - wget https://github.com/protobuf-c/protobuf-c/releases/download/v1.1.0/protobuf-c-1.1.0.tar.gz
-  - tar -xzf protobuf-c-1.1.0.tar.gz
-  - ( cd protobuf-c-1.1.0 && ./configure && make && sudo make install )
-  - ( [ ! -e /usr/bin/gmake ] && cd /usr/bin && sudo ln -s `which make` gmake )
+addons:
+  apt:
+    packages:
+      - protobuf-c-compiler
+      - libprotobuf-c-dev
+      - libprotobuf-c1
+      - libsasl2-dev
+      - libsasl2-2
+      - check
+
 # TODO:
 # make test requires live HDFS cluster...
 # For now, just compile everything.
