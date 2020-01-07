@@ -15,4 +15,4 @@ addons:
 # make test requires live HDFS cluster...
 # For now, just compile everything.
 script: >
-  make WARNS_NEW= all
+  make -j$(nproc) WARNS_NEW= all
