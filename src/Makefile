@@ -1,11 +1,3 @@
-# Python reads only the CFLAGS from PY_CFLAGS
-PY_CFLAGS=-std=gnu11
-PY_LDFLAGS=
-PY_CPPFLAGS=
-
-CFLAGS=-O2 -g -pipe -Wall -fexceptions -fstack-protector --param=ssp-buffer-size=4 \
-		-mtune=generic $(PY_CFLAGS) -I/usr/local/include
-
 OBJS = crc32c.o \
 	 crc32c_armv8.o \
 	 crc32c_sse42.o \
@@ -54,10 +46,15 @@ WARNS = -Wall -Wextra \
 	-Wno-unused-parameter -Wno-missing-field-initializers
 
 # Warnings too new for Travis-CI, which runs an ancient version of Ubuntu:
-WARNS_NEW = -Wnull-dereference
+WARNS_NEW ?= -Wnull-dereference
 
-FLAGS = $(WARNS) $(WARNS_NEW) $(CFLAGS) -fPIC -g -fvisibility=hidden \
-		$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
+# Some architectures (e.g. s390x) don't support -mtune=generic
+ARCH_CFLAGS ?= -mtune=generic
+
+FLAGS = $(WARNS) $(WARNS_NEW) -O2 -g $(ARCH_CFLAGS) -pipe -fexceptions \
+	-fstack-protector --param=ssp-buffer-size=4 $(CFLAGS) \
+	-fPIC -fvisibility=hidden -I/usr/local/include \
+	$(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lsasl2 $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
 ifneq ($(shell uname -s), Darwin)
 	LIBFLAGS += -lrt
