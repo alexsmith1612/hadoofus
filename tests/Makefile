@@ -32,7 +32,9 @@ endif
 ifeq ($(shell uname -s),FreeBSD)
 	LINK_FLAGS += -lexecinfo
 endif
-FLAGS = -Wall -Wextra -Werror -Wno-error=unused-parameter -fPIC -g $(CFLAGS) `pkg-config --cflags check`
+FLAGS = -Wall -Wextra -Werror -Wno-error=unused-parameter \
+	-Wno-error=missing-field-initializers \
+	-fPIC -g $(CFLAGS) `pkg-config --cflags check`
 
 ifeq ($(shell uname -s), Darwin)
 	LD_PATH = DYLD_LIBRARY_PATH="$$DYLD_LIBRARY_PATH:../src"
