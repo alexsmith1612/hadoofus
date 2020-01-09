@@ -4,6 +4,7 @@
  *   - Pull in the #defines from FreeBSD's arm64 asm.h
  *   - Add pre- and post-conditioning (bit inversion) to the crc
  *   - Wrap code in preprocessor architecture condition
+ *   - Conditionally don't use the .arch directive on clang versions < 4.0
  */
 
 /*-
@@ -39,7 +40,12 @@
 	.text; .globl sym; .align 2; .type sym,#function; sym:
 #define	END(sym) .size sym, . - sym
 
+// The .arch directive doesn't exist on clang 3.8, but exists in
+// clang 4.0 (unclear if it exists in 3.9, but let's assume not).
+// There doesn't seem to be a __has_XXX() macro for assembler directives
+#if !defined(__clang__) || __clang_major__ >= 4
 .arch armv8-a+crc
+#endif
 
 /*
  * uint32_t
