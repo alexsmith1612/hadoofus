@@ -8,10 +8,23 @@ addons:
       - libsasl2-dev
       - libsasl2-2
       - check
+
+install:
+  # Only download hadoop if we're going to test against the Hadoop CLI MiniCluster
+  - |
+    if [ "$CK_RUN_SUITE" = "" ] ; then
+      wget http://www.trieuvan.com/apache/hadoop/common/hadoop-3.1.3/hadoop-3.1.3.tar.gz \
+      && tar -xzf hadoop-3.1.3.tar.gz \
+      && sudo mv hadoop-3.1.3 /usr/local/hadoop
+    fi
+
 env:
   global:
     CK_VERBOSITY: verbose
     HDFS_TEST_NODE_ADDRESS: localhost
+    HDFS_TEST_NODE_PORT: 9000
+    HDFS_TEST_USER: travis
+    HADOOP_ROOT_LOGGER: WARN,DRFA # decrease cluster's log level and don't print to console
 
 # Travis doesn't allow dist to be a sequence, so in order to test on both
 # Ubuntu 16.04 and 18.04 we need to explicitly describe the build matrix
@@ -46,10 +59,15 @@ jobs:
         # gcc has a false positive for __has_attribute(ifunc) on arm64 for
         # Ubuntu 16.04, so force use of the non-ifunc fallback code
         CFLAGS: -DNO_IFUNC
+        # don't spin up the cluster and only run the "unit" test suite on arm64
+        CK_RUN_SUITE: unit
 
     - dist: xenial
       compiler: clang
       arch: arm64
+      env:
+        # don't spin up the cluster and only run the "unit" test suite on arm64
+        CK_RUN_SUITE: unit
 
     - dist: bionic
       compiler: gcc
@@ -58,10 +76,15 @@ jobs:
         # gcc has a false positive for __has_attribute(ifunc) on arm64 for
         # Ubuntu 18.04, so force use of the non-ifunc fallback code
         CFLAGS: -DNO_IFUNC
+        # don't spin up the cluster and only run the "unit" test suite on arm64
+        CK_RUN_SUITE: unit
 
     - dist: bionic
       compiler: clang
       arch: arm64
+      env:
+        # don't spin up the cluster and only run the "unit" test suite on arm64
+        CK_RUN_SUITE: unit
 
     # s390x allows us to test the big endian software crc32c implementation
     - dist: xenial
@@ -72,6 +95,8 @@ jobs:
         WARNS_NEW:
         # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
         ARCH_CFLAGS:
+        # don't spin up the cluster and only run the "unit" test suite on s390x
+        CK_RUN_SUITE: unit
 
     - dist: xenial
       compiler: clang
@@ -79,6 +104,8 @@ jobs:
       env:
         # clang's -fstack-protector does not properly link on s390x xenial
         CFLAGS: -fno-stack-protector
+        # don't spin up the cluster and only run the "unit" test suite on s390x
+        CK_RUN_SUITE: unit
 
     - dist: bionic
       compiler: gcc
@@ -86,14 +113,33 @@ jobs:
       env:
         # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
         ARCH_CFLAGS:
+        # don't spin up the cluster and only run the "unit" test suite on s390x
+        CK_RUN_SUITE: unit
 
     - dist: bionic
       compiler: clang
       arch: s390x
+      env:
+        # don't spin up the cluster and only run the "unit" test suite on s390x
+        CK_RUN_SUITE: unit
 
-# TODO:
-# make test requires live HDFS cluster...
-# For now only run the unit suite which doesn't deal directly with HDFS
 script:
   - make -j$(nproc) all
-  - env CK_RUN_SUITE=unit make test
+  - |
+    # Only spin up the minicluster if we're testing against it (and if we downloaded it)
+    if [ "$CK_RUN_SUITE" = "" ] ; then
+      /usr/local/hadoop/bin/mapred minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
+      CLUSTER_PID=$!
+      # Wait until the cluster is up by polling the namenode port with netcat
+      cnt=0
+      while ! nc -vz localhost $HDFS_TEST_NODE_PORT ; do
+        echo "$cnt"
+        cnt=$((cnt + 1))
+        if [ "$cnt" -gt "5" ] ; then exit 1; fi
+        sleep 5;
+      done
+      # Wait a bit longer to ensure the rest of the cluster finalized setup
+      sleep 10
+    fi
+  - make test
+  - if [ "$CK_RUN_SUITE" = "" ] ; then kill $CLUSTER_PID; fi
