@@ -6,15 +6,41 @@ freebsd_task:
   env:
     CK_VERBOSITY: verbose
     HDFS_TEST_NODE_ADDRESS: localhost
+    HDFS_TEST_NODE_PORT: 9000
+    HDFS_TEST_USER: root
+    HADOOP_ROOT_LOGGER: WARN,DRFA # decrease cluster's log level and don't print to console
+    JAVA_HOME: /usr/local/openjdk8-jre
   install_script:
     - uname -a
     - pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf-c
+    # install Hadoop to spin up the CLI MiniCluster
+    - pkg install -y wget openjdk8-jre bash
+    # these mounts are required for this implementation of openjdk8
+    - mount -t fdescfs fdesc /dev/fd
+    - mount -t procfs proc /proc
+    - wget -nv http://www.trieuvan.com/apache/hadoop/common/hadoop-3.1.3/hadoop-3.1.3.tar.gz
+    - tar -xzf hadoop-3.1.3.tar.gz
+    - mv hadoop-3.1.3 /usr/local/hadoop
   build_script:
     - uname -a
     - gmake -j$(sysctl -n hw.ncpu) all
-  # only run the unit test suite for now, as it doesn't require a live HDFS cluster
   test_script:
-    - env CK_RUN_SUITE=unit gmake test
+    - uname -a
+    - /usr/local/hadoop/bin/mapred minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
+    - CLUSTER_PID=$!
+    - echo "CLUSTER_PID $CLUSTER_PID"
+    - |
+      # Wait until the cluster is up by polling the namenode port with netcat
+      cnt=0
+      while ! nc -vzw 5 localhost $HDFS_TEST_NODE_PORT ; do
+        echo "$cnt"
+        cnt=$((cnt + 1))
+        if [ "$cnt" -gt "5" ] ; then exit 1; fi
+      done
+      # Wait a bit longer to ensure the rest of the cluster finalized setup
+    - sleep 10
+    - gmake test
+    - kill $CLUSTER_PID
 
 # only_if feature seems to be broken, at least on FreeBSD, or documented
 # incorrectly :/.  The environment variable is populated during scripts, but
