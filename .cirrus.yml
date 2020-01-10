@@ -1,7 +1,6 @@
-freebsd_instance:
-  image: freebsd-12-1-release-amd64
-
 freebsd_task:
+  freebsd_instance:
+    image: freebsd-12-1-release-amd64
   env:
     CK_VERBOSITY: verbose
     HDFS_TEST_NODE_ADDRESS: localhost
