@@ -1388,8 +1388,11 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 	case HDFS_DN_ST_CONNPENDING:
 		error = hdfs_datanode_connect_nb(d);
 		// state transitions handled by hdfs_datanode_connect_nb()
-		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+		if (hdfs_is_error(error)) { // includes HDFS_AGAIN
+			ASSERT(d->dn_state < HDFS_DN_ST_CONNECTED);
 			goto out;
+		}
+		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
 		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
@@ -1576,8 +1579,10 @@ _setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 		error = hdfs_datanode_connect_nb(d);
 		// state transitions handled by hdfs_datanode_connect_nb()
 		if (hdfs_is_again(error)) {
+			ASSERT(d->dn_state < HDFS_DN_ST_CONNECTED);
 			goto out;
 		} else if (hdfs_is_error(error)) {
+			ASSERT(d->dn_state == HDFS_DN_ST_ERROR);
 			*err_idx = 0;
 			goto out;
 		}
@@ -1919,8 +1924,10 @@ _datanode_transfer(struct hdfs_datanode *d)
 	case HDFS_DN_ST_CONNPENDING:
 		error = hdfs_datanode_connect_nb(d);
 		// state transitions handled by hdfs_datanode_connect_nb()
-		if (hdfs_is_error(error)) // includes HDFS_AGAIN
+		if (hdfs_is_error(error)) { // includes HDFS_AGAIN
+			ASSERT(d->dn_state < HDFS_DN_ST_CONNECTED);
 			goto out;
+		}
 		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
