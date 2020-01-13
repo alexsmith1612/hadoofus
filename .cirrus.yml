@@ -6,7 +6,7 @@ freebsd_task:
     HDFS_TEST_NODE_ADDRESS: localhost
   install_script:
     - uname -a
-    - "pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf protobuf-c"
+    - pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf-c
   build_script:
     - uname -a
     - gmake -j$(sysctl -n hw.ncpu) all
