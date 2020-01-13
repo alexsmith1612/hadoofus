@@ -10,9 +10,13 @@ freebsd_task:
     HDFS_TEST_USER: root
     HADOOP_ROOT_LOGGER: WARN,DRFA # decrease cluster's log level and don't print to console
     JAVA_HOME: /usr/local/openjdk8-jre
+    matrix:
+      - CC: clang
+      - CC: gcc
   install_script:
     - uname -a
-    - pkg install -y check cyrus-sasl gcc gmake pkgconf protobuf-c
+    - pkg install -y check cyrus-sasl gmake pkgconf protobuf-c
+    - if [ "$CC" = "gcc" ] ; then pkg install -y gcc; fi
     # install Hadoop to spin up the CLI MiniCluster
     - pkg install -y wget openjdk8-jre bash
     # these mounts are required for this implementation of openjdk8
