@@ -46,7 +46,26 @@ freebsd_task:
     - gmake test
     - kill $CLUSTER_PID
 
-# only_if feature seems to be broken, at least on FreeBSD, or documented
-# incorrectly :/.  The environment variable is populated during scripts, but
-# does not appear to exist globally in tasks.
-#only_if: $CIRRUS_OS == freebsd
+macos_task:
+  osx_instance:
+    image: mojave-base
+  env:
+    # The version of libsasl2 that is included with MacOS command line
+    # tools has many of its API functions explicitly marked deprecated
+    # for some reason
+    CFLAGS: -Wno-error=deprecated-declarations
+    CK_VERBOSITY: verbose
+    HDFS_TEST_NODE_ADDRESS: localhost
+    # Spinning up a test HDFS cluster doesn't seem to work well on
+    # Cirrus's MacOS VMs, so only run the unit test suite that doesn't
+    # require a live cluster
+    CK_RUN_SUITE: unit
+  install_script:
+    - uname -a
+    - brew install check pkg-config protobuf-c
+  build_script:
+    - uname -a
+    - make -j$(sysctl -n hw.ncpu) all
+  test_script:
+    - uname -a
+    - make test
