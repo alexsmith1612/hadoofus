@@ -204,12 +204,11 @@ START_TEST(test_dn_write_buf)
 		wtot += wblk;
 	} while (wtot < TOWRITE);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
@@ -358,12 +357,11 @@ START_TEST(test_dn_writev)
 		wtot += wblk;
 	} while (wtot < TOWRITE);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
@@ -517,12 +515,11 @@ START_TEST(test_dn_append_buf)
 		wtot += wblk;
 	} while (wtot < towrite_first);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
@@ -633,12 +630,11 @@ START_TEST(test_dn_append_buf)
 		wtot += wblk;
 	} while (wtot < TOWRITE);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
@@ -774,12 +770,11 @@ START_TEST(test_dn_write_file)
 		wtot += wblk;
 	} while (wtot < TOWRITE);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
@@ -1098,12 +1093,11 @@ START_TEST(test_dn_recovery)
 		wtot += towrite_blk;
 	} while (wtot < TOWRITE);
 
-	// XXX This is dubious. There's no guarantee that complete will return
-	// true within the time it takes for five round trip RPC
-	// request/response cycles to be completed
 	for (int i = 0; i < 5; i++) {
-		if (i > 0)
-			fprintf(stderr, "Notice: did not complete file on attempt %d, trying again...\n", i - 1);
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
 			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));

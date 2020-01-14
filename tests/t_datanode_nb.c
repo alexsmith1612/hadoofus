@@ -54,7 +54,8 @@ START_TEST(test_dn_write_nb)
 		enum { ST_CR, ST_AB, ST_WR, ST_CM, ST_GI, ST_GB, ST_RD, ST_DL, ST_FN } st;
 		int64_t mn;
 		uint64_t tstart,
-			 tend;
+			 tend,
+			 cmpl_retry_time;
 		struct hdfs_object *prev,
 				   *bls;
 		struct hdfs_datanode dn;
@@ -65,6 +66,7 @@ START_TEST(test_dn_write_nb)
 		    blkidx,
 		    rblk,
 		    rtot;
+		bool cmpl_retry;
 	} fctxs[] = {
 		{ .tf = "/HADOOFUS_TEST_WRITE_NB_0" },
 		{ .tf = "/HADOOFUS_TEST_WRITE_NB_1" },
@@ -148,6 +150,8 @@ START_TEST(test_dn_write_nb)
 	}
 
 	do {
+		uint64_t tnow;
+
 		// pfd[0] holds the namenode fd
 		err = hdfs_namenode_get_eventfd(&nn, &pfd[0].fd, &pfd[0].events);
 		ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
@@ -166,9 +170,28 @@ START_TEST(test_dn_write_nb)
 			}
 		}
 
-		rc = poll(pfd, nelem(pfd), -1);
+		rc = poll(pfd, nelem(pfd), 1000);
 		ck_assert_msg(rc >= 0, "poll error: %s", strerror(errno));
-		ck_assert_int_gt(rc, 0);
+
+		// Check if we need to retry any complete RPCs
+		tnow = _now();
+		for (unsigned i = 0; i < nelem(fctxs); i++) {
+			if (fctxs[i].st != ST_CM || !fctxs[i].cmpl_retry
+			    || fctxs[i].cmpl_retry_time > tnow)
+				continue;
+
+			// Retry the complete RPC
+			err = hdfs_complete_nb(&nn, fctxs[i].tf, client,
+			    fctxs[i].prev, 0/*fileid?*/, &fctxs[i].mn, &fctxs[i]);
+			ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+			    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
+			fctxs[i].cmpl_attempts++;
+			fctxs[i].cmpl_retry = false;
+			nrpcs++;
+		}
+
+		if (rc == 0) // No fds are ready
+			continue;
 
 		if (pfd[0].revents & POLLOUT) {
 			err = hdfs_namenode_invoke_continue(&nn);
@@ -236,18 +259,13 @@ START_TEST(test_dn_write_nb)
 				ck_assert_int_eq(obj->ob_type, H_BOOLEAN);
 				if (!obj->ob_val._boolean._val) {
 					hdfs_object_free(obj);
-					// XXX this is dubious
 					if (fctxp->cmpl_attempts == 5)
 						ck_abort_msg("Unable to complete file %s", fctxp->tf);
 					fprintf(stderr,
-					    "Notice: did not complete file %s on attempt %d, trying again...\n",
+					    "Notice: did not complete file %s on attempt %d, delaying for 1s and trying again...\n",
 					    fctxp->tf, fctxp->cmpl_attempts);
-					err = hdfs_complete_nb(&nn, fctxp->tf, client,
-					    fctxp->prev, 0/*fileid?*/, &fctxp->mn, fctxp);
-					ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-					    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
-					fctxp->cmpl_attempts++;
-					nrpcs++;
+					fctxp->cmpl_retry = true;
+					fctxp->cmpl_retry_time = tnow + 1000; // Delay 1000ms before retrying
 					break;
 				}
 				hdfs_object_free(obj);
