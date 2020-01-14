@@ -41,7 +41,7 @@ START_TEST(test_dn_write_nb)
 	const char *client = "HADOOFUS_CLIENT";
 	struct hdfs_error err = HDFS_SUCCESS;
 	struct hdfs_namenode nn = { 0 };
-	struct hdfs_object *obj, *fsd, *e, *lb;
+	struct hdfs_object *obj, *fsd, *e;
 	int dn_proto, rc, replication = 1, nrpcs = 0, n_wr_end = 0, n_rd_end = 0;
 	int64_t mn_recv;
 	bool finished, wr_started = false, rd_started = false;
@@ -78,7 +78,8 @@ START_TEST(test_dn_write_nb)
 
 	struct pollfd pfd[1 + nelem(fctxs)];
 
-	// XXX This test could easily get refactored into separate functions for readability
+	// XXX TODO This test could easily (and should) get refactored
+	// into separate functions for readability
 
 	// Initialize the buffers
 	wbuf = malloc(TOWRITE);
@@ -179,6 +180,7 @@ START_TEST(test_dn_write_nb)
 		do {
 			void *ud_recv;
 			struct fctx *fctxp;
+			struct hdfs_object *lb;
 
 			if (nrpcs == 0 || !(pfd[0].revents & POLLIN))
 				break;
@@ -384,71 +386,77 @@ START_TEST(test_dn_write_nb)
 					}
 				}
 			} else if (fctxs[i].st == ST_RD) { // Reading back the files
-				ssize_t nread;
+				bool has_next_block;
 
-				lb = fctxs[i].bls->ob_val._located_blocks._blocks[fctxs[i].blkidx];
 				do {
-					err = hdfs_datanode_read_nb(&fctxs[i].dn, rbufsz, rbuf, &nread);
-					// TODO handle servers that don't support crcs (do those still exist?)
-					ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-					    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
-					    fctxs[i].dn.dn_opresult_message ? "\n\tDatanode message: " : "",
-					    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "");
-					if (nread > 0) {
-						ck_assert_msg(memcmp(wbuf + fctxs[i].rtot, rbuf, nread) == 0,
-						    "Read differed from write for '%s'", fctxs[i].tf);
-						fctxs[i].rblk += nread;
-						fctxs[i].rtot += nread;
-					}
-					// Tight loop while there is more data left in the block that we want
-					// to read (i.e. HDFS_AGAIN) and our buffer has been completely filled
-					// (i.e. there may be more data available immediately)
-				} while (hdfs_is_again(err) && nread == rbufsz);
+					ssize_t nread;
 
-				if (!hdfs_is_error(err)) {
-					// Finished with our read operation
-					if (fctxs[i].rtot == TOWRITE) {
-						// Fully read the file
-						fctxs[i].tend = _now();
-						fprintf(stderr, "(Non-blocking: %s) Read and compared %d MB from buf in %"PRIu64" ms%s, %02g MB/s\n",
-						    fctxs[i].tf, fctxs[i].rtot/1024/1024, fctxs[i].tend - fctxs[i].tstart,
-						    _i ? " (with csum verification)" : "",
-						    ((double)fctxs[i].rtot/1024/1024) / ((double)(fctxs[i].tend - fctxs[i].tstart)/1000));
-						if (++n_rd_end == nelem(fctxs)) {
-							fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
-							    "read and compared in %"PRIu64" ms%s, %02g MB/s\n",
-							    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
-							    fctxs[i].tend - tstart_rd, _i ? " (with csum verification)" : "",
-							    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxs[i].tend - tstart_rd)/1000));
+					has_next_block = false;
+					do {
+						err = hdfs_datanode_read_nb(&fctxs[i].dn, rbufsz, rbuf, &nread);
+						// TODO handle servers that don't support crcs (do those still exist?)
+						ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+						    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+						    fctxs[i].dn.dn_opresult_message ? "\n\tDatanode message: " : "",
+						    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "");
+						if (nread > 0) {
+							ck_assert_msg(memcmp(wbuf + fctxs[i].rtot, rbuf, nread) == 0,
+							    "Read differed from write for '%s'", fctxs[i].tf);
+							fctxs[i].rblk += nread;
+							fctxs[i].rtot += nread;
 						}
-						hdfs_datanode_destroy(&fctxs[i].dn);
-						hdfs_object_free(fctxs[i].bls);
-						err = hdfs_delete_nb(&nn, fctxs[i].tf, false/*can_recurse*/,
-						    &fctxs[i].mn, &fctxs[i]);
-						ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-						    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
-						nrpcs++;
-						fctxs[i].st = ST_DL;
-					} else if (fctxs[i].rblk == lb->ob_val._located_block._len) {
-						// Fully read this block
-						hdfs_datanode_clean(&fctxs[i].dn);
-						fctxs[i].blkidx++;
-						lb = fctxs[i].bls->ob_val._located_blocks._blocks[fctxs[i].blkidx];
-						err = hdfs_datanode_init(&fctxs[i].dn, lb, client, dn_proto, HDFS_DN_OP_READ_BLOCK);
-						ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
-						    hdfs_error_str_kind(err), hdfs_error_str(err));
-						err = hdfs_datanode_read_nb_init(&fctxs[i].dn, 0/*block offset*/,
-						    lb->ob_val._located_block._len, _i/*verifycrcs*/);
-						ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-						    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
-						// Start the connection process here in order to move past the
-						// datanode INIT state prior to the next get_eventfd() call
-						err = hdfs_datanode_connect_nb(&fctxs[i].dn);
-						ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-						    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
-					} else
-						ck_abort_msg("Finished read operation without finishing desired total or block size");
-				}
+						// Tight loop while there is more data left in the block that we want
+						// to read (i.e. HDFS_AGAIN) and our buffer has been completely filled
+						// (i.e. there may be more data available immediately)
+					} while (hdfs_is_again(err) && nread == rbufsz);
+
+					if (!hdfs_is_error(err)) {
+						struct hdfs_object *lb = fctxs[i].bls->ob_val._located_blocks._blocks[fctxs[i].blkidx];
+						// Finished with our read operation
+						if (fctxs[i].rtot == TOWRITE) {
+							// Fully read the file
+							fctxs[i].tend = _now();
+							fprintf(stderr, "(Non-blocking: %s) Read and compared %d MB from buf in %"PRIu64" ms%s, %02g MB/s\n",
+							    fctxs[i].tf, fctxs[i].rtot/1024/1024, fctxs[i].tend - fctxs[i].tstart,
+							    _i ? " (with csum verification)" : "",
+							    ((double)fctxs[i].rtot/1024/1024) / ((double)(fctxs[i].tend - fctxs[i].tstart)/1000));
+							if (++n_rd_end == nelem(fctxs)) {
+								fprintf(stderr, "(Non-blocking) %ju files, each %d MB (%ju MB total) "
+								    "read and compared in %"PRIu64" ms%s, %02g MB/s\n",
+								    nelem(fctxs), TOWRITE/1024/1024, TOWRITE*nelem(fctxs)/1024/1024,
+								    fctxs[i].tend - tstart_rd, _i ? " (with csum verification)" : "",
+								    ((double)TOWRITE*nelem(fctxs)/1024/1024) / ((double)(fctxs[i].tend - tstart_rd)/1000));
+							}
+							hdfs_datanode_destroy(&fctxs[i].dn);
+							hdfs_object_free(fctxs[i].bls);
+							err = hdfs_delete_nb(&nn, fctxs[i].tf, false/*can_recurse*/,
+							    &fctxs[i].mn, &fctxs[i]);
+							ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+							    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
+							nrpcs++;
+							fctxs[i].st = ST_DL;
+						} else if (fctxs[i].rblk == lb->ob_val._located_block._len) {
+							// Fully read this block
+							hdfs_datanode_clean(&fctxs[i].dn);
+							fctxs[i].blkidx++;
+							lb = fctxs[i].bls->ob_val._located_blocks._blocks[fctxs[i].blkidx];
+							err = hdfs_datanode_init(&fctxs[i].dn, lb, client, dn_proto, HDFS_DN_OP_READ_BLOCK);
+							ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+							    hdfs_error_str_kind(err), hdfs_error_str(err));
+							err = hdfs_datanode_read_nb_init(&fctxs[i].dn, 0/*block offset*/,
+							    lb->ob_val._located_block._len, _i/*verifycrcs*/);
+							ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+							    "error (%s): %s", hdfs_error_str_kind(err), hdfs_error_str(err));
+
+							// Loop over this whole read processing again for the
+							// new block so that we proceed to a state where we
+							// are waiting on resources such that we can call
+							// hdfs_datanode_get_eventfd() again
+							has_next_block = true;
+						} else
+							ck_abort_msg("Finished read operation without finishing desired total or block size");
+					}
+				} while (has_next_block);
 			} else
 				ck_abort_msg("Datanode being processed in unexpected state %d", fctxs[i].st);
 		} // Process datanodes
