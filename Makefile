@@ -13,6 +13,12 @@ all-test: tests $(LIB)
 build: src
 	$(MAKE) -C src all
 
+build-shared: src
+	$(MAKE) -C src shared
+
+build-static: src
+	$(MAKE) -C src static
+
 test: all-test
 	$(MAKE) -C tests check
 

@@ -66,18 +66,21 @@ SLIB = libhadoofus.a
 LIBDIR = $(PREFIX)/lib
 
 
+shared: $(LIB)
 $(LIB): $(OBJS)
 	$(CC) -o $@ $(LIBFLAGS) $(OBJS)
 
+static: $(SLIB)
 $(SLIB): $(STATIC_OBJS)
 	ar rcs $@ $^
 
-all: $(LIB) $(SLIB)
+all: shared static
 
 %.pb-c.c %.pb-c.h: proto/%.proto
 	( cd proto && protoc-c --c_out=.. $(subst proto/,,$<) )
 
-$(OBJS): $(PB_H)
+$(OBJS): $(PB_H) $(PB_C)
+$(STATIC_OBJS): $(PB_H) $(PB_C)
 
 # This is a little ugly, but I have not found anything I like better.  We
 # intentionally use a different stem (%_static) from the prequisite (%) to
