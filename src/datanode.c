@@ -610,7 +610,7 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 {
 	struct iovec iov;
 
-	ASSERT(buf);
+	ASSERT(buf || len == 0);
 
 	iov.iov_base = __DECONST(void *, buf);
 	iov.iov_len = len;
@@ -648,8 +648,8 @@ hdfs_datanode_writev_nb(struct hdfs_datanode *d, const struct iovec *iov, int io
 {
 	size_t len = 0;
 
-	ASSERT(iov);
-	ASSERT(iovcnt > 0);
+	ASSERT(iovcnt >= 0);
+	ASSERT(iov || iovcnt == 0);
 
 	// XXX consider making the user pass in a len instead
 	for (int i = 0; i < iovcnt; i++) {
