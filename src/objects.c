@@ -384,8 +384,8 @@ hdfs_array_long_new(int len, const int64_t *values)
 	return r;
 }
 
-EXPORT_SYM struct hdfs_object *
-hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
+static struct hdfs_object *
+_hdfs_located_block_new_no_token(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_LOCATED_BLOCK;
@@ -394,8 +394,19 @@ hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t o
 		._len = len,
 		._generation = generation,
 		._offset = offset,
-		._token = hdfs_token_new_empty(),
+		._token = NULL,
 	};
+	return r;
+}
+
+EXPORT_SYM struct hdfs_object *
+hdfs_located_block_new(int64_t blkid, int64_t len, int64_t generation, int64_t offset)
+{
+	struct hdfs_object *r;
+
+	r = _hdfs_located_block_new_no_token(blkid, len, generation, offset);
+	r->ob_val._located_block._token = hdfs_token_new_empty();
+
 	return r;
 }
 
@@ -408,8 +419,8 @@ _hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 	ASSERT(lb);
 	ASSERT(lb->b);
 
-	res = hdfs_located_block_new(lb->b->blockid, 0, lb->b->generationstamp,
-	    lb->offset);
+	res = _hdfs_located_block_new_no_token(lb->b->blockid, 0,
+	    lb->b->generationstamp, lb->offset);
 
 	if (lb->b->has_numbytes)
 		res->ob_val._located_block._len = lb->b->numbytes;
@@ -418,11 +429,6 @@ _hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 	ASSERT(res->ob_val._located_block._pool_id);
 
 	res->ob_val._located_block._corrupt = lb->corrupt;
-	// XXX TODO The above hdfs_located_block_new() allocates _token with
-	// hdfs_token_new_empty(), so we need to free that here before the
-	// _hdfs_token_new_proto() call, or we'll leak memory. This allocation just to
-	// immediately free is wasteful, so TODO change this to something smarter
-	hdfs_object_free(res->ob_val._located_block._token);
 	res->ob_val._located_block._token =
 	    _hdfs_token_new_proto(lb->blocktoken);
 
