@@ -1590,6 +1590,35 @@ hdfs_array_datanode_info_append_datanode_info(struct hdfs_object *array, struct 
 }
 
 EXPORT_SYM void
+hdfs_array_datanode_info_append_datanode_info_unique(struct hdfs_object *array, struct hdfs_object *datanode_info)
+{
+	int i;
+	struct hdfs_array_datanode_info *adi;
+	struct hdfs_datanode_info *di;
+
+	ASSERT(array->ob_type == H_ARRAY_DATANODE_INFO);
+	ASSERT(datanode_info->ob_type == H_DATANODE_INFO);
+
+	adi = &array->ob_val._array_datanode_info;
+	di = &datanode_info->ob_val._datanode_info;
+
+	for (i = 0; i < adi->_len; i++) {
+		struct hdfs_datanode_info *di2 = &adi->_values[i]->ob_val._datanode_info;
+		if (_datanode_info_eq(di, di2)) {
+		    break;
+		}
+	}
+
+	if (i == adi->_len) {
+		H_ARRAY_APPEND(array->ob_val._array_datanode_info._values,
+		    array->ob_val._array_datanode_info._len,
+		    datanode_info);
+	} else {
+		hdfs_object_free(datanode_info);
+	}
+}
+
+EXPORT_SYM void
 hdfs_array_string_add(struct hdfs_object *o, const char *s)
 {
 	char *copy;
