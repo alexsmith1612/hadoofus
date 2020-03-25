@@ -434,6 +434,10 @@ _hdfs_located_block_new_proto(Hadoop__Hdfs__LocatedBlockProto *lb)
 		hdfs_located_block_append_datanode_info(res, dni);
 	}
 
+	// XXX consider only setting setting _storage_ids if n_storageids == n_locs
+	// (likewise for _storage_types). This should always be the case for versions
+	// that send storage_ids/storage_types unless there is corrupted or
+	// maliciously generated data.
 	for (i = 0; i < lb->n_storageids; i++) {
 		hdfs_located_block_append_storage_id(res, strdup(lb->storageids[i]));
 	}
@@ -1601,6 +1605,45 @@ hdfs_array_string_add(struct hdfs_object *o, const char *s)
 }
 
 // Helper function for aggregating results from recovery RPCs
+
+EXPORT_SYM void
+hdfs_located_block_remove_error_node(struct hdfs_object *located_block, int error_idx)
+{
+	struct hdfs_located_block *lb;
+	int i;
+
+	ASSERT(located_block);
+	ASSERT(located_block->ob_type == H_LOCATED_BLOCK);
+	ASSERT(error_idx >= 0);
+
+	lb = &located_block->ob_val._located_block;
+
+	ASSERT(error_idx < lb->_num_locs);
+	hdfs_object_free(lb->_locs[error_idx]);
+	lb->_locs[error_idx] = NULL;
+	// Shift down to fill in the gap
+	for (i = error_idx; i < lb->_num_locs - 1; i++) {
+		lb->_locs[i] = lb->_locs[i + 1];
+		lb->_locs[i + 1] = NULL;
+	}
+	lb->_num_locs--;
+
+	if (error_idx < lb->_num_storage_ids) {
+		PTR_FREE(lb->_storage_ids[error_idx]);
+		for (i = error_idx; i < lb->_num_storage_ids - 1; i++) {
+			lb->_storage_ids[i] = lb->_storage_ids[i + 1];
+			lb->_storage_ids[i + 1] = NULL;
+		}
+		lb->_num_storage_ids--;
+	}
+
+	if (error_idx < lb->_num_storage_types) {
+		for (i = error_idx; i < lb->_num_storage_types - 1; i++) {
+			lb->_storage_types[i] = lb->_storage_types[i + 1];
+		}
+		lb->_num_storage_types--;
+	}
+}
 
 static void
 _hdfs_located_block_set_locations_from_located_block(struct hdfs_object *dst, struct hdfs_object *src)

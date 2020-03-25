@@ -645,6 +645,9 @@ struct hdfs_object *	hdfs_object_slurp(struct hdfs_heap_buf *rbuf,
 // Recursively frees an object.
 void	hdfs_object_free(struct hdfs_object *obj);
 
+// Remove the node specified by error_idx from the given located block.
+void	hdfs_located_block_remove_error_node(struct hdfs_object *located_block, int error_idx);
+
 // Update a H_LOCATED_BLOCK object with the relevant fields from the located
 // block returned by getAdditionalDatanode. Not all of the located block fields
 // are meaningfully populated in the response to getAdditionalDatanode, so

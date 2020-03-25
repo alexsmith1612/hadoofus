@@ -962,22 +962,15 @@ START_TEST(test_dn_recovery)
 		hdfs_array_datanode_info_append_datanode_info(exclude,
 		    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[0]));
 
-		// mark all of the other listed datanodes (if any) as existing
-		existing = hdfs_array_datanode_info_new();
-		for (int i = 1; i < lb->ob_val._located_block._num_locs; i++) {
-			hdfs_array_datanode_info_append_datanode_info(existing,
-			    hdfs_datanode_info_copy(lb->ob_val._located_block._locs[i]));
-		}
+		// remove that excluded node from our current located block
+		hdfs_located_block_remove_error_node(lb, 0);
 
-		// grab the storage ids for the existing datanodes (if they exist)
-		existing_sids = hdfs_array_string_new(0, NULL);
+		// grab the list of existing nodes and their storage ids
+		existing = hdfs_array_datanode_info_from_located_block(lb);
+		existing_sids = hdfs_storage_ids_array_string_from_located_block(lb);
 		if (lb->ob_val._located_block._num_storage_ids > 0) {
 			ck_assert_int_eq(lb->ob_val._located_block._num_storage_ids,
 			    lb->ob_val._located_block._num_locs);
-			for (int i = 1; i < lb->ob_val._located_block._num_storage_ids; i++) {
-				hdfs_array_string_add(existing_sids,
-				    lb->ob_val._located_block._storage_ids[i]);
-			}
 		}
 
 		gad_lb = hdfs2_getAdditionalDatanode(h, tf, bl, existing, exclude,
