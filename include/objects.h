@@ -624,10 +624,18 @@ void	hdfs_directory_listing_append_file_status(
 	struct hdfs_object *located_blocks);
 void	hdfs_array_datanode_info_append_datanode_info(
 	struct hdfs_object *array, struct hdfs_object *datanode_info);
-// Appends datanode_info to array only if that datanode's info is not already in
-// array, otherwise datanode_info is freed.
+// Append datanode_info to array only if that datanode's info is not already in
+// array, otherwise free datanode_info.
 void	hdfs_array_datanode_info_append_datanode_info_unique(
 	struct hdfs_object *array, struct hdfs_object *datanode_info);
+
+// Return true if array contains an equivalent datanode_info, otherwise false.
+// Caller retains reference to datanode_info
+bool	hdfs_array_datanode_info_contains_datanode_info(
+	struct hdfs_object *array, struct hdfs_object *datanode_info);
+// Remove and free the datanode info object from the array at the given index
+void	hdfs_array_datanode_info_remove(
+	struct hdfs_object *array, int idx);
 
 // Serialize an object, allocating memory on the heap. Initialize the struct
 // pointed to by hbuf to all zeros.

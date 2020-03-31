@@ -1596,9 +1596,29 @@ hdfs_array_datanode_info_append_datanode_info(struct hdfs_object *array, struct 
 }
 
 EXPORT_SYM void
-hdfs_array_datanode_info_append_datanode_info_unique(struct hdfs_object *array, struct hdfs_object *datanode_info)
+hdfs_array_datanode_info_remove(struct hdfs_object *array, int idx)
 {
-	int i;
+	struct hdfs_array_datanode_info *adi;
+
+	ASSERT(array->ob_type == H_ARRAY_DATANODE_INFO);
+	ASSERT(idx >= 0 && idx < array->ob_val._array_datanode_info._len);
+
+	adi = &array->ob_val._array_datanode_info;
+
+	hdfs_object_free(adi->_values[idx]);
+	adi->_values[idx] = NULL;
+
+	// Shift down to fill in the gap
+	for (int i = idx; i < adi->_len - 1; i++) {
+		adi->_values[i] = adi->_values[i + 1];
+		adi->_values[i + 1] = NULL;
+	}
+	adi->_len--;
+}
+
+EXPORT_SYM bool
+hdfs_array_datanode_info_contains_datanode_info(struct hdfs_object *array, struct hdfs_object *datanode_info)
+{
 	struct hdfs_array_datanode_info *adi;
 	struct hdfs_datanode_info *di;
 
@@ -1608,17 +1628,24 @@ hdfs_array_datanode_info_append_datanode_info_unique(struct hdfs_object *array, 
 	adi = &array->ob_val._array_datanode_info;
 	di = &datanode_info->ob_val._datanode_info;
 
-	for (i = 0; i < adi->_len; i++) {
+	for (int i = 0; i < adi->_len; i++) {
 		struct hdfs_datanode_info *di2 = &adi->_values[i]->ob_val._datanode_info;
 		if (_datanode_info_eq(di, di2)) {
-		    break;
+			return true;
 		}
 	}
 
-	if (i == adi->_len) {
-		H_ARRAY_APPEND(array->ob_val._array_datanode_info._values,
-		    array->ob_val._array_datanode_info._len,
-		    datanode_info);
+	return false;
+}
+
+EXPORT_SYM void
+hdfs_array_datanode_info_append_datanode_info_unique(struct hdfs_object *array, struct hdfs_object *datanode_info)
+{
+	ASSERT(array->ob_type == H_ARRAY_DATANODE_INFO);
+	ASSERT(datanode_info->ob_type == H_DATANODE_INFO);
+
+	if (!hdfs_array_datanode_info_contains_datanode_info(array, datanode_info)) {
+		hdfs_array_datanode_info_append_datanode_info(array, datanode_info);
 	} else {
 		hdfs_object_free(datanode_info);
 	}
