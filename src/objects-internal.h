@@ -65,6 +65,11 @@
 #define NOT_REPLICATED_EXCEPTION_STR "org.apache.hadoop.hdfs.server.namenode.NotReplicatedYetException"
 #define ENOTDIR_EXCEPTION_STR "org.apache.hadoop.fs.PathIsNotDirectoryException"
 #define ENOTEMPTY_EXCEPTION_STR "org.apache.hadoop.fs.PathIsNotEmptyDirectoryException"
+#define UNRESLINK_EXCEPTION_STR "org.apache.hadoop.fs.UnresolvedLinkException"
+#define REPLICA_NOTFOUND_EXCEPTION_STR "org.apache.hadoop.hdfs.server.datanode.ReplicaNotFoundException"
+#define STANDBY_EXCEPTION_STR "org.apache.hadoop.ipc.StandbyException"
+#define RECOVERY_INPROGRESS_EXCEPTION_STR "org.apache.hadoop.hdfs.protocol.RecoveryInProgressException"
+
 
 struct _hdfs_result {
 	int64_t rs_msgno;
