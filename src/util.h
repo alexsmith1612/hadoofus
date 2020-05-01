@@ -85,8 +85,6 @@ _be32enc(void *void_p, uint32_t v)
 	p[3] = (uint8_t)(v & 0xff);
 }
 
-uint64_t	_now_ms(void);
-
 char *		_proto_str(ProtobufCBinaryData);
 
 static inline void
