@@ -19,7 +19,7 @@
 
 
 void
-hdfs_conn_ctx_free(struct hdfs_conn_ctx *cctx)
+_hdfs_conn_ctx_free(struct hdfs_conn_ctx *cctx)
 {
 	if (cctx->ai)
 		freeaddrinfo(cctx->ai);
@@ -27,16 +27,16 @@ hdfs_conn_ctx_free(struct hdfs_conn_ctx *cctx)
 }
 
 static void
-_connect_success(int *s, struct hdfs_conn_ctx *cctx)
+_hdfs_connect_success(int *s, struct hdfs_conn_ctx *cctx)
 {
-	_setsockopt(*s, IPPROTO_TCP, TCP_NODELAY, 1);
-	_setsockopt(*s, SOL_SOCKET, SO_RCVBUF, 1024*1024);
-	_setsockopt(*s, SOL_SOCKET, SO_SNDBUF, 1024*1024);
-	hdfs_conn_ctx_free(cctx);
+	_hdfs_setsockopt(*s, IPPROTO_TCP, TCP_NODELAY, 1);
+	_hdfs_setsockopt(*s, SOL_SOCKET, SO_RCVBUF, 1024*1024);
+	_hdfs_setsockopt(*s, SOL_SOCKET, SO_SNDBUF, 1024*1024);
+	_hdfs_conn_ctx_free(cctx);
 }
 
 static struct hdfs_error
-_connect_attempt(int *s, struct hdfs_conn_ctx *cctx)
+_hdfs_connect_attempt(int *s, struct hdfs_conn_ctx *cctx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	int rc, sfd = -1;
@@ -45,7 +45,7 @@ _connect_attempt(int *s, struct hdfs_conn_ctx *cctx)
 		sfd = socket(cctx->rp->ai_family, cctx->rp->ai_socktype, cctx->rp->ai_protocol);
 		if (sfd == -1)
 			continue;
-		_set_nbio(sfd);
+		_hdfs_set_nbio(sfd);
 		rc = connect(sfd, cctx->rp->ai_addr, cctx->rp->ai_addrlen);
 		if (rc != -1) // unusual to get immediate connect on non-blocking TCP socket
 			break;
@@ -63,13 +63,13 @@ _connect_attempt(int *s, struct hdfs_conn_ctx *cctx)
 
 	if (cctx->rp == NULL || sfd == -1) {
 		error = error_from_errno(cctx->serrno);
-		hdfs_conn_ctx_free(cctx);
+		_hdfs_conn_ctx_free(cctx);
 		goto out;
 	}
 
 	ASSERT(sfd != -1);
 	*s = sfd;
-	_connect_success(s, cctx);
+	_hdfs_connect_success(s, cctx);
 
 out:
 	return error;
@@ -78,7 +78,7 @@ out:
 // Note that this function may still block on getaddrinfo() if host is
 // a hostname and not a numeric IP address.
 struct hdfs_error
-_connect_init(int *s, const char *host, const char *port,
+_hdfs_connect_init(int *s, const char *host, const char *port,
 	struct hdfs_conn_ctx *cctx, bool numerichost)
 {
 	int rc;
@@ -100,13 +100,13 @@ _connect_init(int *s, const char *host, const char *port,
 
 	cctx->rp = cctx->ai;
 	cctx->serrno = 0;
-	error = _connect_attempt(s, cctx);
+	error = _hdfs_connect_attempt(s, cctx);
 
 	return error;
 }
 
 struct hdfs_error
-_connect_finalize(int *s, struct hdfs_conn_ctx *cctx)
+_hdfs_connect_finalize(int *s, struct hdfs_conn_ctx *cctx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	struct pollfd pfd = { 0 };
@@ -125,17 +125,17 @@ _connect_finalize(int *s, struct hdfs_conn_ctx *cctx)
 	}
 	ASSERT(rc != -1);
 
-	_getsockopt(*s, SOL_SOCKET, SO_ERROR, &cctx->serrno);
+	_hdfs_getsockopt(*s, SOL_SOCKET, SO_ERROR, &cctx->serrno);
 	if (cctx->serrno != 0) { // connection failed, close and try a new addrinfo
 		close(*s);
 		*s = -1;
 		cctx->rp = cctx->rp->ai_next;
-		error = _connect_attempt(s, cctx);
+		error = _hdfs_connect_attempt(s, cctx);
 		goto out;
 	}
 
 	// connection succeeded
-	_connect_success(s, cctx);
+	_hdfs_connect_success(s, cctx);
 
 out:
 	return error;
@@ -146,7 +146,7 @@ out:
 // sets *wlen to number of bytes written (which is 0 for EAGAIN/EWOULDBLOCK).
 // If error, returns error_from_errno() and sets *wlen to -1.
 struct hdfs_error
-_write(int s, const void *vbuf, size_t buflen, ssize_t *wlen)
+_hdfs_write(int s, const void *vbuf, size_t buflen, ssize_t *wlen)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 	const char *buf = vbuf;
@@ -168,10 +168,10 @@ _write(int s, const void *vbuf, size_t buflen, ssize_t *wlen)
 
 #if defined(_SC_IOV_MAX) || defined(IOV_MAX)
 static struct hdfs_error
-_writev_direct(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+_hdfs_writev_direct(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 #else
 struct hdfs_error
-_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+_hdfs_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 #endif
 {
 	struct hdfs_error error = HDFS_SUCCESS;
@@ -213,7 +213,7 @@ _glob_iov_max_init(void)
 }
 
 struct hdfs_error
-_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
+_hdfs_writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 {
 	struct hdfs_error error;
 
@@ -223,7 +223,7 @@ _writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 		int tiovcnt = _min(iovcnt, glob_iov_max);
 		ssize_t twlen;
 
-		error = _writev_direct(s, iov, tiovcnt, &twlen);
+		error = _hdfs_writev_direct(s, iov, tiovcnt, &twlen);
 		if (twlen < 0) {
 			*wlen = twlen;
 			break;
@@ -239,16 +239,16 @@ _writev(int s, const struct iovec *iov, int iovcnt, ssize_t *wlen)
 #endif // defined(_SC_IOV_MAX) || defined(IOV_MAX)
 
 struct hdfs_error
-_read_to_hbuf(int s, struct hdfs_heap_buf *h)
+_hdfs_read_to_hbuf(int s, struct hdfs_heap_buf *h)
 {
 	const int RESIZE_BY = 8*1024,
 	      RESIZE_AT = 2*1024;
 
 	int rc;
 
-	_hbuf_resize(h, RESIZE_AT, RESIZE_BY);
+	_hdfs_hbuf_resize(h, RESIZE_AT, RESIZE_BY);
 
-	rc = read(s, _hbuf_writeptr(h), _hbuf_remsize(h));
+	rc = read(s, _hdfs_hbuf_writeptr(h), _hdfs_hbuf_remsize(h));
 	if (rc == 0)
 		return error_from_hdfs(HDFS_ERR_END_OF_STREAM);
 	if (rc < 0) {
@@ -258,12 +258,12 @@ _read_to_hbuf(int s, struct hdfs_heap_buf *h)
 		return error_from_errno(errno);
 	}
 
-	_hbuf_append(h, rc);
+	_hdfs_hbuf_append(h, rc);
 	return HDFS_SUCCESS;
 }
 
 struct hdfs_error
-_pread_all(int fd, void *vbuf, size_t len, off_t offset)
+_hdfs_pread_all(int fd, void *vbuf, size_t len, off_t offset)
 {
 	char *buf = vbuf;
 	int rc;
@@ -287,7 +287,7 @@ _pread_all(int fd, void *vbuf, size_t len, off_t offset)
 }
 
 struct hdfs_error
-_pwrite_all(int fd, const void *vbuf, size_t len, off_t offset)
+_hdfs_pwrite_all(int fd, const void *vbuf, size_t len, off_t offset)
 {
 	const char *buf = vbuf;
 	ssize_t wlen = 0;
@@ -316,7 +316,7 @@ _pwrite_all(int fd, const void *vbuf, size_t len, off_t offset)
 
 // XXX note that this can still block on reading from the fd
 struct hdfs_error
-_sendfile(int s, int fd, off_t offset, size_t tosend, ssize_t *wlen)
+_hdfs_sendfile(int s, int fd, off_t offset, size_t tosend, ssize_t *wlen)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
 
@@ -339,7 +339,7 @@ _sendfile(int s, int fd, off_t offset, size_t tosend, ssize_t *wlen)
 
 // XXX note that this can still block on reading from the fd
 struct hdfs_error
-_sendfile_bsd(int s, int fd, off_t offset, size_t tosend,
+_hdfs_sendfile_bsd(int s, int fd, off_t offset, size_t tosend,
 	struct iovec *hdrs, int hdrcnt, ssize_t *wlen)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
@@ -379,7 +379,7 @@ _sendfile_bsd(int s, int fd, off_t offset, size_t tosend,
 #endif
 
 void
-_setsockopt(int s, int level, int optname, int optval)
+_hdfs_setsockopt(int s, int level, int optname, int optval)
 {
 	int rc;
 	rc = setsockopt(s, level, optname, &optval, sizeof(optval));
@@ -387,7 +387,7 @@ _setsockopt(int s, int level, int optname, int optval)
 }
 
 void
-_getsockopt(int s, int level, int optname, int *optval)
+_hdfs_getsockopt(int s, int level, int optname, int *optval)
 {
 	int rc;
 	socklen_t optlen = sizeof(*optval);
@@ -397,7 +397,7 @@ _getsockopt(int s, int level, int optname, int *optval)
 }
 
 void
-_set_nbio(int fd)
+_hdfs_set_nbio(int fd)
 {
 	int rc, flags;
 	flags = fcntl(fd, F_GETFL);

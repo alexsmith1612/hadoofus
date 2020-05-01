@@ -57,20 +57,20 @@ static uint32_t
 {
 #if defined(__amd64__) || defined(__i386__)
 	if (has_sse42())
-		return sse42_crc32c;
+		return _hdfs_sse42_crc32c;
 	else
 #elif defined(__aarch64__)
 	if (has_armv8_crc32c())
-		return armv8_crc32c;
+		return _hdfs_armv8_crc32c;
 	else
 #else
 	if (true)
 #endif
-		return sw_crc32c;
+		return _hdfs_sw_crc32c;
 }
 
 uint32_t
-crc32c(uint32_t crc, const void *buf, unsigned len) __attribute__((ifunc("resolve_crc32c")));
+_hdfs_crc32c(uint32_t crc, const void *buf, unsigned len) __attribute__((ifunc("resolve_crc32c")));
 
 #else // !defined(HAS_IFUNC)
 
@@ -93,20 +93,20 @@ init_glob_has_armv8_crc32c(void)
 #endif
 
 uint32_t
-crc32c(uint32_t crc, const void *buf, unsigned len)
+_hdfs_crc32c(uint32_t crc, const void *buf, unsigned len)
 {
 #if defined(__amd64__) || defined(__i386__)
 	if (glob_has_sse42)
-		return sse42_crc32c(crc, buf, len);
+		return _hdfs_sse42_crc32c(crc, buf, len);
 	else
 #elif defined(__aarch64__)
 	if (glob_has_armv8_crc32c)
-		return armv8_crc32c(crc, buf, len);
+		return _hdfs_armv8_crc32c(crc, buf, len);
 	else
 #else
 	if (true)
 #endif
-		return sw_crc32c(crc, buf, len);
+		return _hdfs_sw_crc32c(crc, buf, len);
 }
 
 #endif // !defined(HAS_IFUNC)

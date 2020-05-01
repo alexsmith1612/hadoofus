@@ -58,7 +58,7 @@ START_TEST(test_vlint_encode)
 	struct hdfs_heap_buf buf = { 0 };
 
 	for (it = cases; it->exp; it++) {
-		_bappend_vlint(&buf, it->testcase);
+		_hdfs_bappend_vlint(&buf, it->testcase);
 
 		ck_assert_msg(buf.used == (int)it->explen,
 		    "Expected %zu-byte encoding, got %d bytes", it->explen,
@@ -92,7 +92,7 @@ START_TEST(test_vlint_decode)
 		rbuf.buf = it->test;
 		rbuf.size = (int)it->testlen;
 
-		val = _bslurp_vlint(&rbuf);
+		val = _hdfs_bslurp_vlint(&rbuf);
 		ck_assert_msg(rbuf.used >= 0, "got error parsing good vlint");
 		ck_assert_msg(rbuf.used == rbuf.size, "short read?");
 		ck_assert_msg(val == it->exp, "expected:%jd != actual:%jd",
@@ -122,13 +122,13 @@ START_TEST(test_vlint_roundtrip)
 		ck_assert_msg(rd == sizeof(val), "short read of urandom: %d < %d",
 		    (int)rd, (int)sizeof(val));
 
-		_bappend_vlint(&buf, val);
+		_hdfs_bappend_vlint(&buf, val);
 
 		/* Configure buf for reading: */
 		buf.size = buf.used;
 		buf.used = 0;
 
-		act = _bslurp_vlint(&buf);
+		act = _hdfs_bslurp_vlint(&buf);
 		ck_assert_msg(buf.used >= 0, "got error parsing vlint");
 		ck_assert_msg(buf.used == buf.size, "short read?");
 		ck_assert_msg(act == val, "expected:%jd != actual:%jd",
@@ -205,12 +205,12 @@ START_TEST(test_crc32c)
 
 		// Test the ifunc version (which will resolve to a
 		// hardware-accelerated implementation if available).
-		crc = crc32c(0, cases[i].test, cases[i].testlen);
+		crc = _hdfs_crc32c(0, cases[i].test, cases[i].testlen);
 		ck_assert_int_eq(cases[i].exp, crc);
 
 		// Explicitly test the software implementation since that is
 		// always available
-		crc_sw = crc32c(0, cases[i].test, cases[i].testlen);
+		crc_sw = _hdfs_crc32c(0, cases[i].test, cases[i].testlen);
 		ck_assert_int_eq(cases[i].exp, crc_sw);
 	}
 }

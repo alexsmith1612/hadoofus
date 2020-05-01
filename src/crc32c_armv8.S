@@ -5,6 +5,7 @@
  *   - Add pre- and post-conditioning (bit inversion) to the crc
  *   - Wrap code in preprocessor architecture condition
  *   - Conditionally don't use the .arch directive on clang versions < 4.0
+ *   - Update extern function to be within Hadoofus's namespace
  */
 
 /*-
@@ -49,10 +50,10 @@
 
 /*
  * uint32_t
- * armv8_crc32c(uint32_t crc, const unsigned char *buf, unsigned int len)
+ * _hdfs_armv8_crc32c(uint32_t crc, const unsigned char *buf, unsigned int len)
  */
 
-ENTRY(armv8_crc32c)
+ENTRY(_hdfs_armv8_crc32c)
 	mvn	w0, w0 // pre-condition the crc
 	cbz	w2, end
 	tbz	x1, #0x0, half_word_aligned
@@ -96,6 +97,6 @@ last_byte:
 end:
 	mvn	w0, w0 // return a post-conditioned crc
 	ret
-END(armv8_crc32c)
+END(_hdfs_armv8_crc32c)
 
 #endif /* defined(__aarch64__) */

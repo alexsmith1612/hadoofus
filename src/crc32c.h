@@ -10,17 +10,17 @@
 // based on the system in use: an implementation using the Intel SSE4.2 CRC32
 // instructions, an implementation using ARMv8's optional CRC32C instructions,
 // or a table-driven software implementation.
-uint32_t	crc32c(uint32_t crc, const void *buf, unsigned len);
+uint32_t	_hdfs_crc32c(uint32_t crc, const void *buf, unsigned len);
 
 #if defined(__amd64__) || defined(__i386__)
 // Should only be called if the processor supports SSE4.2
-uint32_t	sse42_crc32c(uint32_t crc, const void *buf, unsigned len);
+uint32_t	_hdfs_sse42_crc32c(uint32_t crc, const void *buf, unsigned len);
 #elif defined(__aarch64__)
 // Should only be called if the processor supports ARMv8's optional CRC32-C
 // instructions.
-uint32_t	armv8_crc32c(uint32_t crc, const void *buf, unsigned len);
+uint32_t	_hdfs_armv8_crc32c(uint32_t crc, const void *buf, unsigned len);
 #endif
 
-uint32_t	sw_crc32c(uint32_t crc, const void *buf, unsigned len);
+uint32_t	_hdfs_sw_crc32c(uint32_t crc, const void *buf, unsigned len);
 
 #endif // _HADOOFUS_CRC32C_H

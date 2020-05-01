@@ -329,7 +329,7 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 	PTR_FREE(d->dn_storage_ids);
 	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
-	hdfs_conn_ctx_free(&d->dn_cctx);
+	_hdfs_conn_ctx_free(&d->dn_cctx);
 	if (d->dn_opresult_message)
 		free(__DECONST(char *, d->dn_opresult_message));
 	d->dn_opresult_message = NULL;
@@ -343,8 +343,8 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 	_read_info_clean(&d->dn_rinfo, reuse);
 
 	if (reuse) {
-		_hbuf_reset(&d->dn_hdrbuf);
-		_hbuf_reset(&d->dn_recvbuf);
+		_hdfs_hbuf_reset(&d->dn_hdrbuf);
+		_hdfs_hbuf_reset(&d->dn_recvbuf);
 		d->dn_state = HDFS_DN_ST_ZERO;
 		d->dn_op_inited = false;
 		d->dn_append_or_recovery = false;
@@ -446,7 +446,7 @@ hdfs_datanode_connect_init(struct hdfs_datanode *d, const char *host, const char
 	ASSERT(d->dn_sock == -1);
 	ASSERT(d->dn_state == HDFS_DN_ST_INITED);
 
-	error = _connect_init(&d->dn_sock, host, port, &d->dn_cctx, numerichost);
+	error = _hdfs_connect_init(&d->dn_sock, host, port, &d->dn_cctx, numerichost);
 	if (!hdfs_is_error(error)) {
 		d->dn_state = HDFS_DN_ST_CONNECTED;
 	} else if (hdfs_is_again(error)) {
@@ -468,7 +468,7 @@ hdfs_datanode_connect_finalize(struct hdfs_datanode *d)
 	if (d->dn_state == HDFS_DN_ST_CONNECTED)
 		goto out;
 	ASSERT(d->dn_state == HDFS_DN_ST_CONNPENDING);
-	error = _connect_finalize(&d->dn_sock, &d->dn_cctx);
+	error = _hdfs_connect_finalize(&d->dn_sock, &d->dn_cctx);
 	if (!hdfs_is_error(error)) {
 		d->dn_state = HDFS_DN_ST_CONNECTED;
 	} else if (!hdfs_is_again(error)) {
@@ -504,14 +504,14 @@ hdfs_datanode_get_eventfd(struct hdfs_datanode *d, int *fd, short *events)
 		else if (d->dn_op == HDFS_DN_OP_WRITE_BLOCK)
 			// Set POLLOUT if we are in the middle of sending a packet or if we have data
 			// to send in a new packet and we are not blocked waiting for pending ACKs
-			if (_hbuf_readlen(&d->dn_hdrbuf) > 0 ||
+			if (_hdfs_hbuf_readlen(&d->dn_hdrbuf) > 0 ||
 			    d->dn_pstate.remains_pkt > 0 ||
 			    (d->dn_pstate.remains_tot > 0 && d->dn_pstate.unacked.ua_num < MAX_UNACKED_PACKETS))
 				*events |= POLLOUT;
 		break;
 	case HDFS_DN_ST_FINISHED:
 		// May be waiting to send the client read status
-		if (d->dn_op == HDFS_DN_OP_READ_BLOCK && _hbuf_readlen(&d->dn_hdrbuf) > 0)
+		if (d->dn_op == HDFS_DN_OP_READ_BLOCK && _hdfs_hbuf_readlen(&d->dn_hdrbuf) > 0)
 			*events |= POLLOUT;
 		// Only potentially waiting on ACKs in for writes
 		break;
@@ -752,7 +752,7 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 		// this point, it's unlikely for there to be a short write, so don't
 		// worry about them.
 		const int32_t zero = 0;
-		_write(d->dn_sock, __DECONST(void *, &zero), sizeof(zero), &t_nwritten);
+		_hdfs_write(d->dn_sock, __DECONST(void *, &zero), sizeof(zero), &t_nwritten);
 	}
 
 	return error;
@@ -918,8 +918,8 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_READ_BLOCK);
 
-	_bappend_s16(h, d->dn_proto);
-	_bappend_s8(h, HDFS_DN_OP_READ_BLOCK);
+	_hdfs_bappend_s16(h, d->dn_proto);
+	_hdfs_bappend_s8(h, HDFS_DN_OP_READ_BLOCK);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
 		Hadoop__Common__TokenProto token =
@@ -964,16 +964,16 @@ _compose_read_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d,
 		}
 
 		sz = hadoop__hdfs__op_read_block_proto__get_packed_size(&opread);
-		_bappend_vlint(h, sz);
-		_hbuf_reserve(h, sz);
-		hadoop__hdfs__op_read_block_proto__pack(&opread, (void *)_hbuf_writeptr(h));
-		_hbuf_append(h, sz);
+		_hdfs_bappend_vlint(h, sz);
+		_hdfs_hbuf_reserve(h, sz);
+		hadoop__hdfs__op_read_block_proto__pack(&opread, (void *)_hdfs_hbuf_writeptr(h));
+		_hdfs_hbuf_append(h, sz);
 	} else {
-		_bappend_s64(h, d->dn_blkid);
-		_bappend_s64(h, d->dn_gen);
-		_bappend_s64(h, offset);
-		_bappend_s64(h, len);
-		_bappend_text(h, d->dn_client);
+		_hdfs_bappend_s64(h, d->dn_blkid);
+		_hdfs_bappend_s64(h, d->dn_gen);
+		_hdfs_bappend_s64(h, offset);
+		_hdfs_bappend_s64(h, len);
+		_hdfs_bappend_text(h, d->dn_client);
 		hdfs_object_serialize(h, d->dn_token);
 	}
 }
@@ -994,17 +994,17 @@ _compose_client_read_status(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 
 		sz = hadoop__hdfs__client_read_status_proto__get_packed_size(&status);
 
-		_bappend_vlint(h, sz);
-		_hbuf_reserve(h, sz);
-		hadoop__hdfs__client_read_status_proto__pack(&status, (void *)_hbuf_writeptr(h));
-		_hbuf_append(h, sz);
+		_hdfs_bappend_vlint(h, sz);
+		_hdfs_hbuf_reserve(h, sz);
+		hadoop__hdfs__client_read_status_proto__pack(&status, (void *)_hdfs_hbuf_writeptr(h));
+		_hdfs_hbuf_append(h, sz);
 	} else {
-		_hbuf_reserve(h, 2);
+		_hdfs_hbuf_reserve(h, 2);
 		if (d->dn_rinfo.bad_crcs)
-			memcpy(_hbuf_writeptr(h), DN_V1_CHECKSUM_OK, 2);
+			memcpy(_hdfs_hbuf_writeptr(h), DN_V1_CHECKSUM_OK, 2);
 		else
-			memcpy(_hbuf_writeptr(h), DN_V1_ERROR_CHECKSUM, 2);
-		_hbuf_append(h, 2);
+			memcpy(_hdfs_hbuf_writeptr(h), DN_V1_ERROR_CHECKSUM, 2);
+		_hdfs_hbuf_append(h, 2);
 	}
 }
 
@@ -1013,8 +1013,8 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_WRITE_BLOCK);
 
-	_bappend_s16(h, d->dn_proto);
-	_bappend_s8(h, HDFS_DN_OP_WRITE_BLOCK);
+	_hdfs_bappend_s16(h, d->dn_proto);
+	_hdfs_bappend_s8(h, HDFS_DN_OP_WRITE_BLOCK);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
 		Hadoop__Common__TokenProto token =
@@ -1206,10 +1206,10 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		op.requestedchecksum = &csum;
 
 		sz = hadoop__hdfs__op_write_block_proto__get_packed_size(&op);
-		_bappend_vlint(h, sz);
-		_hbuf_reserve(h, sz);
-		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
-		_hbuf_append(h, sz);
+		_hdfs_bappend_vlint(h, sz);
+		_hdfs_hbuf_reserve(h, sz);
+		hadoop__hdfs__op_write_block_proto__pack(&op, (void *)_hdfs_hbuf_writeptr(h));
+		_hdfs_hbuf_append(h, sz);
 
 		if (d->dn_nlocs > 1) {
 			free(dinfo_arr);
@@ -1218,16 +1218,16 @@ _compose_write_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		}
 	} else {
 		// TODO pipelining/datanode targets?
-		_bappend_s64(h, d->dn_blkid);
-		_bappend_s64(h, d->dn_gen);
-		_bappend_s32(h, 1);
-		_bappend_s8(h, 0);
-		_bappend_text(h, d->dn_client);
-		_bappend_s8(h, 0);
-		_bappend_s32(h, 0);
+		_hdfs_bappend_s64(h, d->dn_blkid);
+		_hdfs_bappend_s64(h, d->dn_gen);
+		_hdfs_bappend_s32(h, 1);
+		_hdfs_bappend_s8(h, 0);
+		_hdfs_bappend_text(h, d->dn_client);
+		_hdfs_bappend_s8(h, 0);
+		_hdfs_bappend_s32(h, 0);
 		hdfs_object_serialize(h, d->dn_token);
-		_bappend_s8(h, d->dn_csum != HDFS_CSUM_NULL);
-		_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
+		_hdfs_bappend_s8(h, d->dn_csum != HDFS_CSUM_NULL);
+		_hdfs_bappend_s32(h, CHUNK_SIZE/*checksum chunk size*/);
 	}
 }
 
@@ -1236,8 +1236,8 @@ _compose_transfer_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 {
 	ASSERT(d->dn_op == HDFS_DN_OP_TRANSFER_BLOCK);
 
-	_bappend_s16(h, d->dn_proto);
-	_bappend_s8(h, HDFS_DN_OP_TRANSFER_BLOCK);
+	_hdfs_bappend_s16(h, d->dn_proto);
+	_hdfs_bappend_s8(h, HDFS_DN_OP_TRANSFER_BLOCK);
 
 	if (d->dn_proto >= HDFS_DATANODE_AP_2_0) {
 		Hadoop__Common__TokenProto token =
@@ -1320,10 +1320,10 @@ _compose_transfer_header(struct hdfs_heap_buf *h, struct hdfs_datanode *d)
 		}
 
 		sz = hadoop__hdfs__op_transfer_block_proto__get_packed_size(&op);
-		_bappend_vlint(h, sz);
-		_hbuf_reserve(h, sz);
-		hadoop__hdfs__op_transfer_block_proto__pack(&op, (void *)_hbuf_writeptr(h));
-		_hbuf_append(h, sz);
+		_hdfs_bappend_vlint(h, sz);
+		_hdfs_hbuf_reserve(h, sz);
+		hadoop__hdfs__op_transfer_block_proto__pack(&op, (void *)_hdfs_hbuf_writeptr(h));
+		_hdfs_hbuf_append(h, sz);
 
 		free(dinfo_arr);
 		free(did_arr);
@@ -1395,22 +1395,22 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
 		_compose_read_header(&d->dn_hdrbuf, d, d->dn_rinfo.client_offset, d->dn_pstate.remains_tot);
 		d->dn_state = HDFS_DN_ST_SENDOP;
 		// fall through
 	case HDFS_DN_ST_SENDOP:
-		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		error = _hdfs_write(d->dn_sock, _hdfs_hbuf_readptr(&d->dn_hdrbuf), _hdfs_hbuf_readlen(&d->dn_hdrbuf), &wlen);
 		if (wlen < 0) {
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		_hdfs_hbuf_consume(&d->dn_hdrbuf, wlen);
 		if (hdfs_is_again(error))
 			goto out;
 		// complete write
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_recvbuf) == 0);
 		d->dn_state = HDFS_DN_ST_RECVOP;
 		// fall through
 	case HDFS_DN_ST_RECVOP:
@@ -1464,14 +1464,14 @@ _datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
 		// fall through
 	case HDFS_DN_ST_FINISHED:
 		// Send the server our read status
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) > 0); // XXX consider
-		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) > 0); // XXX consider
+		error = _hdfs_write(d->dn_sock, _hdfs_hbuf_readptr(&d->dn_hdrbuf), _hdfs_hbuf_readlen(&d->dn_hdrbuf), &wlen);
 		if (wlen < 0) {
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
 		// complete or partial write (possibly 0 bytes)
-		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		_hdfs_hbuf_consume(&d->dn_hdrbuf, wlen);
 		// XXX should we call shutdown(2) here on HDFS_SUCCESS?
 		if (d->dn_rinfo.bad_crcs && !hdfs_is_error(error)) {
 			// Once the checksum error is reported to the server, tell the user
@@ -1589,23 +1589,23 @@ _setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
 		_compose_write_header(&d->dn_hdrbuf, d);
 		d->dn_state = HDFS_DN_ST_SENDOP;
 		// fall through
 	case HDFS_DN_ST_SENDOP:
-		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		error = _hdfs_write(d->dn_sock, _hdfs_hbuf_readptr(&d->dn_hdrbuf), _hdfs_hbuf_readlen(&d->dn_hdrbuf), &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		_hdfs_hbuf_consume(&d->dn_hdrbuf, wlen);
 		if (hdfs_is_again(error))
 			goto out;
 		// complete write
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_recvbuf) == 0);
 		d->dn_state = HDFS_DN_ST_RECVOP;
 		// fall through
 	case HDFS_DN_ST_RECVOP:
@@ -1618,6 +1618,8 @@ _setup_write_pipeline(struct hdfs_datanode *d, int *err_idx)
 		} else if (hdfs_is_error(error)) {
 			// Say the primary datanode failed if err_idx not already
 			// set (e.g. a read(2) error)
+			// XXX Consider: Only set err_idx to 0 is error.her_kind == he_errno?
+			// If it's an hdfs error, then setting err_idx is disingenuous
 			if (*err_idx < 0)
 				*err_idx = 0;
 			d->dn_state = HDFS_DN_ST_ERROR;
@@ -1735,7 +1737,7 @@ _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, si
 				goto out;
 			}
 			// Successfully wrote entire packet
-			ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+			ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
 			ASSERT(d->dn_pstate.remains_pkt == 0);
 			if (d->dn_last) {
 				d->dn_state = HDFS_DN_ST_FINISHED;
@@ -1931,22 +1933,22 @@ _datanode_transfer(struct hdfs_datanode *d)
 		ASSERT(d->dn_state == HDFS_DN_ST_CONNECTED);
 		// fall through
 	case HDFS_DN_ST_CONNECTED:
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
 		_compose_transfer_header(&d->dn_hdrbuf, d);
 		d->dn_state = HDFS_DN_ST_SENDOP;
 		// fall through
 	case HDFS_DN_ST_SENDOP:
-		error = _write(d->dn_sock, _hbuf_readptr(&d->dn_hdrbuf), _hbuf_readlen(&d->dn_hdrbuf), &wlen);
+		error = _hdfs_write(d->dn_sock, _hdfs_hbuf_readptr(&d->dn_hdrbuf), _hdfs_hbuf_readlen(&d->dn_hdrbuf), &wlen);
 		if (wlen < 0) {
 			d->dn_state = HDFS_DN_ST_ERROR;
 			goto out;
 		}
-		_hbuf_consume(&d->dn_hdrbuf, wlen);
+		_hdfs_hbuf_consume(&d->dn_hdrbuf, wlen);
 		if (hdfs_is_again(error))
 			goto out;
 		// complete write
-		ASSERT(_hbuf_readlen(&d->dn_hdrbuf) == 0);
-		ASSERT(_hbuf_readlen(&d->dn_recvbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
+		ASSERT(_hdfs_hbuf_readlen(&d->dn_recvbuf) == 0);
 		d->dn_state = HDFS_DN_ST_RECVOP;
 		// fall through
 	case HDFS_DN_ST_RECVOP:
@@ -2014,16 +2016,16 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	int64_t server_offset;
 	bool crcs;
 
-	while (_hbuf_readlen(h) < 2) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	while (_hdfs_hbuf_readlen(h) < 2) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = _hbuf_readptr(h);
-	obuf.size = _hbuf_readlen(h);
+	obuf.buf = _hdfs_hbuf_readptr(h);
+	obuf.size = _hdfs_hbuf_readlen(h);
 
-	status = _bslurp_s16(&obuf);
+	status = _hdfs_bslurp_s16(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
 
 	if (status != HADOOP__HDFS__STATUS__SUCCESS) {
@@ -2031,21 +2033,21 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		goto out;
 	}
 
-	while (_hbuf_readlen(h) < 15) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	while (_hdfs_hbuf_readlen(h) < 15) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	// must grab readptr() again due to possible realloc() in _read_to_hbuf()
-	obuf.buf = _hbuf_readptr(h);
-	obuf.size = _hbuf_readlen(h);
+	// must grab readptr() again due to possible realloc() in _hdfs_read_to_hbuf()
+	obuf.buf = _hdfs_hbuf_readptr(h);
+	obuf.size = _hdfs_hbuf_readlen(h);
 
-	crcs = _bslurp_s8(&obuf);
+	crcs = _hdfs_bslurp_s8(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
-	chunk_size = _bslurp_s32(&obuf);
+	chunk_size = _hdfs_bslurp_s32(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
-	server_offset = _bslurp_s64(&obuf);
+	server_offset = _hdfs_bslurp_s64(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
 
 	ri->server_offset = server_offset;
@@ -2053,7 +2055,7 @@ _read_read_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	ri->csum_type = crcs ? HDFS_CSUM_CRC32 : HDFS_CSUM_NULL;
 
 	// Skip recvbuf past request status
-	_hbuf_consume(h, obuf.used);
+	_hdfs_hbuf_consume(h, obuf.used);
 
 out:
 	return error;
@@ -2069,26 +2071,26 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	int64_t sz;
 
 	// If we don't have any data queued up, try to read first
-	if (_hbuf_readlen(h) == 0) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	if (_hdfs_hbuf_readlen(h) == 0) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
 	do {
 		// try to parse what we already have
-		obuf.buf = _hbuf_readptr(h);
+		obuf.buf = _hdfs_hbuf_readptr(h);
 		obuf.used = 0;
-		obuf.size = _hbuf_readlen(h);
+		obuf.size = _hdfs_hbuf_readlen(h);
 
-		sz = _bslurp_vlint(&obuf);
+		sz = _hdfs_bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
 		if (obuf.used == _H_PARSE_EOF) {
 			// if we need more data, then try to read more and parse again
-			error = _read_to_hbuf(d->dn_sock, h);
+			error = _hdfs_read_to_hbuf(d->dn_sock, h);
 			if (hdfs_is_error(error)) // includes HDFS_AGAIN
 				goto out;
 		}
@@ -2099,13 +2101,13 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 		goto out;
 	}
 
-	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	while (_hdfs_hbuf_readlen(h) < obuf.used + (int)sz) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
-	obuf.buf = _hbuf_readptr(h);
-	obuf.size = _hbuf_readlen(h);
+	obuf.buf = _hdfs_hbuf_readptr(h);
+	obuf.size = _hdfs_hbuf_readlen(h);
 
 	opres = hadoop__hdfs__block_op_response_proto__unpack(NULL, sz,
 	    (void *)&obuf.buf[obuf.used]); // points past the already parsed vlint
@@ -2126,7 +2128,7 @@ _read_blockop_resp_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h,
 	*opres_out = opres;
 
 	// Skip recvbuf past stuff we parsed here
-	_hbuf_consume(h, obuf.used);
+	_hdfs_hbuf_consume(h, obuf.used);
 
 out:
 	return error;
@@ -2181,16 +2183,16 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	// sockets, which is not ideal, but it greatly simplifies the
 	// code and should not be a big performance hit
 
-	while (_hbuf_readlen(h) < 2) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	while (_hdfs_hbuf_readlen(h) < 2) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = _hbuf_readptr(h);
-	obuf.size = _hbuf_readlen(h);
+	obuf.buf = _hdfs_hbuf_readptr(h);
+	obuf.size = _hdfs_hbuf_readlen(h);
 
-	status = _bslurp_s16(&obuf);
+	status = _hdfs_bslurp_s16(&obuf);
 	if (obuf.used == _H_PARSE_ERROR) {
 		error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 		goto out;
@@ -2200,26 +2202,26 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	statussz = obuf.used;
 
 	// If we don't have any data queued up, try to read first
-	if ((size_t)_hbuf_readlen(h) == statussz) {
-		error = _read_to_hbuf(d->dn_sock, h);
+	if ((size_t)_hdfs_hbuf_readlen(h) == statussz) {
+		error = _hdfs_read_to_hbuf(d->dn_sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
 	do {
 		// try to parse what we already have
-		obuf.buf = _hbuf_readptr(h) + statussz;
+		obuf.buf = _hdfs_hbuf_readptr(h) + statussz;
 		obuf.used = 0;
-		obuf.size = _hbuf_readlen(h) - statussz;
+		obuf.size = _hdfs_hbuf_readlen(h) - statussz;
 
-		statusmsg = _bslurp_text(&obuf);
+		statusmsg = _hdfs_bslurp_text(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_V1_DATANODE_PROTOCOL);
 			goto out;
 		}
 		if (obuf.used == _H_PARSE_EOF) {
 			// if we need more data, then try to read more and parse again
-			error = _read_to_hbuf(d->dn_sock, h);
+			error = _hdfs_read_to_hbuf(d->dn_sock, h);
 			if (hdfs_is_error(error)) // includes HDFS_AGAIN
 				goto out;
 		}
@@ -2239,7 +2241,7 @@ _read_write_status(struct hdfs_datanode *d, struct hdfs_heap_buf *h)
 	}
 
 	// Skip the recv buffer past the read objects
-	_hbuf_consume(h, statussz);
+	_hdfs_hbuf_consume(h, statussz);
 
 out:
 	if (statusmsg)
@@ -2305,59 +2307,59 @@ _recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 
 	// We already parsed the packet but still have data to give to the user
 	if (ps->remains_pkt > 0) {
-		ASSERT(_hbuf_readlen(recvbuf) >= ps->remains_pkt);
+		ASSERT(_hdfs_hbuf_readlen(recvbuf) >= ps->remains_pkt);
 		error = _recv_packet_copy_data(ps, ri);
 		goto out;
 	}
 
 	if (ps->proto < HDFS_DATANODE_AP_2_0) {
 		// slurp packet header
-		while (_hbuf_readlen(recvbuf) < 25) {
-			error = _read_to_hbuf(ps->sock, recvbuf);
+		while (_hdfs_hbuf_readlen(recvbuf) < 25) {
+			error = _hdfs_read_to_hbuf(ps->sock, recvbuf);
 			if (hdfs_is_error(error)) // includes HDFS_AGAIN
 				goto out;
 		}
 
-		obuf.buf = _hbuf_readptr(recvbuf);
-		obuf.size = _hbuf_readlen(recvbuf);
+		obuf.buf = _hdfs_hbuf_readptr(recvbuf);
+		obuf.size = _hdfs_hbuf_readlen(recvbuf);
 
-		plen = _bslurp_s32(&obuf);
+		plen = _hdfs_bslurp_s32(&obuf);
 		ASSERT(obuf.used > 0); // should not be able to fail
-		offset = _bslurp_s64(&obuf);
+		offset = _hdfs_bslurp_s64(&obuf);
 		ASSERT(obuf.used > 0); // should not be able to fail
-		/*seqno = */_bslurp_s64(&obuf);
+		/*seqno = */_hdfs_bslurp_s64(&obuf);
 		ASSERT(obuf.used > 0); // should not be able to fail
-		ri->lastpacket = _bslurp_s8(&obuf);
+		ri->lastpacket = _hdfs_bslurp_s8(&obuf);
 		ASSERT(obuf.used > 0); // should not be able to fail
-		dlen = _bslurp_s32(&obuf);
+		dlen = _hdfs_bslurp_s32(&obuf);
 		ASSERT(obuf.used > 0); // should not be able to fail
 
 		error = _process_recv_packet(ps, ri, 25, plen, dlen, offset);
 		goto out;
 	}
 
-	while (_hbuf_readlen(recvbuf) < 6) {
-		error = _read_to_hbuf(ps->sock, recvbuf);
+	while (_hdfs_hbuf_readlen(recvbuf) < 6) {
+		error = _hdfs_read_to_hbuf(ps->sock, recvbuf);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = _hbuf_readptr(recvbuf);
-	obuf.size = _hbuf_readlen(recvbuf);
+	obuf.buf = _hdfs_hbuf_readptr(recvbuf);
+	obuf.size = _hdfs_hbuf_readlen(recvbuf);
 
-	plen = _bslurp_s32(&obuf);
+	plen = _hdfs_bslurp_s32(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
-	hlen = (uint16_t)_bslurp_s16(&obuf);
+	hlen = (uint16_t)_hdfs_bslurp_s16(&obuf);
 	ASSERT(obuf.used > 0); // should not be able to fail
 
-	while (_hbuf_readlen(recvbuf) < 6 + hlen) {
-		error = _read_to_hbuf(ps->sock, recvbuf);
+	while (_hdfs_hbuf_readlen(recvbuf) < 6 + hlen) {
+		error = _hdfs_read_to_hbuf(ps->sock, recvbuf);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
 	phdr = hadoop__hdfs__packet_header_proto__unpack(NULL, hlen,
-	    (void *)&_hbuf_readptr(recvbuf)[6]);
+	    (void *)&_hdfs_hbuf_readptr(recvbuf)[6]);
 	if (phdr == NULL) {
 		error = error_from_hdfs(HDFS_ERR_INVALID_PACKETHEADERPROTO);
 		goto out;
@@ -2402,7 +2404,7 @@ _process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 			error = error_from_hdfs(HDFS_ERR_DATANODE_PACKET_SIZE); // XXX consider different error
 		else if (ps->remains_tot > 0) // server says last packet but we expect more data
 			error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_LASTPACKET);
-		_hbuf_consume(recvbuf, hdr_len);
+		_hdfs_hbuf_consume(recvbuf, hdr_len);
 		goto out;
 	}
 
@@ -2411,14 +2413,14 @@ _process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 	// Would need to review all packet processing/copying logic (especially the case
 	// where we enter _recv_packet() when we're already in the middle of copying
 	// the current packet's data to the user)
-	while (_hbuf_readlen(recvbuf) < hdr_len + crcdlen + dlen) {
-		error = _read_to_hbuf(ps->sock, recvbuf);
+	while (_hdfs_hbuf_readlen(recvbuf) < hdr_len + crcdlen + dlen) {
+		error = _hdfs_read_to_hbuf(ps->sock, recvbuf);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
 	if (crcdlen > 0) {
-		error = _verify_crcdata(_hbuf_readptr(recvbuf) + hdr_len, ri->chunk_size, crcdlen, dlen, ri->csum_type);
+		error = _verify_crcdata(_hdfs_hbuf_readptr(recvbuf) + hdr_len, ri->chunk_size, crcdlen, dlen, ri->csum_type);
 		if (hdfs_is_error(error)) {
 			ri->bad_crcs = true;
 			goto out;
@@ -2434,7 +2436,7 @@ _process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 		error = error_from_hdfs(HDFS_ERR_DATANODE_UNEXPECTED_READ_OFFSET);
 		goto out;
 	}
-	_hbuf_consume(recvbuf, hdr_len + crcdlen + c_begin);
+	_hdfs_hbuf_consume(recvbuf, hdr_len + crcdlen + c_begin);
 	ps->remains_pkt = _min(dlen - c_begin, ps->remains_tot);
 
 	error = _recv_packet_copy_data(ps, ri);
@@ -2463,8 +2465,8 @@ _recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 			void *dst = (char *)ps->iovp->iov_base + ri->iov_offt;
 			size_t dstlen = _min(remc_len, ps->iovp->iov_len - ri->iov_offt);
 
-			memcpy(dst, _hbuf_readptr(ps->recvbuf), dstlen);
-			_hbuf_consume(ps->recvbuf, dstlen);
+			memcpy(dst, _hdfs_hbuf_readptr(ps->recvbuf), dstlen);
+			_hdfs_hbuf_consume(ps->recvbuf, dstlen);
 			remc_len -= dstlen;
 
 			// We cannot update the struct iovec members themselves (as they
@@ -2480,10 +2482,10 @@ _recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri)
 		}
 	} else {
 		// Note that this can block on the user's fd
-		error = _pwrite_all(ps->fd, _hbuf_readptr(ps->recvbuf), c_len, ps->fdoffset);
+		error = _hdfs_pwrite_all(ps->fd, _hdfs_hbuf_readptr(ps->recvbuf), c_len, ps->fdoffset);
 		if (hdfs_is_error(error))
 			goto out;
-		_hbuf_consume(ps->recvbuf, c_len);
+		_hdfs_hbuf_consume(ps->recvbuf, c_len);
 	}
 
 	ps->remains_pkt -= c_len;
@@ -2528,7 +2530,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	*err_idx = -1;
 
 	// if we have no data left to send from the last/current packet we're creating a new one
-	is_new = (_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
+	is_new = (_hdfs_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
 
 	if (is_new) {
 		// Delay sending data while N packets remain unacknowledged.
@@ -2589,16 +2591,16 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 	if (copydata) {
 		// this copied data is at most used for this function invocation, so reset every time
-		_hbuf_reset(&ps->databuf);
-		_hbuf_reserve(&ps->databuf, ps->remains_pkt);
+		_hdfs_hbuf_reset(&ps->databuf);
+		_hdfs_hbuf_reserve(&ps->databuf, ps->remains_pkt);
 		// Note that is can block on the user's fd
-		error = _pread_all(ps->fd, _hbuf_writeptr(&ps->databuf), ps->remains_pkt, ps->fdoffset);
+		error = _hdfs_pread_all(ps->fd, _hdfs_hbuf_writeptr(&ps->databuf), ps->remains_pkt, ps->fdoffset);
 		if (hdfs_is_error(error))
 			goto out;
-		_hbuf_append(&ps->databuf, ps->remains_pkt);
+		_hdfs_hbuf_append(&ps->databuf, ps->remains_pkt);
 		ASSERT(ps->data_iovcnt == 0);
 		ASSERT(ps->iovp == ps->iovbuf);
-		ps->iovp[1].iov_base = _hbuf_readptr(&ps->databuf);
+		ps->iovp[1].iov_base = _hdfs_hbuf_readptr(&ps->databuf);
 		ps->iovp[1].iov_len = ps->remains_pkt;
 	}
 
@@ -2607,7 +2609,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		crclen = (ps->sendcsum_type != HDFS_CSUM_NULL) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
 
 		// construct header:
-		_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4);
+		_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4);
 		if (ps->proto >= HDFS_DATANODE_AP_2_0) {
 			Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
 			size_t sz;
@@ -2618,15 +2620,15 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 			pkt.datalen = ps->remains_pkt;
 
 			sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
-			_bappend_s16(ps->hdrbuf, sz);
-			_hbuf_reserve(ps->hdrbuf, sz);
-			hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hbuf_writeptr(ps->hdrbuf));
-			_hbuf_append(ps->hdrbuf, sz);
+			_hdfs_bappend_s16(ps->hdrbuf, sz);
+			_hdfs_hbuf_reserve(ps->hdrbuf, sz);
+			hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hdfs_hbuf_writeptr(ps->hdrbuf));
+			_hdfs_hbuf_append(ps->hdrbuf, sz);
 		} else {
-			_bappend_s64(ps->hdrbuf, ps->offset/*from beginning of block*/);
-			_bappend_s64(ps->hdrbuf, ps->seqno);
-			_bappend_s8(ps->hdrbuf, (ps->remains_pkt == 0));
-			_bappend_s32(ps->hdrbuf, ps->remains_pkt);
+			_hdfs_bappend_s64(ps->hdrbuf, ps->offset/*from beginning of block*/);
+			_hdfs_bappend_s64(ps->hdrbuf, ps->seqno);
+			_hdfs_bappend_s8(ps->hdrbuf, (ps->remains_pkt == 0));
+			_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt);
 		}
 
 		// calculate the crcs, if requested
@@ -2639,7 +2641,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 			ASSERT(ps->sendcsum_type == HDFS_CSUM_CRC32 || ps->sendcsum_type == HDFS_CSUM_CRC32C);
 
-			_hbuf_reserve(ps->hdrbuf, 4 * crclen);
+			_hdfs_hbuf_reserve(ps->hdrbuf, 4 * crclen);
 			tiovp = &ps->iovp[1]; // 0th iovec is used for hdrbuf
 
 			if (ps->sendcsum_type == HDFS_CSUM_CRC32)
@@ -2658,7 +2660,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 					if (ps->sendcsum_type == HDFS_CSUM_CRC32)
 						crc = crc32(crc, tptr, tlen);
 					else
-						crc = crc32c(crc, tptr, tlen);
+						crc = _hdfs_crc32c(crc, tptr, tlen);
 
 					chunklen -= tlen;
 					tiov_offt += tlen;
@@ -2668,8 +2670,8 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 					}
 				}
 
-				_be32enc(_hbuf_writeptr(ps->hdrbuf), crc);
-				_hbuf_append(ps->hdrbuf, 4);
+				_be32enc(_hdfs_hbuf_writeptr(ps->hdrbuf), crc);
+				_hdfs_hbuf_append(ps->hdrbuf, 4);
 			}
 		}
 
@@ -2685,14 +2687,14 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		ps->offset += ps->remains_pkt;
 	} // is_new
 
-	ps->iovp[0].iov_base = _hbuf_readptr(ps->hdrbuf);
-	ps->iovp[0].iov_len = _hbuf_readlen(ps->hdrbuf);
+	ps->iovp[0].iov_base = _hdfs_hbuf_readptr(ps->hdrbuf);
+	ps->iovp[0].iov_len = _hdfs_hbuf_readlen(ps->hdrbuf);
 
 	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
-		ASSERT(_hbuf_readlen(ps->hdrbuf) > 0);
+		ASSERT(_hdfs_hbuf_readlen(ps->hdrbuf) > 0);
 		ASSERT(ps->remains_tot == 0);
 		ASSERT(ps->data_iovcnt == 0);
-		error = _writev(ps->sock, ps->iovp, 1, &wlen);
+		error = _hdfs_writev(ps->sock, ps->iovp, 1, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
 			goto out;
@@ -2710,7 +2712,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		}
 
 		// Don't pass the header iovec if it's empty
-		if (_hbuf_readlen(ps->hdrbuf) > 0) {
+		if (_hdfs_hbuf_readlen(ps->hdrbuf) > 0) {
 			tiovcnt++;
 		} else {
 			tiovp++;
@@ -2720,23 +2722,23 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 		lastiov_len_orig = tiovp[tiovcnt - 1].iov_len;
 		tiovp[tiovcnt - 1].iov_len = ps->remains_pkt - tpktlen;
 
-		error = _writev(ps->sock, tiovp, tiovcnt, &wlen);
+		error = _hdfs_writev(ps->sock, tiovp, tiovcnt, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
 			goto out;
 		}
-		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
+		wlen_hdr = _min(wlen, _hdfs_hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 
 		// Restore the original iov_len of the last iovec used
 		tiovp[tiovcnt - 1].iov_len = lastiov_len_orig;
 	} else {
 #if defined(__linux__)
-		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 1);
+		_hdfs_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 1);
 
 		do {
-			if (_hbuf_readlen(ps->hdrbuf) > 0) {
-				error = _writev(ps->sock, ps->iovp, 1, &wlen);
+			if (_hdfs_hbuf_readlen(ps->hdrbuf) > 0) {
+				error = _hdfs_writev(ps->sock, ps->iovp, 1, &wlen);
 				if (wlen < 0) {
 					*err_idx = 0;
 					goto out; // XXX clear TCP_CORK?
@@ -2745,7 +2747,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 				if (hdfs_is_again(error))
 					break;
 			}
-			error = _sendfile(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt, &wlen);
+			error = _hdfs_sendfile(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt, &wlen);
 			if (wlen < 0) {
 				*err_idx = 0; // XXX could technically be an error reading the local file
 				goto out; // XXX clear TCP_CORK?
@@ -2753,24 +2755,24 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 			wlen_data = wlen;
 		} while (0); // not a loop
 
-		_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 0);
+		_hdfs_setsockopt(ps->sock, IPPROTO_TCP, TCP_CORK, 0);
 #elif defined(__FreeBSD__)
 		struct iovec *tiovp = NULL;
 		int tiovcnt = 0;
 
 		// Only send the header if it's non-empty
-		if (_hbuf_readlen(ps->hdrbuf) > 0) {
+		if (_hdfs_hbuf_readlen(ps->hdrbuf) > 0) {
 			tiovp = ps->iovp;
 			tiovcnt = 1;
 		}
 
-		error = _sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
+		error = _hdfs_sendfile_bsd(ps->sock, ps->fd, ps->fdoffset, ps->remains_pkt,
 		    tiovp, tiovcnt, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0; // XXX could technically be an error reading the local file
 			goto out;
 		}
-		wlen_hdr = _min(wlen, _hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
+		wlen_hdr = _min(wlen, _hdfs_hbuf_readlen(ps->hdrbuf)); // written from the header/checksums
 		wlen_data = wlen - wlen_hdr; // written from the user data
 #else
 		// !data => freebsd or linux. this branch should never be taken
@@ -2779,7 +2781,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 #endif
 	}
 
-	_hbuf_consume(ps->hdrbuf, wlen_hdr);
+	_hdfs_hbuf_consume(ps->hdrbuf, wlen_hdr);
 	ps->remains_pkt -= wlen_data;
 	ps->remains_tot -= wlen_data;
 	ps->fdoffset += wlen_data;
@@ -2837,7 +2839,7 @@ _verify_crcdata(void *crcdata, int32_t chunksize, int32_t crcdlen, int32_t dlen,
 		if (ctype == HDFS_CSUM_CRC32)
 			crc = crc32(crcinit, chunk, chunklen);
 		else
-			crc = crc32c(crcinit, chunk, chunklen);
+			crc = _hdfs_crc32c(crcinit, chunk, chunklen);
 
 		pcrc = _be32dec(crcptr);
 
@@ -2870,23 +2872,23 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	else if (ps->proto == HDFS_DATANODE_CDH3)
 		acksz = 8 + 2;
 
-	while (_hbuf_readlen(ps->recvbuf) < acksz) {
-		error = _read_to_hbuf(ps->sock, ps->recvbuf);
+	while (_hdfs_hbuf_readlen(ps->recvbuf) < acksz) {
+		error = _hdfs_read_to_hbuf(ps->sock, ps->recvbuf);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = _hbuf_readptr(ps->recvbuf);
+	obuf.buf = _hdfs_hbuf_readptr(ps->recvbuf);
 	obuf.used = 0;
-	obuf.size = _hbuf_readlen(ps->recvbuf);
+	obuf.size = _hdfs_hbuf_readlen(ps->recvbuf);
 
-	seqno = _bslurp_s64(&obuf);
+	seqno = _hdfs_bslurp_s64(&obuf);
 	ASSERT(obuf.used >= 0); // should not be able to fail
 
 	// Unsure if these are ever actually sent, or existed in v1, but
 	// Apache and libhdfs3 check for/skip heartbeat acks in v2.2+
 	if (seqno == HEART_BEAT_SEQNO) {
-		_hbuf_consume(ps->recvbuf, acksz);
+		_hdfs_hbuf_consume(ps->recvbuf, acksz);
 		goto out;
 	}
 
@@ -2903,7 +2905,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	ps->first_unacked++;
 
 	if (ps->proto == HDFS_DATANODE_AP_1_0) {
-		nacks = _bslurp_s16(&obuf);
+		nacks = _hdfs_bslurp_s16(&obuf);
 		ASSERT(obuf.used >= 0); // should not be able to fail
 
 		// We only connect to one datanode, we should only get one ack:
@@ -2912,12 +2914,12 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 			goto out;
 		}
 
-		ack = _bslurp_s16(&obuf);
+		ack = _hdfs_bslurp_s16(&obuf);
 		ASSERT(obuf.used >= 0); // should not be able to fail
 	} else if (ps->proto == HDFS_DATANODE_CDH3) {
 		// XXX TODO update when proper pipelining implemented (unsure how
 		// that works for CDH3 --- can it even give multiple acks?)
-		ack = _bslurp_s16(&obuf);
+		ack = _hdfs_bslurp_s16(&obuf);
 		ASSERT(obuf.used >= 0); // should not be able to fail
 	}
 
@@ -2931,7 +2933,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	}
 
 	// Skip the recv buffer past the ack
-	_hbuf_consume(ps->recvbuf, acksz);
+	_hdfs_hbuf_consume(ps->recvbuf, acksz);
 
 out:
 	return error;
@@ -2952,24 +2954,24 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	*err_idx = -1;
 
 	// If we don't have any data queued up, try to read first
-	if (_hbuf_readlen(h) == 0) {
-		error = _read_to_hbuf(ps->sock, h);
+	if (_hdfs_hbuf_readlen(h) == 0) {
+		error = _hdfs_read_to_hbuf(ps->sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
 	do {
-		obuf.buf = _hbuf_readptr(h);
+		obuf.buf = _hdfs_hbuf_readptr(h);
 		obuf.used = 0;
-		obuf.size = _hbuf_readlen(h);
+		obuf.size = _hdfs_hbuf_readlen(h);
 
-		sz = _bslurp_vlint(&obuf);
+		sz = _hdfs_bslurp_vlint(&obuf);
 		if (obuf.used == _H_PARSE_ERROR) {
 			error = error_from_hdfs(HDFS_ERR_INVALID_VLINT);
 			goto out;
 		}
 		if (obuf.used == _H_PARSE_EOF) {
-			error = _read_to_hbuf(ps->sock, h);
+			error = _hdfs_read_to_hbuf(ps->sock, h);
 			if (hdfs_is_error(error)) // includes HDFS_AGAIN
 				goto out;
 		}
@@ -2980,14 +2982,14 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		goto out;
 	}
 
-	while (_hbuf_readlen(h) < obuf.used + (int)sz) {
-		error = _read_to_hbuf(ps->sock, h);
+	while (_hdfs_hbuf_readlen(h) < obuf.used + (int)sz) {
+		error = _hdfs_read_to_hbuf(ps->sock, h);
 		if (hdfs_is_error(error)) // includes HDFS_AGAIN
 			goto out;
 	}
 
-	obuf.buf = _hbuf_readptr(h);
-	obuf.size = _hbuf_readlen(h);
+	obuf.buf = _hdfs_hbuf_readptr(h);
+	obuf.size = _hdfs_hbuf_readlen(h);
 
 	ack = hadoop__hdfs__pipeline_ack_proto__unpack(NULL, sz, (void *)&obuf.buf[obuf.used]);
 	obuf.used += sz;
@@ -2999,7 +3001,7 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	// Unsure if these are ever actually sent, but Apache and libhdfs3
 	// check for/skip heartbeat acks
 	if (ack->seqno == HEART_BEAT_SEQNO) {
-		_hbuf_consume(ps->recvbuf, obuf.used);
+		_hdfs_hbuf_consume(ps->recvbuf, obuf.used);
 		goto out;
 	}
 
@@ -3042,7 +3044,7 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	ps->unacked.ua_num--;
 
 	// Skip the recv buffer past the ack
-	_hbuf_consume(h, obuf.used);
+	_hdfs_hbuf_consume(h, obuf.used);
 
 out:
 	if (ack)
@@ -3050,7 +3052,7 @@ out:
 	return error;
 }
 
-struct hdfs_error
+static struct hdfs_error
 _check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
@@ -3068,6 +3070,8 @@ _check_acks(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		if (hdfs_is_again(error)) {
 			break;
 		} else if (hdfs_is_error(error)) {
+			// XXX Consider: Only set err_idx to 0 is error.her_kind == he_errno?
+			// If it's an hdfs error, then setting err_idx is disingenuous
 			if (*err_idx < 0)
 				*err_idx = 0;
 			goto out;

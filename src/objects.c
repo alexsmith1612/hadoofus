@@ -34,60 +34,60 @@ static struct {
 	struct hdfs_object *(*slurper)(struct hdfs_heap_buf *);
 } object_types[] = {
 	[H_VOID - _H_START] = { .type = VOID_TYPE, .objtype = false,
-		.slurper = _oslurp_null, },
+		.slurper = _hdfs_oslurp_null, },
 	[H_NULL - _H_START] = { .type = NULL_TYPE1, .objtype = false,
-		.slurper = _oslurp_null, },
+		.slurper = _hdfs_oslurp_null, },
 	[H_BOOLEAN - _H_START] = { .type = BOOLEAN_TYPE, .objtype = false,
-		.slurper = _oslurp_boolean, },
+		.slurper = _hdfs_oslurp_boolean, },
 	[H_INT - _H_START] = { .type = INT_TYPE, .objtype = false,
-		.slurper = _oslurp_int, },
+		.slurper = _hdfs_oslurp_int, },
 	[H_LONG - _H_START] = { .type = LONG_TYPE, .objtype = false,
-		.slurper = _oslurp_long, },
+		.slurper = _hdfs_oslurp_long, },
 	[H_ARRAY_LONG - _H_START] = { .type = ARRAYLONG_TYPE, .objtype = false,
-		.slurper = _oslurp_array_long, },
+		.slurper = _hdfs_oslurp_array_long, },
 	[H_LOCATED_BLOCK - _H_START] = { .type = LOCATEDBLOCK_TYPE, .objtype = true,
-		.slurper = _oslurp_located_block, },
+		.slurper = _hdfs_oslurp_located_block, },
 	[H_LOCATED_BLOCKS - _H_START] = { .type = LOCATEDBLOCKS_TYPE, .objtype = true,
-		.slurper = _oslurp_located_blocks, },
+		.slurper = _hdfs_oslurp_located_blocks, },
 	[H_DIRECTORY_LISTING - _H_START] = { .type = DIRECTORYLISTING_TYPE, .objtype = true,
-		.slurper = _oslurp_directory_listing, },
+		.slurper = _hdfs_oslurp_directory_listing, },
 	[H_DATANODE_INFO - _H_START] = { .type = DATANODEINFO_TYPE, .objtype = true,
-		.slurper = _oslurp_datanode_info, },
+		.slurper = _hdfs_oslurp_datanode_info, },
 	[H_ARRAY_DATANODE_INFO - _H_START] = { .type = ARRAYDATANODEINFO_TYPE, .objtype = false,
-		.slurper = _oslurp_array_datanode_info, },
+		.slurper = _hdfs_oslurp_array_datanode_info, },
 	[H_FILE_STATUS - _H_START] = { .type = FILESTATUS_TYPE, .objtype = true,
-		.slurper = _oslurp_file_status, },
+		.slurper = _hdfs_oslurp_file_status, },
 	[H_CONTENT_SUMMARY - _H_START] = { .type = CONTENTSUMMARY_TYPE, .objtype = true,
-		.slurper = _oslurp_content_summary, },
+		.slurper = _hdfs_oslurp_content_summary, },
 	[H_LOCATED_DIRECTORY_LISTING - _H_START] = { .type = LOCATEDDIRECTORYLISTING_TYPE,
-		.objtype = true, .slurper = /*_oslurp_located_directory_listing*/NULL, },
+		.objtype = true, .slurper = /*_hdfs_oslurp_located_directory_listing*/NULL, },
 	[H_UPGRADE_STATUS_REPORT - _H_START] = { .type = UPGRADESTATUSREPORT_TYPE, .objtype = true,
-		.slurper = _oslurp_upgrade_status_report, },
+		.slurper = _hdfs_oslurp_upgrade_status_report, },
 	[H_BLOCK - _H_START] = { .type = BLOCK_TYPE, .objtype = true,
-		.slurper = _oslurp_block, },
+		.slurper = _hdfs_oslurp_block, },
 	[H_ARRAY_BYTE - _H_START] = { .type = ARRAYBYTE_TYPE, .objtype = false,
-		.slurper = /*_oslurp_array_byte*/NULL, },
+		.slurper = /*_hdfs_oslurp_array_byte*/NULL, },
 	[H_RPC_INVOCATION - _H_START] = { .type = NULL, .objtype = false },
 	[H_AUTHHEADER - _H_START] = { .type = NULL, .objtype = false },
 	[H_TOKEN - _H_START] = { .type = TOKEN_TYPE, .objtype = true,
-		.slurper = /*_oslurp_token*/NULL, },
+		.slurper = /*_hdfs_oslurp_token*/NULL, },
 	[H_STRING - _H_START] = { .type = STRING_TYPE, .objtype = false },
 	[H_FSPERMS - _H_START] = { .type = FSPERMS_TYPE, .objtype = true,
-		.slurper = _oslurp_fsperms, },
+		.slurper = _hdfs_oslurp_fsperms, },
 	[H_SHORT - _H_START] = { .type = SHORT_TYPE, .objtype = false,
-		.slurper = _oslurp_short, },
+		.slurper = _hdfs_oslurp_short, },
 	[H_ARRAY_STRING - _H_START] = { .type = ARRAYSTRING_TYPE, .objtype = false,
-		.slurper = /*_oslurp_array_string*/NULL, },
+		.slurper = /*_hdfs_oslurp_array_string*/NULL, },
 	[H_TEXT - _H_START] = { .type = TEXT_TYPE, .objtype = true,
-		.slurper = /*_oslurp_text*/NULL, },
+		.slurper = /*_hdfs_oslurp_text*/NULL, },
 	[H_SAFEMODEACTION - _H_START] = { .type = SAFEMODEACTION_TYPE, .objtype = false,
-		.slurper = /*_oslurp_safemodeaction*/NULL, },
+		.slurper = /*_hdfs_oslurp_safemodeaction*/NULL, },
 	[H_DNREPORTTYPE - _H_START] = { .type = DNREPORTTYPE_TYPE, .objtype = false,
-		.slurper = /*_oslurp_dnreporttype*/NULL, },
+		.slurper = /*_hdfs_oslurp_dnreporttype*/NULL, },
 	[H_ARRAY_LOCATEDBLOCK - _H_START] = { .type = ARRAYLOCATEDBLOCK_TYPE, .objtype = false,
-		.slurper = /*_oslurp_array_locatedblock*/NULL, },
+		.slurper = /*_hdfs_oslurp_array_locatedblock*/NULL, },
 	[H_UPGRADE_ACTION - _H_START] = { .type = UPGRADEACTION_TYPE, .objtype = false,
-		.slurper = /*_oslurp_upgrade_action*/NULL, },
+		.slurper = /*_hdfs_oslurp_upgrade_action*/NULL, },
 };
 
 static struct {
@@ -153,7 +153,7 @@ static struct {
 };
 
 enum hdfs_object_type
-_string_to_type(const char *otype)
+_hdfs_string_to_type(const char *otype)
 {
 	for (unsigned i = 0; i < nelem(object_types); i++)
 		if (streq(otype, object_types[i].type))
@@ -163,7 +163,7 @@ _string_to_type(const char *otype)
 }
 
 static enum hdfs_exception_type
-_string_to_etype(const char *etype)
+_hdfs_string_to_etype(const char *etype)
 {
 	for (unsigned i = 1/*skip proto exception; never matches*/;
 	    i < nelem(exception_types); i++)
@@ -190,7 +190,7 @@ _object_exception(const char *etype, const char *emsg)
 {
 	enum hdfs_exception_type realtype;
 
-	realtype = _string_to_etype(etype);
+	realtype = _hdfs_string_to_etype(etype);
 	return hdfs_protocol_exception_new(realtype, emsg);
 }
 
@@ -974,7 +974,7 @@ _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 	ASSERT(fs);
 
 	ft = _hdfs_file_type_from_proto(fs->filetype);
-	path_copy = _proto_str(fs->path);
+	path_copy = _hdfs_proto_str(fs->path);
 	owner_copy = strdup(fs->owner);
 	group_copy = strdup(fs->group);
 
@@ -1008,7 +1008,7 @@ _hdfs_file_status_new_proto(Hadoop__Hdfs__HdfsFileStatusProto *fs)
 	if (fs->has_blocksize)
 		r->ob_val._file_status._block_size = fs->blocksize;
 	if (fs->has_symlink)
-		r->ob_val._file_status._symlink_target = _proto_str(fs->symlink);
+		r->ob_val._file_status._symlink_target = _hdfs_proto_str(fs->symlink);
 	if (fs->has_fileid)
 		r->ob_val._file_status._fileid = fs->fileid;
 	if (fs->has_childrennum)
@@ -1184,7 +1184,7 @@ hdfs_rpc_invocation_new(const char *name, ...)
 }
 
 void
-_rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
+_hdfs_rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
 {
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
@@ -1193,7 +1193,7 @@ _rpc_invocation_set_msgno(struct hdfs_object *rpc, int32_t msgno)
 }
 
 void
-_rpc_invocation_set_proto(struct hdfs_object *rpc, enum hdfs_namenode_proto pr)
+_hdfs_rpc_invocation_set_proto(struct hdfs_object *rpc, enum hdfs_namenode_proto pr)
 {
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
@@ -1202,7 +1202,7 @@ _rpc_invocation_set_proto(struct hdfs_object *rpc, enum hdfs_namenode_proto pr)
 }
 
 void
-_rpc_invocation_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
+_hdfs_rpc_invocation_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
 {
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_RPC_INVOCATION);
@@ -1211,7 +1211,7 @@ _rpc_invocation_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
 }
 
 void
-_authheader_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
+_hdfs_authheader_set_clientid(struct hdfs_object *rpc, uint8_t *cid)
 {
 	ASSERT(rpc);
 	ASSERT(rpc->ob_type == H_AUTHHEADER);
@@ -2154,22 +2154,22 @@ _serialize_rpc_v1(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 
 	// XXX TODO try to refactor to avoid using local heapbufs
 
-	_bappend_s32(&rbuf, rpc->_msgno);
-	_bappend_string(&rbuf, rpc->_method);
-	_bappend_s32(&rbuf, rpc->_nargs);
+	_hdfs_bappend_s32(&rbuf, rpc->_msgno);
+	_hdfs_bappend_string(&rbuf, rpc->_method);
+	_hdfs_bappend_s32(&rbuf, rpc->_nargs);
 	for (int i = 0; i < rpc->_nargs; i++) {
 		struct hdfs_object *aobj = rpc->_args[i];
 
-		_bappend_string(&rbuf, _typestring(aobj));
+		_hdfs_bappend_string(&rbuf, _typestring(aobj));
 		if (_is_object_objtype(aobj))
-			_bappend_string(&rbuf, _typestring(aobj));
+			_hdfs_bappend_string(&rbuf, _typestring(aobj));
 		if (aobj->ob_type == H_NULL || aobj->ob_type == H_VOID)
-			_bappend_string(&rbuf, NULL_TYPE2);
+			_hdfs_bappend_string(&rbuf, NULL_TYPE2);
 		hdfs_object_serialize(&rbuf, aobj);
 	}
 
-	_bappend_s32(dest, rbuf.used);
-	_bappend_mem(dest, rbuf.used, rbuf.buf);
+	_hdfs_bappend_s32(dest, rbuf.used);
+	_hdfs_bappend_mem(dest, rbuf.used, rbuf.buf);
 	free(rbuf.buf);
 }
 
@@ -2203,7 +2203,7 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 
 	// XXX TODO try to refactor to avoid using local heapbufs
 
-	_rpc2_request_serialize(&method_buf, rpc);
+	_hdfs_rpc2_request_serialize(&method_buf, rpc);
 
 	rpcwrapper.methodname = rpc->_method;
 	rpcwrapper.has_request = true;
@@ -2214,8 +2214,8 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	rpcwrapper.clientprotocolversion = 1;
 	rpcwrapper_sz = hadoop_rpc_request_proto__get_packed_size(&rpcwrapper);
 
-	_bappend_vlint(&rpcwrapper_buf, rpcwrapper_sz);
-	_hbuf_reserve(&rpcwrapper_buf, rpcwrapper_sz);
+	_hdfs_bappend_vlint(&rpcwrapper_buf, rpcwrapper_sz);
+	_hdfs_hbuf_reserve(&rpcwrapper_buf, rpcwrapper_sz);
 	hadoop_rpc_request_proto__pack(&rpcwrapper,
 	    (void *)&rpcwrapper_buf.buf[rpcwrapper_buf.used]);
 	rpcwrapper_buf.used += rpcwrapper_sz;
@@ -2227,15 +2227,15 @@ _serialize_rpc_v2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	header.callid = rpc->_msgno;
 	header_sz = rpc_payload_header_proto__get_packed_size(&header);
 
-	_bappend_vlint(&header_buf, header_sz);
-	_hbuf_reserve(&header_buf, header_sz);
+	_hdfs_bappend_vlint(&header_buf, header_sz);
+	_hdfs_hbuf_reserve(&header_buf, header_sz);
 	rpc_payload_header_proto__pack(&header,
 	    (void *)&header_buf.buf[header_buf.used]);
 	header_buf.used += header_sz;
 
-	_bappend_s32(dest, header_buf.used + rpcwrapper_buf.used);
-	_bappend_mem(dest, header_buf.used, header_buf.buf);
-	_bappend_mem(dest, rpcwrapper_buf.used, rpcwrapper_buf.buf);
+	_hdfs_bappend_s32(dest, header_buf.used + rpcwrapper_buf.used);
+	_hdfs_bappend_mem(dest, header_buf.used, header_buf.buf);
+	_hdfs_bappend_mem(dest, rpcwrapper_buf.used, rpcwrapper_buf.buf);
 
 	free(header_buf.buf);
 	free(method_buf.buf);
@@ -2270,8 +2270,8 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 	size_t method_sz, method_vlint_sz, rpcwrapper_sz,
 	    rpcwrapper_vlint_sz, header_sz, header_vlint_sz, totsz;
 
-	method_sz = _rpc2_request_get_size(rpc);
-	method_vlint_sz = _get_vlint_encoding_size(method_sz);
+	method_sz = _hdfs_rpc2_request_get_size(rpc);
+	method_vlint_sz = _hdfs_get_vlint_encoding_size(method_sz);
 
 	rpcwrapper.methodname = rpc->_method;
 	rpcwrapper.declaringclassprotocolname =
@@ -2280,7 +2280,7 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 
 	rpcwrapper_sz =
 	    hadoop__common__request_header_proto__get_packed_size(&rpcwrapper);
-	rpcwrapper_vlint_sz = _get_vlint_encoding_size(rpcwrapper_sz);
+	rpcwrapper_vlint_sz = _hdfs_get_vlint_encoding_size(rpcwrapper_sz);
 
 	header.has_rpckind = true;
 	header.rpckind = HADOOP__COMMON__RPC_KIND_PROTO__RPC_PROTOCOL_BUFFER;
@@ -2295,28 +2295,28 @@ _serialize_rpc_v2_2(struct hdfs_heap_buf *dest, struct hdfs_rpc_invocation *rpc)
 
 	header_sz =
 	    hadoop__common__rpc_request_header_proto__get_packed_size(&header);
-	header_vlint_sz = _get_vlint_encoding_size(header_sz);
+	header_vlint_sz = _hdfs_get_vlint_encoding_size(header_sz);
 
 	totsz = header_vlint_sz + header_sz +
 	    rpcwrapper_vlint_sz + rpcwrapper_sz +
 	    method_vlint_sz + method_sz;
-	_hbuf_reserve(dest, totsz + 4);
+	_hdfs_hbuf_reserve(dest, totsz + 4);
 
 	// total size
-	_bappend_s32(dest, totsz);
+	_hdfs_bappend_s32(dest, totsz);
 	// header
-	_bappend_vlint(dest, header_sz);
+	_hdfs_bappend_vlint(dest, header_sz);
 	hadoop__common__rpc_request_header_proto__pack(&header,
-	    (void *)_hbuf_writeptr(dest));
-	_hbuf_append(dest, header_sz);
+	    (void *)_hdfs_hbuf_writeptr(dest));
+	_hdfs_hbuf_append(dest, header_sz);
 	// rpcwrapper
-	_bappend_vlint(dest, rpcwrapper_sz);
+	_hdfs_bappend_vlint(dest, rpcwrapper_sz);
 	hadoop__common__request_header_proto__pack(&rpcwrapper,
-	    (void *)_hbuf_writeptr(dest));
-	_hbuf_append(dest, rpcwrapper_sz);
+	    (void *)_hdfs_hbuf_writeptr(dest));
+	_hdfs_hbuf_append(dest, rpcwrapper_sz);
 	// method
-	_bappend_vlint(dest, method_sz);
-	_rpc2_request_serialize(dest, rpc);
+	_hdfs_bappend_vlint(dest, method_sz);
+	_hdfs_rpc2_request_serialize(dest, rpc);
 }
 
 // XXX TODO consider removing struct hdfs_authheader from struct hdfs_object,
@@ -2337,18 +2337,18 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 	pr = auth->_proto;
 
 	if (pr == HDFS_NN_v1) {
-		_bappend_text(&abuf, CLIENT_PROTOCOL);
-		_bappend_s8(&abuf, 1);
-		_bappend_string(&abuf, auth->_username);
+		_hdfs_bappend_text(&abuf, CLIENT_PROTOCOL);
+		_hdfs_bappend_s8(&abuf, 1);
+		_hdfs_bappend_string(&abuf, auth->_username);
 		if (auth->_real_username == NULL)
-			_bappend_s8(&abuf, 0);
+			_hdfs_bappend_s8(&abuf, 0);
 		else {
-			_bappend_s8(&abuf, 1);
-			_bappend_string(&abuf, auth->_real_username);
+			_hdfs_bappend_s8(&abuf, 1);
+			_hdfs_bappend_string(&abuf, auth->_real_username);
 		}
 
-		_bappend_s32(dest, abuf.used);
-		_bappend_mem(dest, abuf.used, abuf.buf);
+		_hdfs_bappend_s32(dest, abuf.used);
+		_hdfs_bappend_mem(dest, abuf.used, abuf.buf);
 		goto out;
 	}
 
@@ -2369,14 +2369,14 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 	context.protocol = __DECONST(char *, CLIENT_PROTOCOL);
 
 	cc_sz = hadoop__common__ipc_connection_context_proto__get_packed_size(&context);
-	_hbuf_reserve(&abuf, cc_sz);
+	_hdfs_hbuf_reserve(&abuf, cc_sz);
 	hadoop__common__ipc_connection_context_proto__pack(&context,
 	    (void *)&abuf.buf[abuf.used]);
 	abuf.used += cc_sz;
 
 	if (pr == HDFS_NN_v2) {
-		_bappend_s32(dest, abuf.used);
-		_bappend_mem(dest, abuf.used, abuf.buf);
+		_hdfs_bappend_s32(dest, abuf.used);
+		_hdfs_bappend_mem(dest, abuf.used, abuf.buf);
 	} else {
 		/*
 		 * HDFSv2.2+:
@@ -2408,17 +2408,17 @@ _serialize_authheader(struct hdfs_heap_buf *dest, struct hdfs_authheader *auth)
 		header.retrycount = -1 /* Magic */;
 
 		hd_sz = hadoop__common__rpc_request_header_proto__get_packed_size(&header);
-		_bappend_vlint(&hbuf, hd_sz);
-		_hbuf_reserve(&hbuf, hd_sz);
+		_hdfs_bappend_vlint(&hbuf, hd_sz);
+		_hdfs_hbuf_reserve(&hbuf, hd_sz);
 		hadoop__common__rpc_request_header_proto__pack(&header,
 		    (void *)&hbuf.buf[hbuf.used]);
 		hbuf.used += hd_sz;
 
-		_bappend_vlint(&hbuf, cc_sz);
+		_hdfs_bappend_vlint(&hbuf, cc_sz);
 
-		_bappend_s32(dest, hbuf.used + abuf.used);
-		_bappend_mem(dest, hbuf.used, hbuf.buf);
-		_bappend_mem(dest, abuf.used, abuf.buf);
+		_hdfs_bappend_s32(dest, hbuf.used + abuf.used);
+		_hdfs_bappend_mem(dest, hbuf.used, hbuf.buf);
+		_hdfs_bappend_mem(dest, abuf.used, abuf.buf);
 
 		free(hbuf.buf);
 	}
@@ -2449,41 +2449,41 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		ASSERT(false);
 		break;
 	case H_VOID:
-		_bappend_string(dest, "void");
+		_hdfs_bappend_string(dest, "void");
 		break;
 	case H_NULL:
-		_bappend_string(dest, _rawtypestring(obj->ob_val._null._type));
+		_hdfs_bappend_string(dest, _rawtypestring(obj->ob_val._null._type));
 		break;
 	case H_BOOLEAN:
-		_bappend_s8(dest, obj->ob_val._boolean._val);
+		_hdfs_bappend_s8(dest, obj->ob_val._boolean._val);
 		break;
 	case H_SHORT:
-		_bappend_s16(dest, obj->ob_val._short._val);
+		_hdfs_bappend_s16(dest, obj->ob_val._short._val);
 		break;
 	case H_INT:
-		_bappend_s32(dest, obj->ob_val._int._val);
+		_hdfs_bappend_s32(dest, obj->ob_val._int._val);
 		break;
 	case H_LONG:
-		_bappend_s64(dest, obj->ob_val._long._val);
+		_hdfs_bappend_s64(dest, obj->ob_val._long._val);
 		break;
 
 	case H_ARRAY_LONG:
 		{
 		int len = obj->ob_val._array_long._len;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int i = 0; i < len; i++) {
-			_bappend_string(dest, _rawtypestring(H_LONG));
-			_bappend_s64(dest, obj->ob_val._array_long._vals[i]);
+			_hdfs_bappend_string(dest, _rawtypestring(H_LONG));
+			_hdfs_bappend_s64(dest, obj->ob_val._array_long._vals[i]);
 		}
 		}
 		break;
 	case H_ARRAY_DATANODE_INFO:
 		{
 		int len = obj->ob_val._array_datanode_info._len;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int i = 0; i < len; i++) {
-			_bappend_string(dest, _rawtypestring(H_DATANODE_INFO));
-			_bappend_string(dest, _rawtypestring(H_DATANODE_INFO));
+			_hdfs_bappend_string(dest, _rawtypestring(H_DATANODE_INFO));
+			_hdfs_bappend_string(dest, _rawtypestring(H_DATANODE_INFO));
 			hdfs_object_serialize(dest,
 			    obj->ob_val._array_datanode_info._values[i]);
 		}
@@ -2492,8 +2492,8 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_ARRAY_BYTE:
 		{
 		int len = obj->ob_val._array_byte._len;
-		_bappend_s32(dest, len);
-		_bappend_mem(dest, len, obj->ob_val._array_byte._bytes);
+		_hdfs_bappend_s32(dest, len);
+		_hdfs_bappend_mem(dest, len, obj->ob_val._array_byte._bytes);
 		}
 		break;
 
@@ -2502,13 +2502,13 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		int len;
 
 		hdfs_object_serialize(dest, obj->ob_val._located_block._token);
-		_bappend_s8(dest, 0);
-		_bappend_s64(dest, obj->ob_val._located_block._offset);
-		_bappend_s64(dest, obj->ob_val._located_block._blockid);
-		_bappend_s64(dest, obj->ob_val._located_block._len);
-		_bappend_s64(dest, obj->ob_val._located_block._generation);
+		_hdfs_bappend_s8(dest, 0);
+		_hdfs_bappend_s64(dest, obj->ob_val._located_block._offset);
+		_hdfs_bappend_s64(dest, obj->ob_val._located_block._blockid);
+		_hdfs_bappend_s64(dest, obj->ob_val._located_block._len);
+		_hdfs_bappend_s64(dest, obj->ob_val._located_block._generation);
 		len = obj->ob_val._located_block._num_locs;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int i = 0; i < len; i++)
 			hdfs_object_serialize(dest,
 			    obj->ob_val._located_block._locs[i]);
@@ -2517,10 +2517,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_LOCATED_BLOCKS:
 		{
 		int len;
-		_bappend_s64(dest, obj->ob_val._located_blocks._size);
-		_bappend_s8(dest, obj->ob_val._located_blocks._being_written);
+		_hdfs_bappend_s64(dest, obj->ob_val._located_blocks._size);
+		_hdfs_bappend_s8(dest, obj->ob_val._located_blocks._being_written);
 		len = obj->ob_val._located_blocks._num_blocks;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int i = 0; i < len; i++)
 			hdfs_object_serialize(dest,
 			    obj->ob_val._located_blocks._blocks[i]);
@@ -2530,10 +2530,10 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		{
 		int32_t len;
 		len = obj->ob_val._located_blocks._num_blocks;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int32_t i = 0; i < len; i++) {
-			_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
-			_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
+			_hdfs_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
+			_hdfs_bappend_string(dest, _rawtypestring(H_LOCATED_BLOCK));
 			hdfs_object_serialize(dest,
 			    obj->ob_val._located_blocks._blocks[i]);
 		}
@@ -2544,7 +2544,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 	case H_DIRECTORY_LISTING:
 		{
 		int len = obj->ob_val._directory_listing._num_files;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int i = 0; i < len; i++)
 			hdfs_object_serialize(dest,
 			    obj->ob_val._directory_listing._files[i]);
@@ -2552,7 +2552,7 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 			for (int i = 0; i < len; i++)
 				hdfs_object_serialize(dest,
 				    obj->ob_val._directory_listing._located_blocks[i]);
-		_bappend_s32(dest, 0/*remaining*/);
+		_hdfs_bappend_s32(dest, 0/*remaining*/);
 		}
 		break;
 	case H_DATANODE_INFO:
@@ -2564,18 +2564,18 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		strcat(hostport, ":");
 		strcat(hostport, obj->ob_val._datanode_info._port);
 
-		_bappend_string(dest, hostport);
-		_bappend_string(dest, hostport);
-		_bappend_u16(dest, 31337/*arbitrary*/);
-		_bappend_u16(dest, obj->ob_val._datanode_info._namenodeport/*ipc port*/);
-		_bappend_s64(dest, 0/*capacity*/);
-		_bappend_s64(dest, 0/*space used*/);
-		_bappend_s64(dest, 0/*remaining*/);
-		_bappend_s64(dest, 0/*last update*/);
-		_bappend_s32(dest, 0/*xceivercount*/);
-		_bappend_text(dest, obj->ob_val._datanode_info._location);
-		_bappend_text(dest, obj->ob_val._datanode_info._hostname);
-		_bappend_text(dest, "NORMAL");
+		_hdfs_bappend_string(dest, hostport);
+		_hdfs_bappend_string(dest, hostport);
+		_hdfs_bappend_u16(dest, 31337/*arbitrary*/);
+		_hdfs_bappend_u16(dest, obj->ob_val._datanode_info._namenodeport/*ipc port*/);
+		_hdfs_bappend_s64(dest, 0/*capacity*/);
+		_hdfs_bappend_s64(dest, 0/*space used*/);
+		_hdfs_bappend_s64(dest, 0/*remaining*/);
+		_hdfs_bappend_s64(dest, 0/*last update*/);
+		_hdfs_bappend_s32(dest, 0/*xceivercount*/);
+		_hdfs_bappend_text(dest, obj->ob_val._datanode_info._location);
+		_hdfs_bappend_text(dest, obj->ob_val._datanode_info._hostname);
+		_hdfs_bappend_text(dest, "NORMAL");
 
 		free(hostport);
 		}
@@ -2584,30 +2584,30 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		{
 		int len = strlen(obj->ob_val._file_status._file);
 		mode_t perms = obj->ob_val._file_status._permissions;
-		_bappend_s32(dest, len);
-		_bappend_mem(dest, len, obj->ob_val._file_status._file);
-		_bappend_s64(dest, obj->ob_val._file_status._size);
-		_bappend_s8(dest, obj->ob_val._file_status._directory);
-		_bappend_u16(dest, obj->ob_val._file_status._replication);
-		_bappend_s64(dest, obj->ob_val._file_status._block_size);
-		_bappend_s64(dest, obj->ob_val._file_status._mtime);
-		_bappend_s64(dest, obj->ob_val._file_status._atime);
+		_hdfs_bappend_s32(dest, len);
+		_hdfs_bappend_mem(dest, len, obj->ob_val._file_status._file);
+		_hdfs_bappend_s64(dest, obj->ob_val._file_status._size);
+		_hdfs_bappend_s8(dest, obj->ob_val._file_status._directory);
+		_hdfs_bappend_u16(dest, obj->ob_val._file_status._replication);
+		_hdfs_bappend_s64(dest, obj->ob_val._file_status._block_size);
+		_hdfs_bappend_s64(dest, obj->ob_val._file_status._mtime);
+		_hdfs_bappend_s64(dest, obj->ob_val._file_status._atime);
 		if (obj->ob_val._file_status._directory)
 			perms &= 0777;
 		else
 			perms &= 0666;
-		_bappend_u16(dest, perms);
-		_bappend_text(dest, obj->ob_val._file_status._owner);
-		_bappend_text(dest, obj->ob_val._file_status._group);
+		_hdfs_bappend_u16(dest, perms);
+		_hdfs_bappend_text(dest, obj->ob_val._file_status._owner);
+		_hdfs_bappend_text(dest, obj->ob_val._file_status._group);
 		}
 		break;
 	case H_CONTENT_SUMMARY:
-		_bappend_s64(dest, obj->ob_val._content_summary._length);
-		_bappend_s64(dest, obj->ob_val._content_summary._files);
-		_bappend_s64(dest, obj->ob_val._content_summary._dirs);
-		_bappend_s64(dest, -1);
-		_bappend_s64(dest, obj->ob_val._content_summary._length);
-		_bappend_s64(dest, obj->ob_val._content_summary._quota);
+		_hdfs_bappend_s64(dest, obj->ob_val._content_summary._length);
+		_hdfs_bappend_s64(dest, obj->ob_val._content_summary._files);
+		_hdfs_bappend_s64(dest, obj->ob_val._content_summary._dirs);
+		_hdfs_bappend_s64(dest, -1);
+		_hdfs_bappend_s64(dest, obj->ob_val._content_summary._length);
+		_hdfs_bappend_s64(dest, obj->ob_val._content_summary._quota);
 		break;
 	case H_RPC_INVOCATION:
 		if (obj->ob_val._rpc_invocation._proto == HDFS_NN_v1)
@@ -2623,48 +2623,48 @@ hdfs_object_serialize(struct hdfs_heap_buf *dest, struct hdfs_object *obj)
 		_serialize_authheader(dest, &obj->ob_val._authheader);
 		break;
 	case H_DNREPORTTYPE:
-		_bappend_string(dest, _dnreporttype_to_v1_str(obj->ob_val._dnreporttype._type));
+		_hdfs_bappend_string(dest, _dnreporttype_to_v1_str(obj->ob_val._dnreporttype._type));
 		break;
 	case H_UPGRADE_ACTION:
 		/* FALLTHROUGH */
 	case H_SAFEMODEACTION:
 		/* FALLTHROUGH */
 	case H_STRING:
-		_bappend_string(dest, obj->ob_val._string._val);
+		_hdfs_bappend_string(dest, obj->ob_val._string._val);
 		break;
 	case H_FSPERMS:
-		_bappend_s16(dest, obj->ob_val._fsperms._perms);
+		_hdfs_bappend_s16(dest, obj->ob_val._fsperms._perms);
 		break;
 	case H_BLOCK:
-		_bappend_s64(dest, obj->ob_val._block._blkid);
-		_bappend_s64(dest, obj->ob_val._block._length);
-		_bappend_s64(dest, obj->ob_val._block._generation);
+		_hdfs_bappend_s64(dest, obj->ob_val._block._blkid);
+		_hdfs_bappend_s64(dest, obj->ob_val._block._length);
+		_hdfs_bappend_s64(dest, obj->ob_val._block._generation);
 		break;
 	case H_TOKEN:
 		for (int i = 0; i < 2; i++) {
-			_bappend_vlint(dest, obj->ob_val._token._lens[i]);
-			_bappend_mem(dest, obj->ob_val._token._lens[i],
+			_hdfs_bappend_vlint(dest, obj->ob_val._token._lens[i]);
+			_hdfs_bappend_mem(dest, obj->ob_val._token._lens[i],
 			    obj->ob_val._token._strings[i]);
 		}
 		for (int i = 2; i < 4; i++)
-			_bappend_text(dest, obj->ob_val._token._strings[i]);
+			_hdfs_bappend_text(dest, obj->ob_val._token._strings[i]);
 		break;
 	case H_ARRAY_STRING:
 		{
 		int32_t len = obj->ob_val._array_string._len;
-		_bappend_s32(dest, len);
+		_hdfs_bappend_s32(dest, len);
 		for (int32_t i = 0; i < len; i++) {
-			_bappend_string(dest, _rawtypestring(H_STRING));
-			_bappend_string(dest, obj->ob_val._array_string._val[i]);
+			_hdfs_bappend_string(dest, _rawtypestring(H_STRING));
+			_hdfs_bappend_string(dest, obj->ob_val._array_string._val[i]);
 		}
 		}
 		break;
 	case H_TEXT:
-		_bappend_text(dest, obj->ob_val._string._val);
+		_hdfs_bappend_text(dest, obj->ob_val._string._val);
 		break;
 	case H_UPGRADE_STATUS_REPORT:
-		_bappend_s32(dest, obj->ob_val._upgrade_status._version);
-		_bappend_s16(dest, obj->ob_val._upgrade_status._status);
+		_hdfs_bappend_s32(dest, obj->ob_val._upgrade_status._version);
+		_hdfs_bappend_s16(dest, obj->ob_val._upgrade_status._status);
 		break;
 	default:
 		/* Invalid input */
@@ -2690,19 +2690,19 @@ _hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res)
 	ASSERT(res);
 	res->rs_obj = NULL;
 
-	msgno = _bslurp_s32(&rbuf);
+	msgno = _hdfs_bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
-	status = _bslurp_s32(&rbuf);
+	status = _hdfs_bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 
 	// Parse exceptions
 	if (status != 0) {
-		etype = _bslurp_string32(&rbuf);
+		etype = _hdfs_bslurp_string32(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
-		emsg = _bslurp_string32(&rbuf);
+		emsg = _hdfs_bslurp_string32(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
 
@@ -2713,11 +2713,11 @@ _hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res)
 	}
 
 	// If we got this far we're reading a normal object
-	otype = _bslurp_string(&rbuf);
+	otype = _hdfs_bslurp_string(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 
-	realtype = _string_to_type(otype);
+	realtype = _hdfs_string_to_type(otype);
 	if (realtype == _H_INVALID) {
 		error = error_from_hdfs(HDFS_ERR_NAMENODE_PROTOCOL);
 		goto out;
@@ -2728,7 +2728,7 @@ _hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res)
 	// or implementing class of an interface, but in practice it's always
 	// the same)
 	if (_is_type_objtype(realtype)) {
-		ttype = _bslurp_string(&rbuf);
+		ttype = _hdfs_bslurp_string(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
 		ASSERT(streq(ttype, otype));
@@ -2738,7 +2738,7 @@ _hdfs_result_deserialize(char *buf, int buflen, struct _hdfs_result *res)
 
 	if (realtype == H_NULL) {
 		// ttype for null values is NOT the same as its otype; it's another string.
-		ttype = _bslurp_string(&rbuf);
+		ttype = _hdfs_bslurp_string(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
 		ASSERT(streq(ttype, NULL_TYPE2));
@@ -2795,7 +2795,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdfs_result *res,
 	ASSERT(res);
 	res->rs_obj = NULL;
 
-	resphdsz = _bslurp_vlint(&rbuf);
+	resphdsz = _hdfs_bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 	if (resphdsz > (rbuf.size - rbuf.used)) {
@@ -2824,10 +2824,10 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdfs_result *res,
 	ASSERT(pend[i].pd_slurper);
 
 	if (resphd->status == RPC_STATUS_PROTO__ERROR) {
-		etype = _bslurp_string32(&rbuf);
+		etype = _hdfs_bslurp_string32(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
-		emsg = _bslurp_string32(&rbuf);
+		emsg = _hdfs_bslurp_string32(&rbuf);
 		if (rbuf.used < 0)
 			goto out;
 
@@ -2841,7 +2841,7 @@ _hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdfs_result *res,
 		goto out;
 	}
 
-	respsz = _bslurp_s32(&rbuf);
+	respsz = _hdfs_bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 	if (respsz > (rbuf.size - rbuf.used)) {
@@ -2898,7 +2898,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 	ASSERT(res);
 	res->rs_obj = NULL;
 
-	totalsz = _bslurp_s32(&rbuf);
+	totalsz = _hdfs_bslurp_s32(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 	if (totalsz > (rbuf.size - rbuf.used)) {
@@ -2906,7 +2906,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 		goto out;
 	}
 
-	resphdsz = _bslurp_vlint(&rbuf);
+	resphdsz = _hdfs_bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 	if (resphdsz > (rbuf.size - rbuf.used)) {
@@ -2949,7 +2949,7 @@ _hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 		goto out;
 	}
 
-	respsz = _bslurp_vlint(&rbuf);
+	respsz = _hdfs_bslurp_vlint(&rbuf);
 	if (rbuf.used < 0)
 		goto out;
 	if (respsz > (rbuf.size - rbuf.used)) {

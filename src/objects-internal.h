@@ -83,12 +83,12 @@ struct _hdfs_pending {
 	void *pd_userdata;
 };
 
-void			_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
-void			_rpc_invocation_set_proto(struct hdfs_object *,
+void			_hdfs_rpc_invocation_set_msgno(struct hdfs_object *, int32_t);
+void			_hdfs_rpc_invocation_set_proto(struct hdfs_object *,
 			enum hdfs_namenode_proto pr);
-void			_rpc_invocation_set_clientid(struct hdfs_object *, uint8_t *);
+void			_hdfs_rpc_invocation_set_clientid(struct hdfs_object *, uint8_t *);
 
-void			_authheader_set_clientid(struct hdfs_object *, uint8_t *);
+void			_hdfs_authheader_set_clientid(struct hdfs_object *, uint8_t *);
 
 // Returns HDFS_SUCCESS and populates *res on success.
 // Returns HDFS_AGAIN if we can't decode a response from the available buffer.
@@ -99,7 +99,7 @@ struct hdfs_error	_hdfs_result_deserialize_v2(char *buf, int buflen, struct _hdf
 struct hdfs_error	_hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _hdfs_result *res,
 			struct _hdfs_pending *pend, int npend);
 
-enum hdfs_object_type	_string_to_type(const char *);
+enum hdfs_object_type	_hdfs_string_to_type(const char *);
 
 static inline bool
 streq(const char *a, const char *b)

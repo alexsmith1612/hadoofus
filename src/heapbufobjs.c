@@ -8,20 +8,20 @@
 #include "util.h"
 
 struct hdfs_object *
-_oslurp_null(struct hdfs_heap_buf *b)
+_hdfs_oslurp_null(struct hdfs_heap_buf *b)
 {
 	char *t;
 	enum hdfs_object_type rt;
 	struct hdfs_object *res = NULL;
 
-	t = _bslurp_string(b);
+	t = _hdfs_bslurp_string(b);
 	if (b->used < 0)
 		return res;
 
 	if (streq(t, "void")) {
 		res = hdfs_void_new();
 	} else {
-		rt = _string_to_type(t);
+		rt = _hdfs_string_to_type(t);
 		if (rt == _H_INVALID)
 			b->used = _H_PARSE_ERROR;
 		else
@@ -32,11 +32,11 @@ _oslurp_null(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_boolean(struct hdfs_heap_buf *b)
+_hdfs_oslurp_boolean(struct hdfs_heap_buf *b)
 {
 	bool v;
 
-	v = _bslurp_s8(b);
+	v = _hdfs_bslurp_s8(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -44,11 +44,11 @@ _oslurp_boolean(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_short(struct hdfs_heap_buf *b)
+_hdfs_oslurp_short(struct hdfs_heap_buf *b)
 {
 	int16_t v;
 
-	v = _bslurp_s16(b);
+	v = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -56,11 +56,11 @@ _oslurp_short(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_int(struct hdfs_heap_buf *b)
+_hdfs_oslurp_int(struct hdfs_heap_buf *b)
 {
 	int32_t v;
 
-	v = _bslurp_s32(b);
+	v = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -68,11 +68,11 @@ _oslurp_int(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_long(struct hdfs_heap_buf *b)
+_hdfs_oslurp_long(struct hdfs_heap_buf *b)
 {
 	int64_t v;
 
-	v = _bslurp_s64(b);
+	v = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -80,13 +80,13 @@ _oslurp_long(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_array_long(struct hdfs_heap_buf *b)
+_hdfs_oslurp_array_long(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *res = NULL;
 	int64_t *longs = NULL;
 	int32_t n;
 
-	n = _bslurp_s32(b);
+	n = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 	if (n < 0) {
@@ -100,7 +100,7 @@ _oslurp_array_long(struct hdfs_heap_buf *b)
 
 		for (int32_t i = 0; i < n; i++) {
 			bool eq;
-			char *s = _bslurp_string(b);
+			char *s = _hdfs_bslurp_string(b);
 			if (b->used < 0)
 				goto out;
 			eq = streq(s, LONG_TYPE);
@@ -110,7 +110,7 @@ _oslurp_array_long(struct hdfs_heap_buf *b)
 				goto out;
 			}
 
-			longs[i] = _bslurp_s64(b);
+			longs[i] = _hdfs_bslurp_s64(b);
 			if (b->used < 0)
 				goto out;
 		}
@@ -125,7 +125,7 @@ out:
 }
 
 struct hdfs_object *
-_oslurp_token(struct hdfs_heap_buf *b)
+_hdfs_oslurp_token(struct hdfs_heap_buf *b)
 {
 	char *s[4] = { 0 };
 	int32_t lens[2];
@@ -133,16 +133,16 @@ _oslurp_token(struct hdfs_heap_buf *b)
 	unsigned i;
 
 	for (i = 0; i < 2; i++) {
-		lens[i] = _bslurp_vlint(b);
+		lens[i] = _hdfs_bslurp_vlint(b);
 		if (b->used < 0)
 			goto out;
 		ASSERT(lens[i] >= 0);
-		_bslurp_mem1(b, lens[i], &s[i]);
+		_hdfs_bslurp_mem1(b, lens[i], &s[i]);
 		if (b->used < 0)
 			goto out;
 	}
 	for (i = 2; i < 4; i++) {
-		s[i] = _bslurp_text(b);
+		s[i] = _hdfs_bslurp_text(b);
 		if (b->used < 0)
 			goto out;
 	}
@@ -156,12 +156,12 @@ out:
 }
 
 struct hdfs_object *
-_oslurp_block(struct hdfs_heap_buf *b)
+_hdfs_oslurp_block(struct hdfs_heap_buf *b)
 {
 	int64_t values[3]; // blkid, len, generation
 
 	for (unsigned i = 0; i < nelem(values); i++) {
-		values[i] = _bslurp_s64(b);
+		values[i] = _hdfs_bslurp_s64(b);
 		if (b->used < 0)
 			return NULL;
 	}
@@ -170,7 +170,7 @@ _oslurp_block(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_located_block(struct hdfs_heap_buf *b)
+_hdfs_oslurp_located_block(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *token = NULL, *block = NULL, *di = NULL,
 			   *res = NULL;
@@ -179,16 +179,16 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 		blkid, len, generation;
 	int32_t n_datanodes;
 
-	token = _oslurp_token(b);
+	token = _hdfs_oslurp_token(b);
 	if (b->used < 0)
 		return NULL;
 
-	corrupt = _bslurp_s8(b);
+	corrupt = _hdfs_bslurp_s8(b);
 	if (b->used < 0)
 		return NULL;
 	ASSERT(!corrupt); // TODO keep corrupt info around
 
-	offset = _bslurp_s64(b);
+	offset = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		return NULL;
 	if (offset < 0) {
@@ -196,7 +196,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 		return NULL;
 	}
 
-	block = _oslurp_block(b);
+	block = _hdfs_oslurp_block(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -207,7 +207,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 	hdfs_object_free(block);
 	block = NULL;
 
-	n_datanodes = _bslurp_s32(b);
+	n_datanodes = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 	if (n_datanodes < 0) {
@@ -217,7 +217,7 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 
 	res = hdfs_located_block_new(blkid, len, generation, offset);
 	for (int i = 0; i < n_datanodes; i++) {
-		di = _oslurp_datanode_info(b);
+		di = _hdfs_oslurp_datanode_info(b);
 		if (b->used < 0) {
 			hdfs_object_free(res);
 			return NULL;
@@ -232,22 +232,22 @@ _oslurp_located_block(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_located_blocks(struct hdfs_heap_buf *b)
+_hdfs_oslurp_located_blocks(struct hdfs_heap_buf *b)
 {
 	int64_t size;
 	bool under_construction;
 	int32_t nblocks;
 	struct hdfs_object *res = NULL;
 
-	size = _bslurp_s64(b);
+	size = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		return NULL;
-	under_construction = _bslurp_s8(b);
+	under_construction = _hdfs_bslurp_s8(b);
 	if (b->used < 0)
 		return NULL;
 
 	// raw located_block[]
-	nblocks = _bslurp_s32(b);
+	nblocks = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -255,7 +255,7 @@ _oslurp_located_blocks(struct hdfs_heap_buf *b)
 	for (int i = 0; i < nblocks; i++) {
 		struct hdfs_object *located_block;
 
-		located_block = _oslurp_located_block(b);
+		located_block = _hdfs_oslurp_located_block(b);
 		if (b->used < 0) {
 			hdfs_object_free(res);
 			return NULL;
@@ -267,7 +267,7 @@ _oslurp_located_blocks(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_datanode_info(struct hdfs_heap_buf *b)
+_hdfs_oslurp_datanode_info(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *res = NULL;
 	const char *port;
@@ -279,48 +279,48 @@ _oslurp_datanode_info(struct hdfs_heap_buf *b)
 	uint16_t rpcport, infoport;
 
 	/* datanodeId {{{ */
-	name = _bslurp_string(b);
+	name = _hdfs_bslurp_string(b);
 	if (b->used < 0)
 		goto out;
-	sid = _bslurp_string(b);
+	sid = _hdfs_bslurp_string(b);
 	if (b->used < 0)
 		goto out;
-	infoport = (uint16_t)_bslurp_s16(b);
+	infoport = (uint16_t)_hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		goto out;
 	/* }}} */
 
-	rpcport = (uint16_t)_bslurp_s16(b);
+	rpcport = (uint16_t)_hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		goto out;
 
-	/*capacity = */_bslurp_s64(b);
+	/*capacity = */_hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	/*dfsused = */_bslurp_s64(b);
+	/*dfsused = */_hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	/*remaining = */_bslurp_s64(b);
+	/*remaining = */_hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	/*lastupdate = */_bslurp_s64(b);
-	if (b->used < 0)
-		goto out;
-
-	/*xceivercount = */_bslurp_s32(b);
+	/*lastupdate = */_hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
 
-	location = _bslurp_text(b);
+	/*xceivercount = */_hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		goto out;
-	hostname = _bslurp_text(b);
+
+	location = _hdfs_bslurp_text(b);
+	if (b->used < 0)
+		goto out;
+	hostname = _hdfs_bslurp_text(b);
 	if (b->used < 0)
 		goto out;
 
 	// most enums are "string"s on the wire; adminstate is a "text" for
 	// some reason.
-	adminstate = _bslurp_text(b);
+	adminstate = _hdfs_bslurp_text(b);
 	if (b->used < 0)
 		goto out;
 
@@ -350,12 +350,12 @@ out:
 }
 
 struct hdfs_object *
-_oslurp_directory_listing(struct hdfs_heap_buf *b)
+_hdfs_oslurp_directory_listing(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *res;
 	int32_t len, remaining;
 
-	len = _bslurp_s32(b);
+	len = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 	if (len < 0) {
@@ -366,7 +366,7 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 	res = hdfs_directory_listing_new();
 	for (int i = 0; i < len; i++) {
 		struct hdfs_object *fs;
-		fs = _oslurp_file_status(b);
+		fs = _hdfs_oslurp_file_status(b);
 		if (b->used < 0) {
 			hdfs_object_free(res);
 			return NULL;
@@ -375,7 +375,7 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 		hdfs_directory_listing_append_file_status(res, fs, NULL);
 	}
 
-	remaining = _bslurp_s32(b);
+	remaining = _hdfs_bslurp_s32(b);
 	if (b->used < 0) {
 		hdfs_object_free(res);
 		return NULL;
@@ -388,7 +388,7 @@ _oslurp_directory_listing(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_file_status(struct hdfs_heap_buf *b)
+_hdfs_oslurp_file_status(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *res = NULL;
 	char *path = NULL,
@@ -398,38 +398,38 @@ _oslurp_file_status(struct hdfs_heap_buf *b)
 	int16_t replication, perms;
 	bool isdir;
 
-	path = _bslurp_string32(b);
+	path = _hdfs_bslurp_string32(b);
 	if (b->used < 0)
 		goto out;
-	size = _bslurp_s64(b);
+	size = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	isdir = _bslurp_s8(b);
+	isdir = _hdfs_bslurp_s8(b);
 	if (b->used < 0)
 		goto out;
-	replication = _bslurp_s16(b);
+	replication = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		goto out;
-	blocksize = _bslurp_s64(b);
+	blocksize = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	mtime = _bslurp_s64(b);
+	mtime = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	atime = _bslurp_s64(b);
+	atime = _hdfs_bslurp_s64(b);
 	if (b->used < 0)
 		goto out;
-	perms = _bslurp_s16(b);
+	perms = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		goto out;
 	if (perms < 0) {
 		b->used = _H_PARSE_ERROR;
 		goto out;
 	}
-	owner = _bslurp_text(b);
+	owner = _hdfs_bslurp_text(b);
 	if (b->used < 0)
 		goto out;
-	group = _bslurp_text(b);
+	group = _hdfs_bslurp_text(b);
 	if (b->used < 0)
 		goto out;
 
@@ -447,13 +447,13 @@ out:
 }
 
 struct hdfs_object *
-_oslurp_array_datanode_info(struct hdfs_heap_buf *b)
+_hdfs_oslurp_array_datanode_info(struct hdfs_heap_buf *b)
 {
 	struct hdfs_object *res = NULL;
 	int32_t len;
 	char *tstring = NULL;
 
-	len = _bslurp_s32(b);
+	len = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 	if (len < 0) {
@@ -468,7 +468,7 @@ _oslurp_array_datanode_info(struct hdfs_heap_buf *b)
 		// but I'm pretty sure the Apache API doesn't produce/expect it.
 		struct hdfs_object *di;
 		for (int j = 0; j < 2; j++) {
-			tstring = _bslurp_string(b);
+			tstring = _hdfs_bslurp_string(b);
 			if (b->used < 0)
 				goto err;
 			if (!streq(tstring, DATANODEINFO_TYPE))
@@ -476,7 +476,7 @@ _oslurp_array_datanode_info(struct hdfs_heap_buf *b)
 			free(tstring);
 			tstring = NULL;
 		}
-		di = _oslurp_datanode_info(b);
+		di = _hdfs_oslurp_datanode_info(b);
 		if (b->used < 0)
 			goto err;
 		hdfs_array_datanode_info_append_datanode_info(res, di);
@@ -492,12 +492,12 @@ err:
 }
 
 struct hdfs_object *
-_oslurp_content_summary(struct hdfs_heap_buf *b)
+_hdfs_oslurp_content_summary(struct hdfs_heap_buf *b)
 {
 	int64_t v[6];
 
 	for (unsigned i = 0; i < nelem(v); i++) {
-		v[i] = _bslurp_s64(b);
+		v[i] = _hdfs_bslurp_s64(b);
 		if (b->used < 0)
 			return NULL;
 	}
@@ -507,11 +507,11 @@ _oslurp_content_summary(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_fsperms(struct hdfs_heap_buf *b)
+_hdfs_oslurp_fsperms(struct hdfs_heap_buf *b)
 {
 	int16_t perms;
 
-	perms = _bslurp_s16(b);
+	perms = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -519,16 +519,16 @@ _oslurp_fsperms(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_object *
-_oslurp_upgrade_status_report(struct hdfs_heap_buf *b)
+_hdfs_oslurp_upgrade_status_report(struct hdfs_heap_buf *b)
 {
 	int32_t version;
 	int16_t status;
 
-	version = _bslurp_s32(b);
+	version = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 
-	status = _bslurp_s16(b);
+	status = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		return NULL;
 

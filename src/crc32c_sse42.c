@@ -5,6 +5,7 @@
  *   - Wrap code in preprocessor architecture condition
  *   - Add intermediate (const void *) cast to suppress false alarm -Wcast-align
  *     warnings (the code ensures natural alignment)
+ *   - Update extern function to be within Hadoofus's namespace
  */
 
 /*
@@ -211,7 +212,7 @@ crc32c_init_hw(void)
 
 /* Compute CRC-32C using the Intel hardware instruction. */
 uint32_t
-sse42_crc32c(uint32_t crc, const void *buf, unsigned len)
+_hdfs_sse42_crc32c(uint32_t crc, const void *buf, unsigned len)
 {
 #ifdef __amd64__
 	const size_t align = 8;

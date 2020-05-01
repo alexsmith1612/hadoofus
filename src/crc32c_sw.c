@@ -9,6 +9,7 @@
  *   - Check system endianness at compile time
  *   - Add intermediate (void const *) cast to suppress false alarm -Wcast-align
  *     warnings (the code ensures natural alignment)
+ *   - Update extern function to be within Hadoofus's namespace
  */
 
 /*
@@ -203,7 +204,7 @@ static uint32_t crc32c_sw_big(uint32_t crc, void const *buf, size_t len) {
 
 /* Table-driven software CRC-32C.  This is about 15 times slower than using the
    hardware instructions. */
-uint32_t sw_crc32c(uint32_t crc, const void *buf, unsigned len) {
+uint32_t _hdfs_sw_crc32c(uint32_t crc, const void *buf, unsigned len) {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     return crc32c_sw_little(crc, buf, len);
 #else

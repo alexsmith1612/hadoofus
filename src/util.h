@@ -23,12 +23,12 @@
 # define __predict_true(exp) __builtin_expect((exp), 1)
 #endif
 
-#define ASSERT(cond) do {					\
-	if (__predict_true((intptr_t)(cond)))			\
-		break;						\
-								\
-	assert_fail("ASSERTION `%s' FAILED in %s (%s:%u)\n",	\
-	    #cond, __func__, __FILE__, __LINE__);		\
+#define ASSERT(cond) do {						\
+	if (__predict_true((intptr_t)(cond)))				\
+		break;							\
+									\
+	_hdfs_assert_fail("ASSERTION `%s' FAILED in %s (%s:%u)\n",	\
+	    #cond, __func__, __FILE__, __LINE__);			\
 } while (false)
 
 #define ASSERT_ERR_RANGE(kind, n) do {				\
@@ -40,7 +40,7 @@
 	    __func__, __FILE__, __LINE__);			\
 } while (false)
 
-void	assert_fail(const char *fmt, ...)
+void	_hdfs_assert_fail(const char *fmt, ...)
 	__attribute__((noreturn)) __attribute__((format(printf, 1, 2)));
 
 #ifdef NO_EXPORT_SYMS
@@ -85,7 +85,7 @@ _be32enc(void *void_p, uint32_t v)
 	p[3] = (uint8_t)(v & 0xff);
 }
 
-char *		_proto_str(ProtobufCBinaryData);
+char *		_hdfs_proto_str(ProtobufCBinaryData);
 
 static inline void
 _ms_to_tspec(uint64_t ms, struct timespec *ts)

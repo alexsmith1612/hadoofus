@@ -10,21 +10,21 @@
 #define _MAX(a, b) (((a) > (b))? (a) : (b))
 
 void
-_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
+_hdfs_hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
 {
 	size_t toalloc;
 
 	// No significant data left in the buffer, so reset
-	if (_hbuf_readlen(h) == 0)
-		_hbuf_reset(h);
+	if (_hdfs_hbuf_readlen(h) == 0)
+		_hdfs_hbuf_reset(h);
 
 	// Enough space at the end
-	if ((size_t)_hbuf_remsize(h) >= resize_at)
+	if ((size_t)_hdfs_hbuf_remsize(h) >= resize_at)
 		return;
 
 	// Enough space after compacting
-	if ((size_t)(_hbuf_remsize(h) + h->pos) >= resize_at) {
-		memmove(h->buf, _hbuf_readptr(h), _hbuf_readlen(h));
+	if ((size_t)(_hdfs_hbuf_remsize(h) + h->pos) >= resize_at) {
+		memmove(h->buf, _hdfs_hbuf_readptr(h), _hdfs_hbuf_readlen(h));
 		h->used -= h->pos;
 		h->pos = 0;
 		return;
@@ -32,7 +32,7 @@ _hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
 
 	// Otherwise we need to allocate more space
 	if (resize_by == 0) // use default
-		toalloc = h->size + _MAX(32, resize_at - _hbuf_remsize(h) + 16);
+		toalloc = h->size + _MAX(32, resize_at - _hdfs_hbuf_remsize(h) + 16);
 	else
 		toalloc = h->size + resize_by;
 
@@ -48,34 +48,34 @@ _hbuf_resize(struct hdfs_heap_buf *h, size_t resize_at, size_t resize_by)
 }
 
 void
-_bappend_s8(struct hdfs_heap_buf *h, int8_t arg)
+_hdfs_bappend_s8(struct hdfs_heap_buf *h, int8_t arg)
 {
-	_hbuf_reserve(h, sizeof(arg));
+	_hdfs_hbuf_reserve(h, sizeof(arg));
 	((int8_t *)h->buf)[h->used++] = arg;
 }
 
 void
-_bappend_s16(struct hdfs_heap_buf *h, int16_t sarg)
+_hdfs_bappend_s16(struct hdfs_heap_buf *h, int16_t sarg)
 {
 	uint16_t arg = (uint16_t)sarg;
-	_hbuf_reserve(h, sizeof(arg));
+	_hdfs_hbuf_reserve(h, sizeof(arg));
 	((uint8_t *)h->buf)[h->used++] = arg >> 8;
 	((uint8_t *)h->buf)[h->used++] = 0xff & arg;
 }
 
 void
-_bappend_u16(struct hdfs_heap_buf *h, uint16_t arg)
+_hdfs_bappend_u16(struct hdfs_heap_buf *h, uint16_t arg)
 {
-	_hbuf_reserve(h, sizeof(arg));
+	_hdfs_hbuf_reserve(h, sizeof(arg));
 	((uint8_t *)h->buf)[h->used++] = arg >> 8;
 	((uint8_t *)h->buf)[h->used++] = 0xff & arg;
 }
 
 void
-_bappend_s32(struct hdfs_heap_buf *h, int32_t sarg)
+_hdfs_bappend_s32(struct hdfs_heap_buf *h, int32_t sarg)
 {
 	uint32_t arg = (uint32_t)sarg;
-	_hbuf_reserve(h, sizeof(arg));
+	_hdfs_hbuf_reserve(h, sizeof(arg));
 	((uint8_t *)h->buf)[h->used++] = arg >> 24;
 	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 16);
 	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 8);
@@ -83,10 +83,10 @@ _bappend_s32(struct hdfs_heap_buf *h, int32_t sarg)
 }
 
 void
-_bappend_s64(struct hdfs_heap_buf *h, int64_t sarg)
+_hdfs_bappend_s64(struct hdfs_heap_buf *h, int64_t sarg)
 {
 	uint64_t arg = (uint64_t)sarg;
-	_hbuf_reserve(h, sizeof(arg));
+	_hdfs_hbuf_reserve(h, sizeof(arg));
 	((uint8_t *)h->buf)[h->used++] = arg >> 56;
 	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 48);
 	((uint8_t *)h->buf)[h->used++] = 0xff & (arg >> 40);
@@ -98,19 +98,19 @@ _bappend_s64(struct hdfs_heap_buf *h, int64_t sarg)
 }
 
 void
-_bappend_string(struct hdfs_heap_buf *h, const char *arg)
+_hdfs_bappend_string(struct hdfs_heap_buf *h, const char *arg)
 {
 	int len = strlen(arg);
 
 	ASSERT(len >= 0);
 	ASSERT(len <= INT16_MAX);
 
-	_bappend_u16(h, (uint16_t)len);
-	_bappend_mem(h, len, arg);
+	_hdfs_bappend_u16(h, (uint16_t)len);
+	_hdfs_bappend_mem(h, len, arg);
 }
 
 void
-_bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
+_hdfs_bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
 {
 	uint64_t val;
 	uint8_t lb;
@@ -123,12 +123,12 @@ _bappend_vlint(struct hdfs_heap_buf *h, int64_t i64)
 
 		if (val)
 			lb |= 0x80;
-		_bappend_s8(h, (int8_t)lb);
+		_hdfs_bappend_s8(h, (int8_t)lb);
 	} while (val);
 }
 
 int
-_get_vlint_encoding_size(int64_t i64)
+_hdfs_get_vlint_encoding_size(int64_t i64)
 {
 	uint64_t val;
 	int ret = 1;
@@ -141,19 +141,19 @@ _get_vlint_encoding_size(int64_t i64)
 }
 
 void
-_bappend_text(struct hdfs_heap_buf *h, const char *arg)
+_hdfs_bappend_text(struct hdfs_heap_buf *h, const char *arg)
 {
 	int len = strlen(arg);
 
-	_bappend_vlint(h, len);
-	_bappend_mem(h, len, arg);
+	_hdfs_bappend_vlint(h, len);
+	_hdfs_bappend_mem(h, len, arg);
 }
 
 void
-_bappend_mem(struct hdfs_heap_buf *h, size_t arglen, const void *arg)
+_hdfs_bappend_mem(struct hdfs_heap_buf *h, size_t arglen, const void *arg)
 {
 
-	_hbuf_reserve(h, arglen);
+	_hdfs_hbuf_reserve(h, arglen);
 	memcpy(h->buf + h->used, arg, arglen);
 	h->used += arglen;
 }
@@ -171,7 +171,7 @@ _eos(struct hdfs_heap_buf *b, size_t needed)
 }
 
 int8_t	
-_bslurp_s8(struct hdfs_heap_buf *b)
+_hdfs_bslurp_s8(struct hdfs_heap_buf *b)
 {
 	uint8_t res;
 	if (_eos(b, sizeof(res)))
@@ -181,7 +181,7 @@ _bslurp_s8(struct hdfs_heap_buf *b)
 }
 
 int16_t	
-_bslurp_s16(struct hdfs_heap_buf *b)
+_hdfs_bslurp_s16(struct hdfs_heap_buf *b)
 {
 	uint16_t res;
 	if (_eos(b, sizeof(res)))
@@ -192,7 +192,7 @@ _bslurp_s16(struct hdfs_heap_buf *b)
 }
 
 int32_t	
-_bslurp_s32(struct hdfs_heap_buf *b)
+_hdfs_bslurp_s32(struct hdfs_heap_buf *b)
 {
 	uint32_t res;
 	if (_eos(b, sizeof(res)))
@@ -205,7 +205,7 @@ _bslurp_s32(struct hdfs_heap_buf *b)
 }
 
 int64_t	
-_bslurp_s64(struct hdfs_heap_buf *b)
+_hdfs_bslurp_s64(struct hdfs_heap_buf *b)
 {
 	uint64_t res;
 	if (_eos(b, sizeof(res)))
@@ -229,13 +229,13 @@ _bslurp_s64(struct hdfs_heap_buf *b)
  * TODO: verify.
  */
 int64_t
-_bslurp_vlint(struct hdfs_heap_buf *hb)
+_hdfs_bslurp_vlint(struct hdfs_heap_buf *hb)
 {
 	uint64_t res, shift, b;
 
 	res = 0;
 	for (shift = 0; shift < 64; shift += 7) {
-		b = (uint8_t)_bslurp_s8(hb);
+		b = (uint8_t)_hdfs_bslurp_s8(hb);
 		if (hb->used < 0)
 			return -1;
 
@@ -252,7 +252,7 @@ _bslurp_vlint(struct hdfs_heap_buf *hb)
 }
 
 void
-_bslurp_mem1(struct hdfs_heap_buf *b, size_t len, char **obuf)
+_hdfs_bslurp_mem1(struct hdfs_heap_buf *b, size_t len, char **obuf)
 {
 	char *res;
 
@@ -267,12 +267,12 @@ _bslurp_mem1(struct hdfs_heap_buf *b, size_t len, char **obuf)
 }
 
 char *
-_bslurp_string(struct hdfs_heap_buf *b)
+_hdfs_bslurp_string(struct hdfs_heap_buf *b)
 {
 	int16_t slen;
 	char *res;
 
-	slen = _bslurp_s16(b);
+	slen = _hdfs_bslurp_s16(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -281,7 +281,7 @@ _bslurp_string(struct hdfs_heap_buf *b)
 		return NULL;
 	}
 
-	_bslurp_mem1(b, slen, &res);
+	_hdfs_bslurp_mem1(b, slen, &res);
 	if (b->used < 0)
 		return NULL;
 
@@ -290,12 +290,12 @@ _bslurp_string(struct hdfs_heap_buf *b)
 }
 
 char *
-_bslurp_string32(struct hdfs_heap_buf *b)
+_hdfs_bslurp_string32(struct hdfs_heap_buf *b)
 {
 	int32_t slen;
 	char *res;
 
-	slen = _bslurp_s32(b);
+	slen = _hdfs_bslurp_s32(b);
 	if (b->used < 0)
 		return NULL;
 
@@ -304,7 +304,7 @@ _bslurp_string32(struct hdfs_heap_buf *b)
 		return NULL;
 	}
 
-	_bslurp_mem1(b, slen, &res);
+	_hdfs_bslurp_mem1(b, slen, &res);
 	if (b->used < 0)
 		return NULL;
 
@@ -313,18 +313,18 @@ _bslurp_string32(struct hdfs_heap_buf *b)
 }
 
 char *
-_bslurp_text(struct hdfs_heap_buf *b)
+_hdfs_bslurp_text(struct hdfs_heap_buf *b)
 {
 	int8_t len;
 	char *res;
 
-	len = _bslurp_vlint(b);
+	len = _hdfs_bslurp_vlint(b);
 	if (b->used < 0)
 		return NULL;
 
 	ASSERT(len >= 0);
 
-	_bslurp_mem1(b, len, &res);
+	_hdfs_bslurp_mem1(b, len, &res);
 	if (b->used < 0)
 		return NULL;
 
@@ -333,7 +333,7 @@ _bslurp_text(struct hdfs_heap_buf *b)
 }
 
 struct hdfs_error
-_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
+_hdfs_sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
 {
 	const char *out;
 	unsigned outlen;
@@ -349,12 +349,12 @@ _sasl_encode_at_offset(sasl_conn_t *ctx, struct hdfs_heap_buf *h, int offset)
 		return error_from_sasl(r);
 
 	h->used = offset; // "remove" the plaintext data from the buffer
-	_hbuf_reserve(h, outlen + 4); // allocate enough space for the length prefix and encoded data
+	_hdfs_hbuf_reserve(h, outlen + 4); // allocate enough space for the length prefix and encoded data
 
 	// copy in length-prefixed encoded bits
-	_be32enc(_hbuf_writeptr(h), outlen);
-	memcpy(_hbuf_writeptr(h) + 4, out, outlen);
-	_hbuf_append(h, 4 + outlen);
+	_be32enc(_hdfs_hbuf_writeptr(h), outlen);
+	memcpy(_hdfs_hbuf_writeptr(h) + 4, out, outlen);
+	_hdfs_hbuf_append(h, 4 + outlen);
 
 	return HDFS_SUCCESS;
 }

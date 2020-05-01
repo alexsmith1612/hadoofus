@@ -7,13 +7,13 @@
 #include "objects-internal.h"
 #include "util.h"
 
-#define BAIL_ON_ERR(error) do {						\
-	if (__predict_true(!hdfs_is_error(error)))			\
-		break;							\
-	assert_fail("The high-level interface cannot handle errors\n"	\
-	    "below the protocol level.  Got unexpected error %s:%s\n"	\
-	    "in %s (%s:%u)\n", hdfs_error_str_kind(error),		\
-	    hdfs_error_str(error), __func__, __FILE__, __LINE__);	\
+#define BAIL_ON_ERR(error) do {							\
+	if (__predict_true(!hdfs_is_error(error)))				\
+		break;								\
+	_hdfs_assert_fail("The high-level interface cannot handle errors\n"	\
+	    "below the protocol level.  Got unexpected error %s:%s\n"		\
+	    "in %s (%s:%u)\n", hdfs_error_str_kind(error),			\
+	    hdfs_error_str(error), __func__, __FILE__, __LINE__);		\
 } while (false)
 
 // XXX TODO rename to hdfs_namenode_new() since there is not default version

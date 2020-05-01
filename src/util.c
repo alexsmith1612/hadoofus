@@ -16,7 +16,7 @@
 #include "util.h"
 
 void
-assert_fail(const char *fmt, ...)
+_hdfs_assert_fail(const char *fmt, ...)
 {
 	void *stack[16];
 	size_t nframes;
@@ -122,7 +122,7 @@ hdfs_error_str(struct hdfs_error error)
 }
 
 char *
-_proto_str(ProtobufCBinaryData blob)
+_hdfs_proto_str(ProtobufCBinaryData blob)
 {
 	char *res;
 

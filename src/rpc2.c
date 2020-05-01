@@ -33,10 +33,10 @@ _rpc2_encode_ ## lowerCamel (struct hdfs_heap_buf *dest,		\
 #define ENCODE_POSTSCRIPT_EX(lower_case, destructor_ex)					\
 	sz = hadoop__hdfs__ ## lower_case ## _request_proto__get_packed_size(&req);	\
 	if (dest) {									\
-		_hbuf_reserve(dest, sz);						\
+		_hdfs_hbuf_reserve(dest, sz);						\
 		hadoop__hdfs__ ## lower_case ## _request_proto__pack(&req,		\
-		    (void *)_hbuf_writeptr(dest));					\
-		_hbuf_append(dest, sz);							\
+		    (void *)_hdfs_hbuf_writeptr(dest));					\
+		_hdfs_hbuf_append(dest, sz);						\
 	}										\
 	destructor_ex;									\
 	return sz;									\
@@ -765,7 +765,7 @@ static struct _rpc2_enc_lut {
 // XXX perhaps make this non-static and add _rpc2_request_get_size_by_index()
 // and _rpc2_request_serialize_by_index() APIs to avoid multiple unnecessary index calculations
 static unsigned
-_rpc2_request_get_index(struct hdfs_rpc_invocation *rpc)
+_hdfs_rpc2_request_get_index(struct hdfs_rpc_invocation *rpc)
 {
 	/* XXXPERF Could be a hash/rt/sorted table */
 	unsigned i;
@@ -780,21 +780,21 @@ _rpc2_request_get_index(struct hdfs_rpc_invocation *rpc)
 }
 
 void
-_rpc2_request_serialize(struct hdfs_heap_buf *dest,
+_hdfs_rpc2_request_serialize(struct hdfs_heap_buf *dest,
 	struct hdfs_rpc_invocation *rpc)
 {
 	unsigned i;
 
-	i = _rpc2_request_get_index(rpc);
+	i = _hdfs_rpc2_request_get_index(rpc);
 	rpc2_encoders[i].re_encoder(dest, rpc);
 }
 
 size_t
-_rpc2_request_get_size(struct hdfs_rpc_invocation *rpc)
+_hdfs_rpc2_request_get_size(struct hdfs_rpc_invocation *rpc)
 {
 	unsigned i;
 
-	i = _rpc2_request_get_index(rpc);
+	i = _hdfs_rpc2_request_get_index(rpc);
 	return rpc2_encoders[i].re_encoder(NULL, rpc);
 }
 
@@ -929,7 +929,7 @@ static struct _rpc2_dec_lut {
 };
 
 hdfs_object_slurper
-_rpc2_slurper_for_rpc(struct hdfs_object *rpc)
+_hdfs_rpc2_slurper_for_rpc(struct hdfs_object *rpc)
 {
 	/* XXXPERF s.a. */
 	unsigned i;
