@@ -265,7 +265,7 @@ ENCODE_PREAMBLE(addBlock, AddBlock, ADD_BLOCK)
 
 	req.n_excludenodes = 0;
 	if (rpc->_args[2]->ob_type != H_NULL
-	    || rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
+	    && rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
 		req.n_excludenodes = rpc->_args[2]->ob_val._array_datanode_info._len;
 		req.excludenodes = malloc(req.n_excludenodes * sizeof(*req.excludenodes));
 		ASSERT(req.excludenodes);
@@ -503,7 +503,7 @@ ENCODE_PREAMBLE(getAdditionalDatanode, GetAdditionalDatanode, GET_ADDITIONAL_DAT
 
 	req.n_existings = 0;
 	if (rpc->_args[2]->ob_type != H_NULL
-	    || rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
+	    && rpc->_args[2]->ob_val._array_datanode_info._len > 0) {
 		req.n_existings = rpc->_args[2]->ob_val._array_datanode_info._len;
 		req.existings = malloc(req.n_existings * sizeof(*req.existings));
 		ASSERT(req.existings);
@@ -541,7 +541,7 @@ ENCODE_PREAMBLE(getAdditionalDatanode, GetAdditionalDatanode, GET_ADDITIONAL_DAT
 
 	req.n_excludes = 0;
 	if (rpc->_args[3]->ob_type != H_NULL
-	    || rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
+	    && rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
 		req.n_excludes = rpc->_args[3]->ob_val._array_datanode_info._len;
 		req.excludes = malloc(req.n_excludes * sizeof(*req.excludes));
 		ASSERT(req.excludes);
@@ -582,7 +582,7 @@ ENCODE_PREAMBLE(getAdditionalDatanode, GetAdditionalDatanode, GET_ADDITIONAL_DAT
 
 	req.n_existingstorageuuids = 0;
 	if (rpc->_args[6]->ob_type != H_NULL
-	    || rpc->_args[6]->ob_val._array_string._len > 0) {
+	    && rpc->_args[6]->ob_val._array_string._len > 0) {
 		req.n_existingstorageuuids = rpc->_args[6]->ob_val._array_string._len;
 		req.existingstorageuuids = malloc(req.n_existingstorageuuids * sizeof(req.existingstorageuuids));
 		ASSERT(req.existingstorageuuids);
@@ -676,7 +676,7 @@ ENCODE_PREAMBLE(updatePipeline, UpdatePipeline, UPDATE_PIPELINE)
 
 	req.n_newnodes = 0;
 	if (rpc->_args[3]->ob_type != H_NULL
-	    || rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
+	    && rpc->_args[3]->ob_val._array_datanode_info._len > 0) {
 		req.n_newnodes = rpc->_args[3]->ob_val._array_datanode_info._len;
 		req.newnodes = malloc(req.n_newnodes * sizeof(*req.newnodes));
 		ASSERT(req.newnodes);
@@ -704,7 +704,7 @@ ENCODE_PREAMBLE(updatePipeline, UpdatePipeline, UPDATE_PIPELINE)
 
 	req.n_storageids = 0;
 	if (rpc->_args[4]->ob_type != H_NULL
-	    || rpc->_args[4]->ob_val._array_string._len > 0) {
+	    && rpc->_args[4]->ob_val._array_string._len > 0) {
 		req.n_storageids = rpc->_args[4]->ob_val._array_string._len;
 		req.storageids = malloc(req.n_storageids * sizeof(*req.storageids));
 		ASSERT(req.storageids);
