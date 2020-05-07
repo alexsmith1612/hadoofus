@@ -969,6 +969,7 @@ START_TEST(test_getAdditionalDatanode)
 	if (dnrs->_len < 2) {
 		fprintf(stderr, "%s: Test requires cluster with at least 2 live data nodes (%d live currently). Skipping test.\n",
 		    __func__, dnrs->_len);
+		hdfs_object_free(dnr);
 		return;
 	}
 

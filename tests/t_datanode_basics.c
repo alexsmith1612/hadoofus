@@ -874,6 +874,7 @@ START_TEST(test_dn_recovery)
 	if (dnrs->_len < replication + 1) {
 		fprintf(stderr, "%s: Test requires cluster with at least %d live data nodes (%d live currently). Skipping test.\n",
 		    __func__, replication + 1, dnrs->_len);
+		hdfs_object_free(dnr);
 		return;
 	}
 	hdfs_object_free(dnr);
