@@ -10,6 +10,11 @@ addons:
       - check
 
 install:
+  # Only install valgrind if we're going to use it
+  - |
+    if [ "$HDFS_TEST_DEBUGGER" != "" ] ; then
+      sudo -E apt-get -yq --no-install-suggests --no-install-recommends $(travis_apt_get_options) install valgrind
+    fi
   # Only download hadoop if we're going to test against the Hadoop CLI MiniCluster
   - |
     if [ "$CK_RUN_SUITE" = "" ] ; then
@@ -44,6 +49,13 @@ jobs:
     - dist: bionic
       compiler: gcc
       arch: amd64
+
+    # Run valgrind on one of the test setups
+    - dist: bionic
+      compiler: gcc
+      arch: amd64
+      env:
+        - HDFS_TEST_DEBUGGER="valgrind --show-leak-kinds=all --leak-check=full --error-exitcode=1"
 
     - dist: bionic
       compiler: clang
