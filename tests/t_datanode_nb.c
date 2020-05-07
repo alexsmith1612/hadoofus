@@ -36,12 +36,229 @@ static uint64_t _now(void)
 	return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec/1000000;
 }
 
+START_TEST(test_dn_nb_misc)
+{
+	const char *client = "HADOOFUS_CLIENT";
+	const char *tf = "/HADOOFUS_TEST_DN_MISC";
+	struct hdfs_error err = HDFS_SUCCESS;
+	struct hdfs_namenode *nn;
+	struct hdfs_datanode *dn;
+	struct hdfs_object *fsd, *fs, *e = NULL, *bl, *last, *bls;
+	int dn_proto, replication = 1, err_idx, rc;
+	size_t wblk = 0, ablk = 0;
+	ssize_t nwritten, nacked;
+	const char wbuf[] = "01234567890123456789";
+	char rbuf[sizeof(wbuf)];
+	struct pollfd pfd;
+	bool s;
+
+	switch (H_VER) {
+	case HDFS_NN_v1:
+		dn_proto = HDFS_DATANODE_AP_1_0;
+		break;
+	case HDFS_NN_v2:
+	case HDFS_NN_v2_2:
+		dn_proto = HDFS_DATANODE_AP_2_0;
+		break;
+	default:
+		ck_abort_msg("Invalid namenode version (%d)", H_VER);
+	}
+
+	nn = hdfs_namenode_new_version(H_ADDR, H_PORT, H_USER, H_KERB,
+	    H_VER, &err);
+	ck_assert_msg(nn,
+	    "Could not connect to %s=%s @ %s=%s (%s=%s): error (%s): %s",
+	    HDFS_T_USER, H_USER, HDFS_T_ADDR, H_ADDR,
+	    HDFS_T_PORT, H_PORT, hdfs_error_str_kind(err), hdfs_error_str(err));
+
+	if (H_VER > HDFS_NN_v1) {
+		fsd = hdfs2_getServerDefaults(nn, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		replication = fsd->ob_val._server_defaults._replication;
+		// XXX TODO blocksize?
+		hdfs_object_free(fsd);
+	}
+
+	fs = hdfs_create(nn, tf, 0644, client, true/*overwrite*/,
+	    false/*createparent*/, replication, BLOCKSZ, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	if (fs) {
+		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
+		// XXX TODO fileid?
+		hdfs_object_free(fs);
+	}
+
+	bl = hdfs_addBlock(nn, tf, client, NULL/*excluded*/, NULL/*prev*/, 0/*fileid?*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
+	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s:%s (%s:%s)",
+	    hdfs_error_str_kind(err), hdfs_error_str(err),
+	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._ipaddr,
+	    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
+
+	err = hdfs_datanode_write_nb_init(dn, false/*sendcrcs*/);
+	ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+	    hdfs_error_str_kind(err), hdfs_error_str(err));
+
+	// Write the first segment
+	while (true) {
+		err = hdfs_datanode_write_nb(dn, wbuf + wblk, strlen(wbuf)/2 - wblk, &nwritten, &nacked, &err_idx);
+		wblk += nwritten;
+		ablk += nacked;
+		if (!hdfs_is_again(err)) {
+			break;
+		}
+		err = hdfs_datanode_get_eventfd(dn, &pfd.fd, &pfd.events);
+		ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+		rc = poll(&pfd, 1, -1);
+		ck_assert_int_eq(rc, 1);
+		ck_assert_int_ne(pfd.revents, 0);
+	}
+	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	ck_assert_int_eq(wblk, strlen(wbuf)/2);
+
+	// Send a heartbeat packet
+	while (true) {
+		err = hdfs_datanode_send_heartbeat(dn, &nacked, &err_idx);
+		ablk += nacked;
+		if (!hdfs_is_again(err)) {
+			break;
+		}
+		err = hdfs_datanode_get_eventfd(dn, &pfd.fd, &pfd.events);
+		ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+		rc = poll(&pfd, 1, -1);
+		ck_assert_int_eq(rc, 1);
+		ck_assert_int_ne(pfd.revents, 0);
+	}
+	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+
+	// Test manual ack checking
+	err = hdfs_datanode_check_acks(dn, &nacked, &err_idx);
+	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	ablk += nacked;
+
+	// Write the second segment
+	while (true) {
+		err = hdfs_datanode_write_nb(dn, wbuf + wblk, strlen(wbuf) - wblk, &nwritten, &nacked, &err_idx);
+		wblk += nwritten;
+		ablk += nacked;
+		if (!hdfs_is_again(err)) {
+			break;
+		}
+		err = hdfs_datanode_get_eventfd(dn, &pfd.fd, &pfd.events);
+		ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+		rc = poll(&pfd, 1, -1);
+		ck_assert_int_eq(rc, 1);
+		ck_assert_int_ne(pfd.revents, 0);
+	}
+	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	ck_assert_int_eq(wblk, strlen(wbuf));
+
+	// Finish the block
+	while (true) {
+		err = hdfs_datanode_finish_block(dn, &nacked, &err_idx);
+		ablk += nacked;
+		if (!hdfs_is_again(err)) {
+			break;
+		}
+		err = hdfs_datanode_get_eventfd(dn, &pfd.fd, &pfd.events);
+		ck_assert_msg(!hdfs_is_error(err), "error (%s): %s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+		rc = poll(&pfd, 1, -1);
+		ck_assert_int_eq(rc, 1);
+		ck_assert_int_ne(pfd.revents, 0);
+	}
+	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
+	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	ck_assert_int_eq(ablk, wblk);
+
+	hdfs_datanode_delete(dn);
+
+	last = hdfs_block_from_located_block(bl);
+	last->ob_val._block._length += ablk;
+	hdfs_object_free(bl);
+
+	for (int i = 0; i < 5; i++) {
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
+		s = hdfs_complete(nn, tf, client, last, 0/*fileid?*/, &e);
+		if (e)
+			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
+	hdfs_object_free(last);
+
+	fs = hdfs_getFileInfo(nn, tf, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_int_eq(fs->ob_val._file_status._size, strlen(wbuf));
+	hdfs_object_free(fs);
+
+
+	// Read the file back
+	bls = hdfs_getBlockLocations(nn, tf, 0, strlen(wbuf), &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+
+	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
+		struct hdfs_object *bl =
+		    bls->ob_val._located_blocks._blocks[i];
+		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_READ_BLOCK, &err);
+		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s:%s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+
+		err = hdfs_datanode_read(dn, 0/*offset-in-block*/,
+		    bl->ob_val._located_block._len, rbuf + i*BLOCKSZ, false/*verifycrcs*/);
+
+		hdfs_datanode_delete(dn);
+
+		fail_if(hdfs_is_error(err), "error reading block: %s:%s",
+		    hdfs_error_str_kind(err), hdfs_error_str(err));
+	}
+
+	hdfs_object_free(bls);
+	fail_if(memcmp(wbuf, rbuf, strlen(wbuf)), "read differed from write");
+
+	s = hdfs_delete(nn, tf, false/*recurse*/, &e);
+	if (e)
+		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+	ck_assert_msg(s, "delete returned false");
+
+	hdfs_namenode_delete(nn);
+}
+END_TEST
+
 START_TEST(test_dn_write_nb)
 {
 	const char *client = "HADOOFUS_CLIENT";
 	struct hdfs_error err = HDFS_SUCCESS;
 	struct hdfs_namenode nn = { 0 };
-	struct hdfs_object *obj, *fsd, *e;
+	struct hdfs_object *obj, *fsd, *e = NULL;
 	int dn_proto, rc, replication = 1, nrpcs = 0, n_wr_end = 0, n_rd_end = 0;
 	int64_t mn_recv;
 	bool finished, wr_started = false, rd_started = false;
@@ -509,6 +726,11 @@ t_datanode1_nb_suite()
 
 	s = suite_create("datanode1_nb");
 
+	tc = tcase_create("datanode_nb_misc1");
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	tcase_add_test(tc, test_dn_nb_misc);
+	suite_add_tcase(s, tc);
+
 	tc = tcase_create("multi_file1");
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
@@ -527,6 +749,11 @@ t_datanode2_nb_suite()
 
 	s = suite_create("datanode2_nb");
 
+	tc = tcase_create("datanode_nb_misc2");
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	tcase_add_test(tc, test_dn_nb_misc);
+	suite_add_tcase(s, tc);
+
 	tc = tcase_create("multi_file2");
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);
 	// Loop each test to send or not send crcs
@@ -544,6 +771,11 @@ t_datanode22_nb_suite()
 	TCase *tc;
 
 	s = suite_create("datanode22_nb");
+
+	tc = tcase_create("datanode_nb_misc22");
+	tcase_set_timeout(tc, 2*60/*2 minutes*/);
+	tcase_add_test(tc, test_dn_nb_misc);
+	suite_add_tcase(s, tc);
 
 	tc = tcase_create("multi_file22");
 	tcase_set_timeout(tc, 2*60/*2 minutes*/);

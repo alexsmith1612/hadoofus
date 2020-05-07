@@ -173,6 +173,7 @@ struct hdfs_datanode {
 	bool dn_op_inited,
 	     dn_append_or_recovery,
 	     dn_last,
+	     dn_repeat_last,
 	     dn_blocking_pipeline_setup;
 	enum hdfs_checksum_type dn_csum;
 	enum hdfs_datanode_write_recovery_type dn_recovery;
@@ -842,7 +843,7 @@ struct hdfs_error	hdfs_datanode_write_setup_pipeline_nb(struct hdfs_datanode *d,
 struct hdfs_error	hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 			ssize_t *nwritten, ssize_t *nacked, int *error_idx);
 
-// Attempt to write (non-blocking) and= array of iovecs to the block associated with
+// Attempt to write (non-blocking) an array of iovecs to the block associated with
 // this connection.
 //
 // Everything is as described for hdfs_datanode_write_mb(). except instead of buf
@@ -878,6 +879,36 @@ struct hdfs_error	hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, o
 // cases *error_idx is set to -1.
 struct hdfs_error	hdfs_datanode_check_acks(struct hdfs_datanode *d, ssize_t *nacked,
 			int *error_idx);
+
+// Attempt to send (non-blocking) a heartbeat packet to the datanode pipeline
+// associated with this connection. This is useful for keeping a datanode pipeline
+// connection alive when there is no data to send for an extended period of
+// time. (By default Apache's datanodes timeout connections after 60 seconds
+// without receiving any packets, so it is suggested to send a heartbeat packet if
+// no other packet has been sent within half of that timeout).
+//
+// This function should only be called after hdfs_datanode_write_nb() or
+// hdfs_datanode_write_file_nb() have indicated that all data passed to them have
+// been sent to the datanode (but not necessarily acknowledged), and may not be
+// called after a call to hdfs_datanode_finish_block().
+//
+// *nacked is set to the number of bytes that were acknowledged by the datanode
+// during this invocation (which may be 0).
+//
+// Returns HDFS_SUCCESS if a heartbeat packet was successfully sent along the
+// connection, HDFS_AGAIN if the heartbeat packet was not fully sent, or another
+// error code on failure.
+//
+// On HDFS_AGAIN, the user may call any of hdfs_datanode_send_heartbeat(),
+// hdfs_datanode_finish_block(), or any of the non-blocking datanode write
+// functions in order to attempt to finish sending the pending heartbeat packet (in
+// addition to the normal functionality of the given function).
+//
+// If an error is received from a datanode along the pipeline, *error_idx is set
+// to the index of the datanode in the pipeline that reported the error; in all
+// other cases *error_idx is set to -1.
+struct hdfs_error	hdfs_datanode_send_heartbeat(struct hdfs_datanode *d,
+			ssize_t *nacked, int *error_idx);
 
 // Attempt to finish (non-blocking) the block associated with this connection.
 //

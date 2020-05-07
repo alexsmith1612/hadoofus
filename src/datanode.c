@@ -40,6 +40,10 @@ static const long HEART_BEAT_SEQNO = -1L;
 
 static struct hdfs_error	error_from_datanode(int err, int *unknown_status);
 
+// TODO Consider: define structs for passing arguments to these functions, as
+// several have an unwieldy number now. XXX also consider changing the public
+// API in a similar way. This may be particularly helpful for functions with
+// consecutive arguments of the same type.
 static struct hdfs_error	_datanode_read_init(struct hdfs_datanode *d, bool verifycsum, off_t bloff,
 				off_t len);
 static struct hdfs_error	_datanode_read(struct hdfs_datanode *d, off_t len, int fd, off_t fdoff,
@@ -51,7 +55,7 @@ static struct hdfs_error	_setup_write_pipeline(struct hdfs_datanode *d, int *err
 static struct hdfs_error	_setup_write_pipeline_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
 				int *err_idx);
 static struct hdfs_error	_datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, size_t iov_offt,
-				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx);
+				int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx, bool heartbeat);
 static struct hdfs_error	_datanode_write_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
 				const struct iovec *iov, int iovcnt, int fd, off_t len, off_t fdoff, ssize_t *nwritten,
 				ssize_t *nacked, int *err_idx);
@@ -69,7 +73,9 @@ static struct hdfs_error	_recv_packet(struct hdfs_packet_state *, struct hdfs_re
 static struct hdfs_error	_process_recv_packet(struct hdfs_packet_state *ps, struct hdfs_read_info *ri,
 				ssize_t hdr_len, ssize_t plen, ssize_t dlen, int64_t offset);
 static struct hdfs_error	_recv_packet_copy_data(struct hdfs_packet_state *ps, struct hdfs_read_info *ri);
-static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx);
+static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx, bool heartbeat);
+static void			_compose_data_packet_header(struct hdfs_packet_state *ps);
+static void			_compose_heartbeat_packet_header(struct hdfs_packet_state *ps);
 static void			_set_opres_msg(struct hdfs_datanode *d, const char *);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen, enum hdfs_checksum_type ctype);
@@ -616,7 +622,7 @@ hdfs_datanode_write_nb(struct hdfs_datanode *d, const void *buf, size_t len,
 	iov.iov_len = len;
 
 	return _datanode_write(d, &iov, 1/*iovcnt*/, 0/*iov_offt*/, -1/*fd*/, len,
-	    -1/*fdoff*/, nwritten, nacked, error_idx);
+	    -1/*fdoff*/, nwritten, nacked, error_idx, false/*heartbeat*/);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -657,7 +663,7 @@ hdfs_datanode_writev_nb(struct hdfs_datanode *d, const struct iovec *iov, int io
 	}
 
 	return _datanode_write(d, iov, iovcnt, 0/*iov_offt*/, -1/*fd*/, len,
-	    -1/*fdoff*/, nwritten, nacked, error_idx);
+	    -1/*fdoff*/, nwritten, nacked, error_idx, false/*heartbeat*/);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -687,7 +693,7 @@ hdfs_datanode_write_file_nb(struct hdfs_datanode *d, int fd, off_t len, off_t of
 	ASSERT(len > 0);
 
 	return _datanode_write(d, NULL/*iov*/, 0/*iovcnt*/, 0/*iov_offt*/, fd, len,
-	    offset, nwritten, nacked, error_idx);
+	    offset, nwritten, nacked, error_idx, false/*heartbeat*/);
 }
 
 EXPORT_SYM struct hdfs_error
@@ -722,6 +728,15 @@ hdfs_datanode_check_acks(struct hdfs_datanode *d, ssize_t *nacked, int *error_id
 }
 
 EXPORT_SYM struct hdfs_error
+hdfs_datanode_send_heartbeat(struct hdfs_datanode *d, ssize_t *nacked, int *error_idx)
+{
+	ssize_t t_nwritten;
+
+	return _datanode_write(d, NULL/*iov*/, 0/*iovcnt*/, 0/*iov_offt*/, -1/*fd*/,
+	    0/*len*/, -1/*fdoff*/, &t_nwritten, nacked, error_idx, true/*heartbeat*/);
+}
+
+EXPORT_SYM struct hdfs_error
 hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_idx)
 {
 	struct hdfs_error error;
@@ -734,11 +749,14 @@ hdfs_datanode_finish_block(struct hdfs_datanode *d, ssize_t *nacked, int *error_
 		// Must have already written all data passed by user. XXX consider?
 		ASSERT(d->dn_pstate.remains_tot == 0);
 		d->dn_last = true;
+		// If there's still header data to be sent (i.e. a heartbeat packet), then
+		// we need to get HDFS_SUCCESS from _send_packet() twice
+		d->dn_repeat_last = (_hdfs_hbuf_readlen(&d->dn_hdrbuf) > 0);
 	}
 
 	// will write the last packet if necessary and check for any outstanding ACKs
 	error = _datanode_write(d, NULL/*iov*/, 0/*iovcnt*/, 0/*iov_offt*/, -1/*fd*/,
-	    0/*len*/, -1/*fdoff*/, &t_nwritten, nacked, error_idx);
+	    0/*len*/, -1/*fdoff*/, &t_nwritten, nacked, error_idx, false/*heartbeat*/);
 
 	// Only return HDFS_SUCCESS once all of the packets have been acknowledged
 	if (!hdfs_is_error(error)) {
@@ -1657,7 +1675,7 @@ out:
 
 static struct hdfs_error
 _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, size_t iov_offt,
-	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx)
+	int fd, off_t len, off_t fdoff, ssize_t *nwritten, ssize_t *nacked, int *err_idx, bool heartbeat)
 {
 	ssize_t t_nacked = 0;
 	struct hdfs_error error = HDFS_SUCCESS, ret;
@@ -1671,6 +1689,8 @@ _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, si
 	ASSERT(d->dn_op_inited);
 	ASSERT(len >= d->dn_pstate.remains_tot);
 	ASSERT(!d->dn_last || len == 0); // Cannot try to write more data after calling finish_block
+	ASSERT(!heartbeat || len == 0); // No data may be passed in when sending a heartbeat
+	ASSERT(!d->dn_last || !heartbeat); // Cannot send a heartbeat after calling finish_block
 	// PIPELINE_CLOSE_RECOVERY must be handled by the separate setup_write_pipeline API
 	ASSERT(d->dn_recovery != HDFS_DN_RECOVERY_CLOSE);
 	ASSERT(d->dn_size == 0 || d->dn_append_or_recovery);
@@ -1718,7 +1738,7 @@ _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, si
 		d->dn_pstate.data_iovcnt = iovcnt;
 		d->dn_pstate.fd = fd;
 		d->dn_pstate.fdoffset = fdoff;
-		while (d->dn_pstate.remains_tot > 0 || d->dn_last) {
+		while (d->dn_pstate.remains_tot > 0 || d->dn_last || heartbeat) {
 			// Try to drain any acks if we have many outstanding packets
 			if (d->dn_pstate.unacked.ua_num >= MAX_UNACKED_PACKETS) {
 				ret = _check_acks(&d->dn_pstate, &t_nacked, err_idx);
@@ -1729,7 +1749,7 @@ _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, si
 					goto out;
 				}
 			}
-			error = _send_packet(&d->dn_pstate, err_idx);
+			error = _send_packet(&d->dn_pstate, err_idx, heartbeat);
 			if (hdfs_is_again(error)) {
 				break; // proceed to check acks below
 			} else if (hdfs_is_error(error)) {
@@ -1739,8 +1759,12 @@ _datanode_write(struct hdfs_datanode *d, const struct iovec *iov, int iovcnt, si
 			// Successfully wrote entire packet
 			ASSERT(_hdfs_hbuf_readlen(&d->dn_hdrbuf) == 0);
 			ASSERT(d->dn_pstate.remains_pkt == 0);
-			if (d->dn_last) {
+			if (d->dn_last && !d->dn_repeat_last) {
 				d->dn_state = HDFS_DN_ST_FINISHED;
+				break;
+			}
+			d->dn_repeat_last = false;
+			if (heartbeat) {
 				break;
 			}
 		}
@@ -1835,7 +1859,8 @@ _datanode_write_blocking(struct hdfs_datanode *d, enum hdfs_checksum_type csum,
 	}
 
 	while (true) {
-		error = _datanode_write(d, iov, iovcnt, iov_offt, fd, len, fdoff, &nw, &na, err_idx);
+		error = _datanode_write(d, iov, iovcnt, iov_offt, fd, len, fdoff,
+		    &nw, &na, err_idx, false/*heartbeat*/);
 		*nwritten += nw; // update even in error case
 		*nacked += na;
 		if (!hdfs_is_error(error)) // success
@@ -2505,10 +2530,9 @@ out:
 }
 
 static struct hdfs_error
-_send_packet(struct hdfs_packet_state *ps, int *err_idx)
+_send_packet(struct hdfs_packet_state *ps, int *err_idx, bool heartbeat)
 {
 	struct hdfs_error error = HDFS_SUCCESS;
-	size_t crclen = 0;
 	ssize_t wlen;
 	bool copydata = false;
 	int wlen_hdr = 0, wlen_data = 0;
@@ -2518,7 +2542,8 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	ASSERT(ps->remains_tot >= ps->remains_pkt);
 	ASSERT(ps->data_iovcnt >= 0);
 	ASSERT(ps->iovbuf_size >= ps->data_iovcnt + 1);
-	ASSERT(ps->iovbuf_size >= 2); //ensured by the ROUNDUP2() at realloc()
+	ASSERT(ps->iovbuf_size >= 2); // ensured by the ROUNDUP2() at realloc()
+	ASSERT(!heartbeat || ps->remains_tot == 0);
 
 	// If there is data to send, we must either have a valid fd or data
 	// buffers, but not both. If no data remains we should have neither.
@@ -2532,7 +2557,8 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	// if we have no data left to send from the last/current packet we're creating a new one
 	is_new = (_hdfs_hbuf_readlen(ps->hdrbuf) == 0 && ps->remains_pkt == 0);
 
-	if (is_new) {
+	// No need to enforce MAX_UNACKED_PACKETS or calculate remains_pkt for heartbeats
+	if (is_new && !heartbeat) {
 		// Delay sending data while N packets remain unacknowledged.
 		// Apache Hadoop default is N=80, for a 5MB window.
 		if (ps->unacked.ua_num >= MAX_UNACKED_PACKETS) {
@@ -2566,7 +2592,7 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 
 			ps->remains_pkt = _min(ps->remains_pkt, remaining_in_chunk);
 		}
-	} // is_new
+	} // is_new && !heartbeat
 
 	if (ps->data_iovcnt == 0 && ps->remains_pkt != 0) {
 #if !defined(__linux__) && !defined(__FreeBSD__)
@@ -2589,9 +2615,9 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 #endif
 	}
 
+	// this copied data is at most used for this function invocation, so reset every time
+	_hdfs_hbuf_reset(&ps->databuf);
 	if (copydata) {
-		// this copied data is at most used for this function invocation, so reset every time
-		_hdfs_hbuf_reset(&ps->databuf);
 		_hdfs_hbuf_reserve(&ps->databuf, ps->remains_pkt);
 		// Note that is can block on the user's fd
 		error = _hdfs_pread_all(ps->fd, _hdfs_hbuf_writeptr(&ps->databuf), ps->remains_pkt, ps->fdoffset);
@@ -2605,95 +2631,21 @@ _send_packet(struct hdfs_packet_state *ps, int *err_idx)
 	}
 
 	if (is_new) {
-		// calculate crc length, if requested
-		crclen = (ps->sendcsum_type != HDFS_CSUM_NULL) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
-
-		// construct header:
-		_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4);
-		if (ps->proto >= HDFS_DATANODE_AP_2_0) {
-			Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
-			size_t sz;
-
-			pkt.offsetinblock = ps->offset;
-			pkt.seqno = ps->seqno;
-			pkt.lastpacketinblock = (ps->remains_pkt == 0);
-			pkt.datalen = ps->remains_pkt;
-
-			sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
-			_hdfs_bappend_s16(ps->hdrbuf, sz);
-			_hdfs_hbuf_reserve(ps->hdrbuf, sz);
-			hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hdfs_hbuf_writeptr(ps->hdrbuf));
-			_hdfs_hbuf_append(ps->hdrbuf, sz);
+		if (heartbeat) {
+			_compose_heartbeat_packet_header(ps);
 		} else {
-			_hdfs_bappend_s64(ps->hdrbuf, ps->offset/*from beginning of block*/);
-			_hdfs_bappend_s64(ps->hdrbuf, ps->seqno);
-			_hdfs_bappend_s8(ps->hdrbuf, (ps->remains_pkt == 0));
-			_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt);
+			_compose_data_packet_header(ps);
 		}
-
-		// calculate the crcs, if requested
-		if (crclen > 0) {
-			uint32_t crcinit;
-			struct iovec *tiovp;
-			size_t tiov_offt = 0;
-
-			ASSERT(ps->data_iovcnt > 0 || copydata);
-
-			ASSERT(ps->sendcsum_type == HDFS_CSUM_CRC32 || ps->sendcsum_type == HDFS_CSUM_CRC32C);
-
-			_hdfs_hbuf_reserve(ps->hdrbuf, 4 * crclen);
-			tiovp = &ps->iovp[1]; // 0th iovec is used for hdrbuf
-
-			if (ps->sendcsum_type == HDFS_CSUM_CRC32)
-				crcinit = crc32(0L, Z_NULL, 0);
-			else
-				crcinit = 0;
-
-			for (unsigned i = 0; i < crclen; i++) {
-				uint32_t crc = crcinit;
-				uint32_t chunklen = _min(CHUNK_SIZE, ps->remains_pkt - i * CHUNK_SIZE);
-
-				while (chunklen > 0) {
-					uint32_t tlen = _min(chunklen, tiovp->iov_len - tiov_offt);
-					void *tptr = (char *)tiovp->iov_base + tiov_offt;
-
-					if (ps->sendcsum_type == HDFS_CSUM_CRC32)
-						crc = crc32(crc, tptr, tlen);
-					else
-						crc = _hdfs_crc32c(crc, tptr, tlen);
-
-					chunklen -= tlen;
-					tiov_offt += tlen;
-					if (tiov_offt == tiovp->iov_len) {
-						tiovp++;
-						tiov_offt = 0;
-					}
-				}
-
-				_be32enc(_hdfs_hbuf_writeptr(ps->hdrbuf), crc);
-				_hdfs_hbuf_append(ps->hdrbuf, 4);
-			}
-		}
-
-		// stash the size of this packet in order to give the user the number of bytes acked later
-		if (ps->unacked.ua_list_pos + ps->unacked.ua_num >= ps->unacked.ua_list_size) {
-			ps->unacked.ua_list_size += 128;
-			ps->unacked.ua_list = realloc(ps->unacked.ua_list, ps->unacked.ua_list_size * sizeof(*ps->unacked.ua_list));
-			ASSERT(ps->unacked.ua_list);
-		}
-		ps->unacked.ua_list[ps->unacked.ua_list_pos + ps->unacked.ua_num] = ps->remains_pkt;
-		ps->unacked.ua_num++;
-		ps->seqno++;
-		ps->offset += ps->remains_pkt;
-	} // is_new
+	}
 
 	ps->iovp[0].iov_base = _hdfs_hbuf_readptr(ps->hdrbuf);
 	ps->iovp[0].iov_len = _hdfs_hbuf_readlen(ps->hdrbuf);
 
-	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet
+	if (ps->remains_pkt == 0) { // remains_pkt is only 0 here if it's the last (empty) packet or a heartbeat packet
 		ASSERT(_hdfs_hbuf_readlen(ps->hdrbuf) > 0);
 		ASSERT(ps->remains_tot == 0);
 		ASSERT(ps->data_iovcnt == 0);
+		ASSERT(!copydata);
 		error = _hdfs_writev(ps->sock, ps->iovp, 1, &wlen);
 		if (wlen < 0) {
 			*err_idx = 0;
@@ -2804,6 +2756,129 @@ out:
 }
 
 static void
+_compose_data_packet_header(struct hdfs_packet_state *ps)
+{
+	size_t crclen = 0;
+
+	ASSERT(_hdfs_hbuf_readlen(ps->hdrbuf) == 0);
+
+	// calculate crc length, if requested
+	crclen = (ps->sendcsum_type != HDFS_CSUM_NULL) ? (ps->remains_pkt + CHUNK_SIZE - 1) / CHUNK_SIZE : 0;
+
+	// construct header:
+	_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt + 4*crclen + 4); // pktlen = sizeof(pktlen) + #crcbytes + #databytes
+	if (ps->proto >= HDFS_DATANODE_AP_2_0) {
+		Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
+		size_t sz;
+
+		pkt.offsetinblock = ps->offset;
+		pkt.seqno = ps->seqno;
+		pkt.lastpacketinblock = (ps->remains_pkt == 0);
+		pkt.datalen = ps->remains_pkt;
+
+		sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
+		_hdfs_bappend_s16(ps->hdrbuf, sz);
+		_hdfs_hbuf_reserve(ps->hdrbuf, sz);
+		hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hdfs_hbuf_writeptr(ps->hdrbuf));
+		_hdfs_hbuf_append(ps->hdrbuf, sz);
+	} else {
+		_hdfs_bappend_s64(ps->hdrbuf, ps->offset); // from beginning of block
+		_hdfs_bappend_s64(ps->hdrbuf, ps->seqno);
+		_hdfs_bappend_s8(ps->hdrbuf, (ps->remains_pkt == 0)); // lastpacketinblock
+		_hdfs_bappend_s32(ps->hdrbuf, ps->remains_pkt);
+	}
+
+	// calculate the crcs, if requested
+	if (crclen > 0) {
+		uint32_t crcinit;
+		struct iovec *tiovp;
+		size_t tiov_offt = 0;
+
+		// if we have crcs to calculate, there must be data iovecs, or we must have copied
+		// this packet's worth of data from a file into databuf and pointed to it with our
+		// first iovec
+		ASSERT(ps->data_iovcnt > 0 || (ps->iovp[1].iov_base == _hdfs_hbuf_readptr(&ps->databuf)
+		    && ps->iovp[1].iov_len == (size_t)_hdfs_hbuf_readlen(&ps->databuf)
+		    && ps->iovp[1].iov_len == (size_t)ps->remains_pkt));
+		ASSERT(ps->sendcsum_type == HDFS_CSUM_CRC32 || ps->sendcsum_type == HDFS_CSUM_CRC32C);
+
+		_hdfs_hbuf_reserve(ps->hdrbuf, 4 * crclen);
+		tiovp = &ps->iovp[1]; // 0th iovec is used for hdrbuf
+
+		if (ps->sendcsum_type == HDFS_CSUM_CRC32)
+			crcinit = crc32(0L, Z_NULL, 0);
+		else
+			crcinit = 0;
+
+		for (unsigned i = 0; i < crclen; i++) {
+			uint32_t crc = crcinit;
+			uint32_t chunklen = _min(CHUNK_SIZE, ps->remains_pkt - i * CHUNK_SIZE);
+
+			while (chunklen > 0) {
+				uint32_t tlen = _min(chunklen, tiovp->iov_len - tiov_offt);
+				void *tptr = (char *)tiovp->iov_base + tiov_offt;
+
+				if (ps->sendcsum_type == HDFS_CSUM_CRC32)
+					crc = crc32(crc, tptr, tlen);
+				else
+					crc = _hdfs_crc32c(crc, tptr, tlen);
+
+				chunklen -= tlen;
+				tiov_offt += tlen;
+				if (tiov_offt == tiovp->iov_len) {
+					tiovp++;
+					tiov_offt = 0;
+				}
+			}
+
+			_be32enc(_hdfs_hbuf_writeptr(ps->hdrbuf), crc);
+			_hdfs_hbuf_append(ps->hdrbuf, 4);
+		}
+	}
+
+	// stash the size of this packet in order to give the user the number of bytes acked later
+	if (ps->unacked.ua_list_pos + ps->unacked.ua_num >= ps->unacked.ua_list_size) {
+		ps->unacked.ua_list_size += 128;
+		ps->unacked.ua_list = realloc(ps->unacked.ua_list, ps->unacked.ua_list_size * sizeof(*ps->unacked.ua_list));
+		ASSERT(ps->unacked.ua_list);
+	}
+	ps->unacked.ua_list[ps->unacked.ua_list_pos + ps->unacked.ua_num] = ps->remains_pkt;
+	ps->unacked.ua_num++;
+	ps->seqno++;
+	ps->offset += ps->remains_pkt;
+}
+
+static void
+_compose_heartbeat_packet_header(struct hdfs_packet_state *ps)
+{
+	ASSERT(_hdfs_hbuf_readlen(ps->hdrbuf) == 0);
+	ASSERT(ps->remains_tot == 0 && ps->remains_pkt == 0);
+
+	// construct header:
+	_hdfs_bappend_s32(ps->hdrbuf, 4); // pktlen = sizeof(len) + #crcbytes + #databytes
+	if (ps->proto >= HDFS_DATANODE_AP_2_0) {
+		Hadoop__Hdfs__PacketHeaderProto pkt = HADOOP__HDFS__PACKET_HEADER_PROTO__INIT;
+		size_t sz;
+
+		pkt.offsetinblock = 0;
+		pkt.seqno = HEART_BEAT_SEQNO;
+		pkt.lastpacketinblock = 0;
+		pkt.datalen = 0;
+
+		sz = hadoop__hdfs__packet_header_proto__get_packed_size(&pkt);
+		_hdfs_bappend_s16(ps->hdrbuf, sz);
+		_hdfs_hbuf_reserve(ps->hdrbuf, sz);
+		hadoop__hdfs__packet_header_proto__pack(&pkt, (void *)_hdfs_hbuf_writeptr(ps->hdrbuf));
+		_hdfs_hbuf_append(ps->hdrbuf, sz);
+	} else {
+		_hdfs_bappend_s64(ps->hdrbuf, 0); // offset
+		_hdfs_bappend_s64(ps->hdrbuf, HEART_BEAT_SEQNO);
+		_hdfs_bappend_s8(ps->hdrbuf, 0);  // lastpacketinblock
+		_hdfs_bappend_s32(ps->hdrbuf, 0); // datalen
+	}
+}
+
+static void
 _set_opres_msg(struct hdfs_datanode *d, const char *newmsg)
 {
 	if (d->dn_opresult_message != NULL)
@@ -2885,14 +2960,7 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	seqno = _hdfs_bslurp_s64(&obuf);
 	ASSERT(obuf.used >= 0); // should not be able to fail
 
-	// Unsure if these are ever actually sent, or existed in v1, but
-	// Apache and libhdfs3 check for/skip heartbeat acks in v2.2+
-	if (seqno == HEART_BEAT_SEQNO) {
-		_hdfs_hbuf_consume(ps->recvbuf, acksz);
-		goto out;
-	}
-
-	if (seqno != ps->first_unacked) {
+	if (seqno != ps->first_unacked && seqno != HEART_BEAT_SEQNO) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
 #if 0 // TODO stash the bad seqno in struct hdfs_datanode for users to access if they desire
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
@@ -2901,8 +2969,6 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 #endif
 		goto out;
 	}
-
-	ps->first_unacked++;
 
 	if (ps->proto == HDFS_DATANODE_AP_1_0) {
 		nacks = _hdfs_bslurp_s16(&obuf);
@@ -2923,13 +2989,18 @@ _check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		ASSERT(obuf.used >= 0); // should not be able to fail
 	}
 
-	if (ack == HADOOP__HDFS__STATUS__SUCCESS) {
+	if (ack != HADOOP__HDFS__STATUS__SUCCESS) {
+		error = error_from_datanode(ack, ps->unknown_status);
+		*err_idx = 0; // XXX TODO change this when implementing full pipelining for v1
+		goto out;
+	}
+
+	// Pop the length of this acked packet off of the list
+	if (seqno != HEART_BEAT_SEQNO) {
+		ps->first_unacked++;
 		*nacked = ps->unacked.ua_list[ps->unacked.ua_list_pos];
 		ps->unacked.ua_list_pos++;
 		ps->unacked.ua_num--;
-	} else {
-		error = error_from_datanode(ack, ps->unknown_status);
-		*err_idx = 0; // XXX TODO change this when implementing full pipelining for v1
 	}
 
 	// Skip the recv buffer past the ack
@@ -2998,14 +3069,7 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 		goto out;
 	}
 
-	// Unsure if these are ever actually sent, but Apache and libhdfs3
-	// check for/skip heartbeat acks
-	if (ack->seqno == HEART_BEAT_SEQNO) {
-		_hdfs_hbuf_consume(ps->recvbuf, obuf.used);
-		goto out;
-	}
-
-	if (ack->seqno != ps->first_unacked) {
+	if (ack->seqno != ps->first_unacked && ack->seqno != HEART_BEAT_SEQNO) {
 		error = error_from_hdfs(HDFS_ERR_DATANODE_BAD_SEQNO);
 #if 0 // TODO stash the bad seqno in struct hdfs_datanode for users to access if they desire
 		fprintf(stderr, "libhadoofus: Got unexpected ACK (%" PRIi64 ","
@@ -3038,10 +3102,12 @@ _check_one_ack2(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx)
 	}
 
 	// Pop the length of this acked packet off of the list
-	ps->first_unacked++;
-	*nacked = ps->unacked.ua_list[ps->unacked.ua_list_pos];
-	ps->unacked.ua_list_pos++;
-	ps->unacked.ua_num--;
+	if (ack->seqno != HEART_BEAT_SEQNO) {
+		ps->first_unacked++;
+		*nacked = ps->unacked.ua_list[ps->unacked.ua_list_pos];
+		ps->unacked.ua_list_pos++;
+		ps->unacked.ua_num--;
+	}
 
 	// Skip the recv buffer past the ack
 	_hdfs_hbuf_consume(h, obuf.used);
