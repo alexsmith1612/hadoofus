@@ -42,13 +42,19 @@ else
 	LD_PATH = LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:../src"
 endif
 
+ifeq ($(HDFS_TEST_DEBUGGER),)
+	DEBUG =
+else
+	DEBUG = CK_FORK=no $(HDFS_TEST_DEBUGGER)
+endif
+
 all: $(TEST_PRGM)
 
 $(TEST_PRGM): $(PRIV_OBJS) $(TEST_OBJS) $(LIB) $(HEADERS) t_main.h
 	$(CC) -o $@ $(FLAGS) $(TEST_OBJS) $(PRIV_OBJS) $(LINK_FLAGS)
 
 check: $(TEST_PRGM)
-	$(LD_PATH) ./$(TEST_PRGM)
+	$(LD_PATH) $(DEBUG) ./$(TEST_PRGM)
 
 %.o: %.c
 	$(CC) $(FLAGS) -I../include -std=gnu99 -c $<
