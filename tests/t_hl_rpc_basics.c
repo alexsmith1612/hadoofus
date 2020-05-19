@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 
 #include <check.h>
 
@@ -673,7 +674,7 @@ END_TEST
 START_TEST(test_recoverLease)
 {
 	bool s;
-	struct hdfs_object *e = NULL, *bls, *fs;
+	struct hdfs_object *e = NULL, *lb, *fs, *lbws, *bl = NULL;
 	const char *tf = "/HADOOFUS_TEST_RECOVERLEASE",
 	      *client = "HADOOFUS_CLIENT",
 	      *client2 = "HADOOFUS_CLIENT_2";
@@ -687,22 +688,77 @@ START_TEST(test_recoverLease)
 		hdfs_object_free(fs);
 	}
 
-	// At least on 2.7.7 the write lease doesn't actually get acquired until
-	// you try to add a block
-	bls = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid*/, &e);
-	if (e)
-		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	hdfs_object_free(bls);
+	// recoverLease returns true if the file fully underwent recovery and is
+	// now closed (or if it was already closed), thus indicating that no
+	// client holds its lease. It returns false if recovery is now in
+	// progress but the file is not closed.
+	//
+	// In the false case, the client that sent recoverLease now holds the
+	// file's lease, but
+	//   1. They must know enough about the file in order to do anything
+	//      meaningful with it (e.g. previous_block for addBlock or
+	//      last_block for complete).
+	//   2. Since the file is under recovery, once the recovery process
+	//      completes the file will be closed and no one will hold the
+	//      lease, making anything that the new client tries to do with the
+	//      file inherently racy--if the file gets closed out from
+	//      underneath it an exception will be thrown.
+	//
+	// Thus one should always retry recoverLease until it returns true and
+	// then reopen the file if more work is to be done.
 
-	s = hdfs_recoverLease(h, tf, client2, &e);
+	// recoverLease immediately returns true is called on an empty file with
+	// no blocks (since the namenode holds all the information about the
+	// file), so add a block to force a more complex recovery
+	lb = hdfs_addBlock(h, tf, client, NULL, NULL, 0/*fileid*/, &e);
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert_msg(!s, "recoverLease returned true");
+	hdfs_object_free(lb);
 
-	bls = hdfs_addBlock(h, tf, client2, NULL, NULL, 0/*fileid*/, &e);
+	// Fully recover the lease until the file is closed
+	for (int i = 0; i < 10; i++) {
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not recover lease and close file on attempt %d, delaying and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
+		s = hdfs_recoverLease(h, tf, client2, &e);
+		if (e)
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s)
+			break;
+	}
+	ck_assert_msg(s, "did not recover lease");
+
+	// Reopen the file for append
+	lbws = hdfs_append(h, tf, client2, &e);
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	hdfs_object_free(bls);
+
+	if (lbws) {
+		struct hdfs_object *lb, *fs2;
+		ck_assert_int_eq(lbws->ob_type, H_LOCATED_BLOCK_WITH_STATUS);
+		lb = lbws->ob_val._located_block_with_status._block;
+		fs2 = lbws->ob_val._located_block_with_status._status;
+		if (lb)
+			bl = hdfs_block_from_located_block(lb);
+		if (fs2)
+			ck_assert_int_eq(fs2->ob_type, H_FILE_STATUS);
+		hdfs_object_free(lbws);
+	}
+
+	// Close the file
+	for (int i = 0; i < 5; i++) {
+		if (i > 0) {
+			fprintf(stderr, "Notice: did not complete file on attempt %d, delaying for 1s and trying again...\n", i - 1);
+			usleep(1000000); // sleep for 1s before retrying
+		}
+		s = hdfs_complete(h, tf, client2, bl, 0/*fileid?*/, &e);
+		if (e)
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		if (s) // successfully completed
+			break;
+	}
+	ck_assert_msg(s, "did not complete");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
