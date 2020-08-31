@@ -59,6 +59,12 @@ _min(off_t a, off_t b)
 	return b;
 }
 
+static inline bool
+streq(const char *a, const char *b)
+{
+	return strcmp(a, b) == 0;
+}
+
 static inline uint32_t
 _be32dec(void *void_p)
 {

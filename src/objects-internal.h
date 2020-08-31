@@ -101,11 +101,6 @@ struct hdfs_error	_hdfs_result_deserialize_v2_2(char *buf, int buflen, struct _h
 
 enum hdfs_object_type	_hdfs_string_to_type(const char *);
 
-static inline bool
-streq(const char *a, const char *b)
-{
-	return strcmp(a, b) == 0;
-}
 
 struct hdfs_transfer_targets *	_hdfs_transfer_targets_copy(struct hdfs_transfer_targets *src);
 
