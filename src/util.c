@@ -54,11 +54,10 @@ hdfs_error_str_kind(struct hdfs_error error)
 	ASSERT(false);	// unreachable
 }
 
-// TODO standardize the capitalization in these error messages
 static const char *hdfs_strerror_table[] = {
-	[HDFS_ERR_AGAIN] = "Operation in progress: continue with API when resources are available", // TODO reconsider this message
+	[HDFS_ERR_AGAIN] = "Operation in progress: continue with API when resources are available",
 	[HDFS_ERR_END_OF_STREAM] = "EOS; socket was closed",
-	[HDFS_ERR_END_OF_FILE] = "unexpected EOF from file",
+	[HDFS_ERR_END_OF_FILE] = "Unexpected EOF from file",
 
 	[HDFS_ERR_NAMENODE_UNCONNECTED] = "Invalid use of hdfs_namenode_invoke: must connect Namenode first",
 	[HDFS_ERR_NAMENODE_UNAUTHENTICATED] = "Invalid use of hdfs_namenode_invoke: must authenticate first",
@@ -75,18 +74,18 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_UNRECOGNIZED_DN_ERROR] = "Unrecognized datanode status value",
 	[HDFS_ERR_INVALID_DN_ERROR] = "Invalid datanode status value",
 
-	[HDFS_ERR_INVALID_VLINT] = "bad protocol: invalid vlint",
-	[HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO] = "bad protocol: could not decode BlockOpResponseProto",
-	[HDFS_ERR_INVALID_PACKETHEADERPROTO] = "bad protocol: could not decode PacketHeaderProto",
-	[HDFS_ERR_INVALID_PIPELINEACKPROTO] = "bad protocol: could not decode PipelineAckProto",
-	[HDFS_ERR_V1_DATANODE_PROTOCOL] = "invalid Datanode protocol data",
-	[HDFS_ERR_NAMENODE_BAD_MSGNO] = "unexpected msgno received from Namenode",
-	[HDFS_ERR_NAMENODE_PROTOCOL] = "could not parse response from Namenode",
+	[HDFS_ERR_INVALID_VLINT] = "Bad protocol: invalid vlint",
+	[HDFS_ERR_INVALID_BLOCKOPRESPONSEPROTO] = "Bad protocol: could not decode BlockOpResponseProto",
+	[HDFS_ERR_INVALID_PACKETHEADERPROTO] = "Bad protocol: could not decode PacketHeaderProto",
+	[HDFS_ERR_INVALID_PIPELINEACKPROTO] = "Bad protocol: could not decode PipelineAckProto",
+	[HDFS_ERR_V1_DATANODE_PROTOCOL] = "Invalid Datanode protocol data",
+	[HDFS_ERR_NAMENODE_BAD_MSGNO] = "Unexpected msgno received from Namenode",
+	[HDFS_ERR_NAMENODE_PROTOCOL] = "Could not parse response from Namenode",
 
-	[HDFS_ERR_INVALID_DN_OPRESP_MSG] = "successful datanode operation had non-empty error message",
-	[HDFS_ERR_DATANODE_PACKET_SIZE] = "got bogus packet size",
-	[HDFS_ERR_DATANODE_CRC_LEN] = "got bogus packet crc data",
-	[HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN] = "didn't expect crc data but got some anyway",
+	[HDFS_ERR_INVALID_DN_OPRESP_MSG] = "Successful datanode operation had non-empty error message",
+	[HDFS_ERR_DATANODE_PACKET_SIZE] = "Got bogus packet size",
+	[HDFS_ERR_DATANODE_CRC_LEN] = "Got bogus packet crc data",
+	[HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN] = "Didn't expect crc data but got some anyway",
 	[HDFS_ERR_DATANODE_UNEXPECTED_READ_OFFSET] = "Server started read before requested offset",
 	[HDFS_ERR_DATANODE_BAD_CHECKSUM] = "Got bad checksum",
 	[HDFS_ERR_DATANODE_BAD_SEQNO] = "Got invalid sequence number in ACK",
