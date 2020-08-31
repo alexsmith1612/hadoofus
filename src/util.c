@@ -83,6 +83,7 @@ static const char *hdfs_strerror_table[] = {
 	[HDFS_ERR_NAMENODE_PROTOCOL] = "Could not parse response from Namenode",
 
 	[HDFS_ERR_INVALID_DN_OPRESP_MSG] = "Successful datanode operation had non-empty error message",
+	[HDFS_ERR_DATANODE_UNEXPECTED_FIRSTBADLINK] = "Got unexpected firstbadlink value from datanode pipeline",
 	[HDFS_ERR_DATANODE_PACKET_SIZE] = "Got bogus packet size",
 	[HDFS_ERR_DATANODE_CRC_LEN] = "Got bogus packet crc data",
 	[HDFS_ERR_DATANODE_UNEXPECTED_CRC_LEN] = "Didn't expect crc data but got some anyway",

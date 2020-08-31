@@ -77,6 +77,7 @@ static struct hdfs_error	_send_packet(struct hdfs_packet_state *ps, int *err_idx
 static void			_compose_data_packet_header(struct hdfs_packet_state *ps);
 static void			_compose_heartbeat_packet_header(struct hdfs_packet_state *ps);
 static void			_set_opres_msg(struct hdfs_datanode *d, const char *);
+static void			_set_unexp_firstbadlink(struct hdfs_datanode *d, const char *firstbadlink);
 static struct hdfs_error	_verify_crcdata(void *crcdata, int32_t chunksize,
 				int32_t crcdlen, int32_t dlen, enum hdfs_checksum_type ctype);
 static struct hdfs_error	_check_one_ack(struct hdfs_packet_state *ps, ssize_t *nacked, int *err_idx);
@@ -336,9 +337,14 @@ _datanode_clean(struct hdfs_datanode *d, bool reuse)
 	PTR_FREE(d->dn_storage_types);
 	d->dn_nlocs = 0;
 	_hdfs_conn_ctx_free(&d->dn_cctx);
-	if (d->dn_opresult_message)
+	if (d->dn_opresult_message) {
 		free(__DECONST(char *, d->dn_opresult_message));
+	}
 	d->dn_opresult_message = NULL;
+	if (d->dn_unexpected_firstbadlink) {
+		free(__DECONST(char *, d->dn_unexpected_firstbadlink));
+	}
+	d->dn_unexpected_firstbadlink = NULL;
 
 	if (d->dn_ttrgs) {
 		hdfs_transfer_targets_free(d->dn_ttrgs);
@@ -2288,14 +2294,31 @@ _read_write_status2(struct hdfs_datanode *d, struct hdfs_heap_buf *h, int *err_i
 			char buf[32]; // big enough for 111.222.333.444:65535
 			struct hdfs_datanode_info *di = &d->dn_locs[i]->ob_val._datanode_info;
 			snprintf(buf, sizeof(buf), "%s:%s", di->_ipaddr, di->_port);
-			if (!strcmp(opres->firstbadlink, buf))
+			if (streq(opres->firstbadlink, buf)) {
 				*err_idx = i;
+				break;
+			}
 		}
-		// This shouldn't happend, but if the status was SUCCESS or the
-		// badfirstlink doesn't match any of the targets, set an error
-		if (!hdfs_is_error(error) || i == d->dn_nlocs) {
-			error = error_from_hdfs(HDFS_ERR_INVALID_DN_OPRESP_MSG);
+
+		// If firstbadlink doesn't match any of our pipeline targets, then
+		// stash the value for the users to examine and set an error and
+		// say the primary datanode failed (XXX consider this). This
+		// probably should never happen.
+		if (i == d->dn_nlocs) {
+			_set_unexp_firstbadlink(d, opres->firstbadlink);
+			*err_idx = 0;
+			error = error_from_hdfs(HDFS_ERR_DATANODE_UNEXPECTED_FIRSTBADLINK);
 		}
+
+		// If we got a non-empty firstbadlink value but the status was
+		// SUCCESS, set an error. This probably should never happen.
+		if (!hdfs_is_error(error)) {
+			// XXX Consider: use a new error code instead of co-opting
+			// the existing generic datanode error status
+			error = error_from_hdfs(HDFS_ERR_DN_ERROR);
+		}
+	} else {
+		_set_unexp_firstbadlink(d, NULL);
 	}
 
 	if (opres)
@@ -2888,6 +2911,20 @@ _set_opres_msg(struct hdfs_datanode *d, const char *newmsg)
 	else {
 		d->dn_opresult_message = strdup(newmsg);
 		ASSERT(d->dn_opresult_message != NULL);
+	}
+}
+
+static void
+_set_unexp_firstbadlink(struct hdfs_datanode *d, const char *firstbadlink)
+{
+	if (d->dn_unexpected_firstbadlink != NULL) {
+		free(__DECONST(char *, d->dn_unexpected_firstbadlink));
+	}
+	if (firstbadlink == NULL) {
+		d->dn_unexpected_firstbadlink = NULL;
+	} else {
+		d->dn_unexpected_firstbadlink = strdup(firstbadlink);
+		ASSERT(d->dn_unexpected_firstbadlink != NULL);
 	}
 }
 

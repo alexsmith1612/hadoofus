@@ -190,6 +190,7 @@ struct hdfs_datanode {
 
 	int dn_unknown_status;
 	const char *dn_opresult_message;
+	const char *dn_unexpected_firstbadlink;
 };
 
 //

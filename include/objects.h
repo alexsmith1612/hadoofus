@@ -77,8 +77,12 @@ enum hdfs_error_numeric {
 
 // Other protocol errors
 	// A SUCCESS OpRes had a message attached; as usual, the message can be
-	// found in hdfs_datanode_opresult_message.
+	// found in dn_opresult_message in struct hdfs_datanode.
 	HDFS_ERR_INVALID_DN_OPRESP_MSG,
+	// An OpRes had a firstbadlink value set that does not correspond to one
+	// of the datanodes in the pipeline.  The unexpected firstbadlink value
+	// will be found in dn_unexpected_firstbadlink in struct hdfs_datanode.
+	HDFS_ERR_DATANODE_UNEXPECTED_FIRSTBADLINK,
 	HDFS_ERR_DATANODE_PACKET_SIZE,
 	// The packet's expressed CRCs length doesn't match the data length
 	HDFS_ERR_DATANODE_CRC_LEN,

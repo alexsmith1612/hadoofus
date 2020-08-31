@@ -120,9 +120,13 @@ START_TEST(test_dn_nb_misc)
 		ck_assert_int_ne(pfd.revents, 0);
 	}
 	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    "error (%s): %s%s%s%s%s",
+	    hdfs_error_str_kind(err),
+	    hdfs_error_str(err),
 	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+	    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+	    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 	ck_assert_int_eq(wblk, strlen(wbuf)/2);
 
 	// Send a heartbeat packet
@@ -140,16 +144,24 @@ START_TEST(test_dn_nb_misc)
 		ck_assert_int_ne(pfd.revents, 0);
 	}
 	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    "error (%s): %s%s%s%s%s",
+	    hdfs_error_str_kind(err),
+	    hdfs_error_str(err),
 	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+	    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+	    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 
 	// Test manual ack checking
 	err = hdfs_datanode_check_acks(dn, &nacked, &err_idx);
 	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    "error (%s): %s%s%s%s%s",
+	    hdfs_error_str_kind(err),
+	    hdfs_error_str(err),
 	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+	    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+	    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 	ablk += nacked;
 
 	// Write the second segment
@@ -168,9 +180,13 @@ START_TEST(test_dn_nb_misc)
 		ck_assert_int_ne(pfd.revents, 0);
 	}
 	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    "error (%s): %s%s%s%s%s",
+	    hdfs_error_str_kind(err),
+	    hdfs_error_str(err),
 	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+	    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+	    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 	ck_assert_int_eq(wblk, strlen(wbuf));
 
 	// Finish the block
@@ -188,9 +204,13 @@ START_TEST(test_dn_nb_misc)
 		ck_assert_int_ne(pfd.revents, 0);
 	}
 	ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-	    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+	    "error (%s): %s%s%s%s%s",
+	    hdfs_error_str_kind(err),
+	    hdfs_error_str(err),
 	    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-	    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+	    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+	    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+	    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 	ck_assert_int_eq(ablk, wblk);
 
 	hdfs_datanode_delete(dn);
@@ -578,9 +598,13 @@ START_TEST(test_dn_write_nb)
 					err = hdfs_datanode_write_nb(&fctxs[i].dn, wbuf + fctxs[i].wtot,
 					    wlen, &nwritten, &nacked, &erridx);
 					ck_assert_msg(!hdfs_is_error(err) || hdfs_is_again(err),
-					    "error (%s): %s%s%s", hdfs_error_str_kind(err), hdfs_error_str(err),
+					    "error (%s): %s%s%s%s%s",
+					    hdfs_error_str_kind(err),
+					    hdfs_error_str(err),
 					    fctxs[i].dn.dn_opresult_message ? "\n\tDatanode message: " : "",
-					    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "");
+					    fctxs[i].dn.dn_opresult_message ? fctxs[i].dn.dn_opresult_message : "",
+					    fctxs[i].dn.dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+					    fctxs[i].dn.dn_unexpected_firstbadlink ? fctxs[i].dn.dn_unexpected_firstbadlink : "");
 					fctxs[i].wtot += nwritten;
 					fctxs[i].prev->ob_val._block._length += nwritten;
 					fctxs[i].atot += nacked;

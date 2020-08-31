@@ -1044,9 +1044,12 @@ START_TEST(test_dn_recovery)
 
 		// perform the actual pipeline setup
 		err = hdfs_datanode_write_setup_pipeline(dn, _i/*sendcrcs*/, &err_idx);
-		ck_assert_msg(!hdfs_is_error(err), "%s%s%s", format_error(err),
+		ck_assert_msg(!hdfs_is_error(err), "%s%s%s%s%s",
+		    format_error(err),
 		    dn->dn_opresult_message ? "\n\tDatanode message: " : "",
-		    dn->dn_opresult_message ? dn->dn_opresult_message : "");
+		    dn->dn_opresult_message ? dn->dn_opresult_message : "",
+		    dn->dn_unexpected_firstbadlink ? "\n\tUnexpected firstbadlink: " : "",
+		    dn->dn_unexpected_firstbadlink ? dn->dn_unexpected_firstbadlink : "");
 		ck_assert_int_lt(err_idx, 0);
 
 		// 5. tell the namenode about the updated pipeline (updatePipeline)
