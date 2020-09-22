@@ -1,4 +1,8 @@
-LIBS = -L../src -lhadoofus `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lpthread -lz -lsasl2
+# Allow users to specify their own libprotobuf ldflags to break hard
+# build dependency on pkg-config
+PROTOBUF_LDFLAGS ?= $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
+
+LIBS = -L../src -lhadoofus $(PROTOBUF_LDFLAGS) -lpthread -lz -lsasl2
 ifneq ($(shell uname -s), Darwin)
 	LIBS += -lrt
 endif

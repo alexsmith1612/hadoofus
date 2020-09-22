@@ -22,10 +22,16 @@ PRIV_OBJS = \
 LIB = ../src/libhadoofus.so
 TEST_OBJS = $(TEST_SRCS:%.c=%.o)
 TEST_PRGM = check_hadoofus
+
+# Allow users to specify their own libcheck and libprotobuf
+# cflags/ldflags to break hard build dependency on pkg-config
+PROTOBUF_LDFLAGS ?= $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
+CHECK_CFLAGS ?= $(shell pkg-config --cflags check)
+CHECK_LDFLAGS ?= $(shell pkg-config --libs --static check)
+
 LINK_FLAGS = $(LDFLAGS) -L/usr/local/lib -L../src -lhadoofus \
-	     `pkg-config --libs --static check` \
-	     `pkg-config --libs 'libprotobuf-c >= 1.0.0'` -lz -lsasl2 \
-	     -lpthread -lm
+	     $(CHECK_LDFLAGS) $(PROTOBUF_LDFLAGS) \
+	      -lz -lsasl2 -lpthread -lm
 ifneq ($(shell uname -s), Darwin)
 	LINK_FLAGS += -lrt
 endif
@@ -34,7 +40,7 @@ ifeq ($(shell uname -s),FreeBSD)
 endif
 FLAGS = -Wall -Wextra -Werror -Wno-error=unused-parameter \
 	-Wno-error=missing-field-initializers \
-	-fPIC -g $(CFLAGS) `pkg-config --cflags check`
+	-fPIC -g $(CFLAGS) $(CHECK_CFLAGS)
 
 ifeq ($(shell uname -s), Darwin)
 	LD_PATH = DYLD_LIBRARY_PATH="$$DYLD_LIBRARY_PATH:../src"
