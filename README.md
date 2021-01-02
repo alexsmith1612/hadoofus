@@ -1,4 +1,4 @@
-hadoofus [![Build Status (travis)](https://travis-ci.org/alexsmith1612/hadoofus.svg?branch=master)](https://travis-ci.org/alexsmith1612/hadoofus) [![Build Status (cirrus)](https://api.cirrus-ci.com/github/alexsmith1612/hadoofus.svg)](https://cirrus-ci.com/github/alexsmith1612/hadoofus)
+hadoofus [![Build Status (travis)](https://travis-ci.com/alexsmith1612/hadoofus.svg?branch=master)](https://travis-ci.com/alexsmith1612/hadoofus) [![Build Status (cirrus)](https://api.cirrus-ci.com/github/alexsmith1612/hadoofus.svg)](https://cirrus-ci.com/github/alexsmith1612/hadoofus)
 ============================================================================================================================
 
 #### JRE-free multi-version HDFS client library
