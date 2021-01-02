@@ -22,9 +22,9 @@ freebsd_task:
     # these mounts are required for this implementation of openjdk8
     - mount -t fdescfs fdesc /dev/fd
     - mount -t procfs proc /proc
-    - wget -nv http://www.trieuvan.com/apache/hadoop/common/hadoop-3.1.3/hadoop-3.1.3.tar.gz
-    - tar -xzf hadoop-3.1.3.tar.gz
-    - mv hadoop-3.1.3 /usr/local/hadoop
+    - wget -nv http://www.trieuvan.com/apache/hadoop/common/hadoop-3.1.4/hadoop-3.1.4.tar.gz
+    - tar -xzf hadoop-3.1.4.tar.gz
+    - mv hadoop-3.1.4 /usr/local/hadoop
   build_script:
     - uname -a
     - gmake -j$(sysctl -n hw.ncpu) all
