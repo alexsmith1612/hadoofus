@@ -155,7 +155,7 @@ START_TEST(test_dn_write_buf)
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		// XXX TODO blocksize?
 		hdfs_object_free(fsd);
@@ -164,7 +164,7 @@ START_TEST(test_dn_write_buf)
 	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		// XXX TODO fileid?
@@ -178,7 +178,7 @@ START_TEST(test_dn_write_buf)
 
 		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
@@ -187,7 +187,7 @@ START_TEST(test_dn_write_buf)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
-		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error writing block: %s", format_error(err));
 		ck_assert_int_eq(nwritten, wblk);
 		ck_assert_int_eq(nacked, wblk);
 		ck_assert_int_lt(err_idx, 0);
@@ -211,7 +211,7 @@ START_TEST(test_dn_write_buf)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -226,14 +226,14 @@ START_TEST(test_dn_write_buf)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
 	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
@@ -263,7 +263,7 @@ START_TEST(test_dn_write_buf)
 			hdfs_datanode_delete(dn);
 		}
 
-		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
@@ -271,11 +271,11 @@ START_TEST(test_dn_write_buf)
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+	ck_assert_msg(!memcmp(buf, rbuf, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -296,7 +296,7 @@ START_TEST(test_dn_writev)
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		// XXX TODO blocksize?
 		hdfs_object_free(fsd);
@@ -305,7 +305,7 @@ START_TEST(test_dn_writev)
 	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		// XXX TODO fileid?
@@ -331,7 +331,7 @@ START_TEST(test_dn_writev)
 
 		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
@@ -340,7 +340,7 @@ START_TEST(test_dn_writev)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 		err = hdfs_datanode_writev(dn, wiov, nelem(wiov), _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
-		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error writing block: %s", format_error(err));
 		ck_assert_int_eq(nwritten, wblk);
 		ck_assert_int_eq(nacked, wblk);
 		ck_assert_int_lt(err_idx, 0);
@@ -364,7 +364,7 @@ START_TEST(test_dn_writev)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -379,14 +379,14 @@ START_TEST(test_dn_writev)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
 	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
@@ -427,7 +427,7 @@ START_TEST(test_dn_writev)
 			hdfs_datanode_delete(dn);
 		}
 
-		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to iovec arrays in %"PRIu64" ms%s, %02g MB/s\n\n",
@@ -435,11 +435,11 @@ START_TEST(test_dn_writev)
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+	ck_assert_msg(!memcmp(buf, rbuf, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -461,7 +461,7 @@ START_TEST(test_dn_append_buf)
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		hdfs_object_free(fsd);
 	}
@@ -469,7 +469,7 @@ START_TEST(test_dn_append_buf)
 	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
@@ -489,7 +489,7 @@ START_TEST(test_dn_append_buf)
 
 		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
@@ -498,7 +498,7 @@ START_TEST(test_dn_append_buf)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
-		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error writing block: %s", format_error(err));
 		ck_assert_int_eq(nwritten, wblk);
 		ck_assert_int_eq(nacked, wblk);
 		ck_assert_int_lt(err_idx, 0);
@@ -522,7 +522,7 @@ START_TEST(test_dn_append_buf)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -537,7 +537,7 @@ START_TEST(test_dn_append_buf)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, towrite_first);
 	hdfs_object_free(fs);
 
@@ -571,7 +571,7 @@ START_TEST(test_dn_append_buf)
 			oldblock = hdfs_block_from_located_block(bl);
 			ubfp_lb = hdfs2_updateBlockForPipeline(h, oldblock, client, &e);
 			if (e)
-				fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+				ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 			// update our located block with the info received from the updateBlockForPipeline
 			// RPC. This MUST happen after the call to hdfs_datanode_init() or hdfs_datanode_new()
 			hdfs_located_block_update_from_update_block_for_pipeline(bl, ubfp_lb);
@@ -581,11 +581,11 @@ START_TEST(test_dn_append_buf)
 			// normal append --- not recovery
 			err = hdfs_datanode_write_set_append_or_recovery(dn, bl, HDFS_DN_RECOVERY_NONE,
 			    -1/*maxbytesrcvd--ignored for NONE*/);
-			fail_if(hdfs_is_error(err), "error setting append: %s", format_error(err));
+			ck_assert_msg(!hdfs_is_error(err), "error setting append: %s", format_error(err));
 
 			// setup the append pipeline
 			err = hdfs_datanode_write_setup_pipeline(dn, _i/*sendcrcs*/, &err_idx);
-			fail_if(hdfs_is_error(err), "error setting up append pipeline: %s", format_error(err));
+			ck_assert_msg(!hdfs_is_error(err), "error setting up append pipeline: %s", format_error(err));
 			ck_assert_int_lt(err_idx, 0);
 
 			// inform the namenode of the updated pipeline
@@ -593,7 +593,7 @@ START_TEST(test_dn_append_buf)
 			storageids = hdfs_storage_ids_array_string_from_located_block(bl);
 			hdfs2_updatePipeline(h, client, oldblock, newblock, nodes, storageids, &e);
 			if (e)
-				fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+				ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 			hdfs_object_free(oldblock);
 			hdfs_object_free(newblock);
@@ -609,11 +609,11 @@ START_TEST(test_dn_append_buf)
 			    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 		}
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 
 		err = hdfs_datanode_write(dn, buf + wtot, wblk, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
-		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error writing block: %s", format_error(err));
 		ck_assert_int_eq(nwritten, wblk);
 		ck_assert_int_eq(nacked, wblk);
 		ck_assert_int_lt(err_idx, 0);
@@ -637,7 +637,7 @@ START_TEST(test_dn_append_buf)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -652,14 +652,14 @@ START_TEST(test_dn_append_buf)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
 	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
@@ -689,7 +689,7 @@ START_TEST(test_dn_append_buf)
 			hdfs_datanode_delete(dn);
 		}
 
-		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
@@ -697,11 +697,11 @@ START_TEST(test_dn_append_buf)
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+	ck_assert_msg(!memcmp(buf, rbuf, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -722,7 +722,7 @@ START_TEST(test_dn_write_file)
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(h, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		hdfs_object_free(fsd);
 	}
@@ -730,7 +730,7 @@ START_TEST(test_dn_write_file)
 	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		hdfs_object_free(fs);
@@ -744,7 +744,7 @@ START_TEST(test_dn_write_file)
 
 		bl = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 		dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
@@ -753,7 +753,7 @@ START_TEST(test_dn_write_file)
 		    bl->ob_val._located_block._locs[0]->ob_val._datanode_info._port);
 
 		err = hdfs_datanode_write_file(dn, fd, wblk/*len*/, wtot/*offset*/, _i/*sendcrcs*/, &nwritten, &nacked, &err_idx);
-		fail_if(hdfs_is_error(err), "error writing block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error writing block: %s", format_error(err));
 		ck_assert_int_eq(nwritten, wblk);
 		ck_assert_int_eq(nacked, wblk);
 		ck_assert_int_lt(err_idx, 0);
@@ -777,7 +777,7 @@ START_TEST(test_dn_write_file)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -792,14 +792,14 @@ START_TEST(test_dn_write_file)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
 	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
@@ -835,7 +835,7 @@ START_TEST(test_dn_write_file)
 			hdfs_datanode_delete(dn);
 		}
 
-		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to file in %"PRIu64" ms%s, %02g MB/s\n\n",
@@ -843,11 +843,11 @@ START_TEST(test_dn_write_file)
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(filecmp(fd, ofd, TOWRITE), "read differed from write");
+	ck_assert_msg(!filecmp(fd, ofd, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -882,7 +882,7 @@ START_TEST(test_dn_recovery)
 	fs = hdfs_create(h, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		// XXX TODO fileid?
@@ -902,7 +902,7 @@ START_TEST(test_dn_recovery)
 
 		lb = hdfs_addBlock(h, tf, client, NULL, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 		dn = hdfs_datanode_new(lb, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 		ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s (%s:%s)",
@@ -1097,7 +1097,7 @@ START_TEST(test_dn_recovery)
 		}
 		s = hdfs_complete(h, tf, client, prev, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -1112,14 +1112,14 @@ START_TEST(test_dn_recovery)
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, TOWRITE);
 	hdfs_object_free(fs);
 
 	// Read the file back
 	bls = hdfs_getBlockLocations(h, tf, 0, TOWRITE, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	begin = _now();
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
@@ -1149,7 +1149,7 @@ START_TEST(test_dn_recovery)
 			hdfs_datanode_delete(dn);
 		}
 
-		fail_if(hdfs_is_error(err), "error reading block: %s", format_error(err));
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s", format_error(err));
 	}
 	end = _now();
 	fprintf(stderr, "Read %d MB to buf in %"PRIu64" ms%s, %02g MB/s\n\n",
@@ -1157,11 +1157,11 @@ START_TEST(test_dn_recovery)
 	    (double)TOWRITE/(end-begin)/1024*1000/1024);
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(buf, rbuf, TOWRITE), "read differed from write");
+	ck_assert_msg(!memcmp(buf, rbuf, TOWRITE), "read differed from write");
 
 	s = hdfs_delete(h, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 }
 END_TEST
@@ -1176,7 +1176,7 @@ START_TEST(test_short_read)
 #define ABUF_LEN (128*1024)
 	char *abuf = calloc(ABUF_LEN, 1);
 
-	ck_assert_msg((bool)abuf);
+	ck_assert((bool)abuf);
 
 	e = NULL;
 	dn = NULL;
@@ -1225,15 +1225,15 @@ START_TEST(test_short_write)
 
 	hdfs_delete(h, tf, false, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	hdfs_create(h, tf, 0644, client, true, false, 1, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	bl = hdfs_addBlock(h, tf, client, NULL, NULL, 0, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, "HADOOFUS_CLIENT", HDFS_DATANODE_AP_2_0, HDFS_DN_OP_WRITE_BLOCK, &errs);
 	ck_assert_msg(dn != NULL, "dn_new: %s", format_error(errs));
@@ -1252,17 +1252,17 @@ START_TEST(test_short_write)
 
 	hdfs_complete(h, tf, client, last, 0/*fileid?*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	fs = hdfs_getFileInfo(h, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, 33128);
 	hdfs_object_free(fs);
 
 	hdfs_delete(h, tf, false, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 }
 END_TEST
 
@@ -1458,17 +1458,17 @@ filecmp(int fd1, int fd2, off_t len)
 		goto out;
 
 	m1 = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd1, 0);
-	fail_if(m1 == MAP_FAILED, "mmap: %s", strerror(errno));
+	ck_assert_msg(m1 != MAP_FAILED, "mmap: %s", strerror(errno));
 	m2 = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd2, 0);
-	fail_if(m2 == MAP_FAILED, "mmap: %s", strerror(errno));
+	ck_assert_msg(m2 != MAP_FAILED, "mmap: %s", strerror(errno));
 
 	if (memcmp(m1, m2, len))
 		eq = false;
 
 out:
 	if (m1 != MAP_FAILED)
-		fail_if(munmap(m1, len) == -1, "munmap: %s", strerror(errno));
+		ck_assert_msg(munmap(m1, len) == 0, "munmap: %s", strerror(errno));
 	if (m2 != MAP_FAILED)
-		fail_if(munmap(m2, len) == -1, "munmap: %s", strerror(errno));
+		ck_assert_msg(munmap(m2, len) == 0, "munmap: %s", strerror(errno));
 	return !eq;
 }

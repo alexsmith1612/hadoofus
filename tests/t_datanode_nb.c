@@ -74,7 +74,7 @@ START_TEST(test_dn_nb_misc)
 	if (H_VER > HDFS_NN_v1) {
 		fsd = hdfs2_getServerDefaults(nn, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		// XXX TODO blocksize?
 		hdfs_object_free(fsd);
@@ -83,7 +83,7 @@ START_TEST(test_dn_nb_misc)
 	fs = hdfs_create(nn, tf, 0644, client, true/*overwrite*/,
 	    false/*createparent*/, replication, BLOCKSZ, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	if (fs) {
 		ck_assert_int_eq(fs->ob_type, H_FILE_STATUS);
 		// XXX TODO fileid?
@@ -92,7 +92,7 @@ START_TEST(test_dn_nb_misc)
 
 	bl = hdfs_addBlock(nn, tf, client, NULL/*excluded*/, NULL/*prev*/, 0/*fileid?*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	dn = hdfs_datanode_new(bl, client, dn_proto, HDFS_DN_OP_WRITE_BLOCK, &err);
 	ck_assert_msg((intptr_t)dn, "error connecting to datanode: %s:%s (%s:%s)",
@@ -226,7 +226,7 @@ START_TEST(test_dn_nb_misc)
 		}
 		s = hdfs_complete(nn, tf, client, last, 0/*fileid?*/, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		if (s) // successfully completed
 			break;
 	}
@@ -235,7 +235,7 @@ START_TEST(test_dn_nb_misc)
 
 	fs = hdfs_getFileInfo(nn, tf, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_int_eq(fs->ob_val._file_status._size, strlen(wbuf));
 	hdfs_object_free(fs);
 
@@ -243,7 +243,7 @@ START_TEST(test_dn_nb_misc)
 	// Read the file back
 	bls = hdfs_getBlockLocations(nn, tf, 0, strlen(wbuf), &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 
 	for (int i = 0; i < bls->ob_val._located_blocks._num_blocks; i++) {
 		struct hdfs_object *bl =
@@ -257,16 +257,16 @@ START_TEST(test_dn_nb_misc)
 
 		hdfs_datanode_delete(dn);
 
-		fail_if(hdfs_is_error(err), "error reading block: %s:%s",
+		ck_assert_msg(!hdfs_is_error(err), "error reading block: %s:%s",
 		    hdfs_error_str_kind(err), hdfs_error_str(err));
 	}
 
 	hdfs_object_free(bls);
-	fail_if(memcmp(wbuf, rbuf, strlen(wbuf)), "read differed from write");
+	ck_assert_msg(!memcmp(wbuf, rbuf, strlen(wbuf)), "read differed from write");
 
 	s = hdfs_delete(nn, tf, false/*recurse*/, &e);
 	if (e)
-		fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 	ck_assert_msg(s, "delete returned false");
 
 	hdfs_namenode_delete(nn);
@@ -371,7 +371,7 @@ START_TEST(test_dn_write_nb)
 		// We can use the blocking hl API when ther are no pending RPCs
 		fsd = hdfs2_getServerDefaults(&nn, &e);
 		if (e)
-			fail("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
+			ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
 		replication = fsd->ob_val._server_defaults._replication;
 		// XXX TODO blocksize?
 		hdfs_object_free(fsd);
@@ -529,7 +529,7 @@ START_TEST(test_dn_write_nb)
 			case ST_GI:
 				ck_assert_int_eq(obj->ob_type, H_FILE_STATUS);
 				ck_assert_msg(fctxp->wtot == obj->ob_val._file_status._size,
-				    "File '%s' size does not match: expected %d, got %d",
+				    "File '%s' size does not match: expected %d, got %"PRIi64,
 				    fctxp->tf, fctxp->wtot, obj->ob_val._file_status._size);
 				hdfs_object_free(obj);
 				err = hdfs_getBlockLocations_nb(&nn, fctxp->tf,

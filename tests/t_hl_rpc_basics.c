@@ -56,8 +56,9 @@ START_TEST(test_getBlockLocations)
 	bls = hdfs_getBlockLocations(h, "/", 0L, 1000L, &e);
 	if (e)
 		ck_abort_msg("exception: %s:\n%s", hdfs_exception_get_type_str(e), hdfs_exception_get_message(e));
-	ck_assert_msg(!bls || hdfs_object_is_null(bls));
-	ck_assert_int_eq(hdfs_null_type(bls), H_LOCATED_BLOCKS);
+	ck_assert(!bls || hdfs_object_is_null(bls));
+	if (bls)
+		ck_assert_int_eq(hdfs_null_type(bls), H_LOCATED_BLOCKS);
 }
 END_TEST
 
