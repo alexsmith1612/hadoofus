@@ -529,7 +529,7 @@ START_TEST(test_dn_write_nb)
 			case ST_GI:
 				ck_assert_int_eq(obj->ob_type, H_FILE_STATUS);
 				ck_assert_msg(fctxp->wtot == obj->ob_val._file_status._size,
-				    "File '%s' size does not match: expected %d, got %d",
+				    "File '%s' size does not match: expected %d, got %"PRIi64,
 				    fctxp->tf, fctxp->wtot, obj->ob_val._file_status._size);
 				hdfs_object_free(obj);
 				err = hdfs_getBlockLocations_nb(&nn, fctxp->tf,
