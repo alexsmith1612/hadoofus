@@ -1176,7 +1176,7 @@ START_TEST(test_short_read)
 #define ABUF_LEN (128*1024)
 	char *abuf = calloc(ABUF_LEN, 1);
 
-	ck_assert_msg((bool)abuf);
+	ck_assert((bool)abuf);
 
 	e = NULL;
 	dn = NULL;
