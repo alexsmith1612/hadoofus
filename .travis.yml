@@ -110,8 +110,6 @@ jobs:
       env:
         # gcc on 16.04 doesn't support -Wnull-dereference, so clear WARNS_NEW
         WARNS_NEW:
-        # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
-        ARCH_CFLAGS:
         # don't spin up the cluster and only run the "unit" test suite on s390x
         CK_RUN_SUITE: unit
 
@@ -128,8 +126,6 @@ jobs:
       compiler: gcc
       arch: s390x
       env:
-        # gcc does not have -mtune=generic on s390x, so clear ARCH_CFLAGS
-        ARCH_CFLAGS:
         # don't spin up the cluster and only run the "unit" test suite on s390x
         CK_RUN_SUITE: unit
 

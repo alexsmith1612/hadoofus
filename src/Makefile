@@ -49,17 +49,14 @@ WARNS = -Wall -Wextra \
 # Warnings too new for Travis-CI, which runs an ancient version of Ubuntu:
 WARNS_NEW ?= -Wnull-dereference
 
-# Some architectures (e.g. s390x) don't support -mtune=generic
-ARCH_CFLAGS ?= -mtune=generic
-
 # Allow users to specify their own libprotobuf cflags/ldflags to break
 # hard build dependency on pkg-config
 PROTOBUF_CFLAGS ?= $(shell pkg-config --cflags 'libprotobuf-c >= 1.0.0')
 PROTOBUF_LDFLAGS ?= $(shell pkg-config --libs 'libprotobuf-c >= 1.0.0')
 
-FLAGS = $(WARNS) $(WARNS_NEW) -O2 -g $(ARCH_CFLAGS) -pipe -fexceptions \
-	-fstack-protector --param=ssp-buffer-size=4 $(CFLAGS) \
-	-fPIC -fvisibility=hidden -I/usr/local/include $(PROTOBUF_CFLAGS)
+FLAGS = $(WARNS) $(WARNS_NEW) -O2 -g -pipe -fexceptions -fstack-protector \
+	--param=ssp-buffer-size=4 $(CFLAGS) -fPIC -fvisibility=hidden \
+	-I/usr/local/include $(PROTOBUF_CFLAGS)
 LIBFLAGS = $(FLAGS) -shared $(LDFLAGS) -lz -lsasl2 $(PROTOBUF_LDFLAGS)
 ifneq ($(shell uname -s), Darwin)
 	LIBFLAGS += -lrt
