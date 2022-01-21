@@ -12,7 +12,9 @@ freebsd_task:
     JAVA_HOME: /usr/local/openjdk8-jre
     matrix:
       - CC: clang
-      - CC: gcc
+        CFLAGS: -fsanitize=address -fno-omit-frame-pointer
+        LDFLAGS: -fsanitize=address
+      - CC: gcc # regular gcc pkg doesn't support ASan on FreeBSD 12.3
   install_script:
     - uname -a
     - pkg install -y check cyrus-sasl gmake pkgconf protobuf-c
@@ -61,7 +63,8 @@ macos_task:
     # The version of libsasl2 that is included with MacOS command line
     # tools has many of its API functions explicitly marked deprecated
     # for some reason
-    CFLAGS: -Wno-error=deprecated-declarations
+    CFLAGS: -Wno-error=deprecated-declarations -fsanitize=address -fno-omit-frame-pointer
+    LDFLAGS: -fsanitize=address
     CK_VERBOSITY: verbose
     HDFS_TEST_NODE_ADDRESS: localhost
     # Spinning up a test HDFS cluster doesn't seem to work well on
