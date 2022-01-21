@@ -43,7 +43,8 @@ WARNS = -Wall -Wextra \
 	-Wstrict-prototypes -Wswitch -Wswitch-enum -Wundef -Wunused-parameter \
 	-Wvla -Wwrite-strings \
 	-Werror \
-	-Wno-error=unused-parameter -Wno-error=missing-field-initializers
+	-Wno-error=unused-parameter -Wno-error=missing-field-initializers \
+	-Wno-error=inline
 
 # Warnings too new for Travis-CI, which runs an ancient version of Ubuntu:
 WARNS_NEW ?= -Wnull-dereference
