@@ -55,8 +55,8 @@ freebsd_task:
     - kill $CLUSTER_PID
 
 macos_task:
-  osx_instance:
-    image: mojave-base
+  macos_instance:
+    image: monterey-base
   env:
     # The version of libsasl2 that is included with MacOS command line
     # tools has many of its API functions explicitly marked deprecated
