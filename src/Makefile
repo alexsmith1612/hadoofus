@@ -95,9 +95,10 @@ $(STATIC_OBJS): $(PB_H) $(PB_C)
 
 # Similarly, we use a different stem (%) from prequisite (%.pb-c) to disable
 # strict aliasing optimizations (and warnings) from protobuf-c generated code,
-# which (ab)uses pointer aliasing.
+# which (ab)uses pointer aliasing. It may also generate cast-align warnings
+# which are false positives due to the alignment guarantees of malloc.
 %_static.o: %.pb-c.c
-	$(CC) -I../include $(FLAGS) -fno-strict-aliasing -o $@ -c $<
+	$(CC) -I../include $(FLAGS) -fno-strict-aliasing -Wno-cast-align -o $@ -c $<
 
 %.o: %.c
 	$(CC) -I../include $(FLAGS) -c $<
