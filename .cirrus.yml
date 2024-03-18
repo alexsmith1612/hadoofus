@@ -50,6 +50,7 @@ freebsd_task:
         echo "$cnt"
         cnt=$((cnt + 1))
         if [ "$cnt" -gt "5" ] ; then exit 1; fi
+        sleep 3
       done
       # Wait a bit longer to ensure the rest of the cluster finalized setup
     - sleep 10
