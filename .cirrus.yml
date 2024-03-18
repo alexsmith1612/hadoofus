@@ -58,7 +58,7 @@ freebsd_task:
 
 macos_task:
   macos_instance:
-    image: monterey-base
+    image: ghcr.io/cirruslabs/macos-ventura-base:latest
   env:
     # The version of libsasl2 that is included with MacOS command line
     # tools has many of its API functions explicitly marked deprecated
