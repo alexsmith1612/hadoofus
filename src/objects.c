@@ -230,7 +230,7 @@ _objmalloc(void)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_void_new()
+hdfs_void_new(void)
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_VOID;
@@ -324,7 +324,7 @@ hdfs_token_new(const char *s1, const char *s2, const char *s3, const char *s4)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_token_new_empty()
+hdfs_token_new_empty(void)
 {
 	struct hdfs_object *r = _objmalloc();
 
@@ -648,13 +648,13 @@ _hdfs_directory_listing_new(bool has_locations)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_located_directory_listing_new()
+hdfs_located_directory_listing_new(void)
 {
 	return _hdfs_directory_listing_new(true/*locations*/);
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_directory_listing_new()
+hdfs_directory_listing_new(void)
 {
 	return _hdfs_directory_listing_new(false/*locations*/);
 }
@@ -791,7 +791,7 @@ _datanode_info_eq(struct hdfs_datanode_info *a, struct hdfs_datanode_info *b)
 }
 
 EXPORT_SYM struct hdfs_object *
-hdfs_array_datanode_info_new()
+hdfs_array_datanode_info_new(void)
 {
 	struct hdfs_object *r = _objmalloc();
 	r->ob_type = H_ARRAY_DATANODE_INFO;
