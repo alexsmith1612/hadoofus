@@ -43,7 +43,7 @@ freebsd_task:
     - HADOOP_JUNIT_JAR_PATH=$(find /usr/local/hadoop -name "junit*.jar")
     # There's a bug where the junit jar needs to be explicitly added to the class path for the minicluster to work
     - export HADOOP_CLASSPATH="${HADOOP_CLASSPATH}:${HADOOP_JUNIT_JAR_PATH}"
-    - /usr/local/hadoop/bin/mapred minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
+    - /usr/local/hadoop/bin/hadoop minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
     - CLUSTER_PID=$!
     - echo "CLUSTER_PID $CLUSTER_PID"
     - |
