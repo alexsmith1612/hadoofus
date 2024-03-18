@@ -6,6 +6,8 @@
  *   - Wrap code in preprocessor architecture condition
  *   - Conditionally don't use the .arch directive on clang versions < 4.0
  *   - Update extern function to be within Hadoofus's namespace
+ *   - 2024-03-18: Use .arch_extension rather than .arch directive (backported
+ *     from FreeBSD commit 0ec3e991112d85a790ca3bbb4175652f37f4bd15)
  */
 
 /*-
@@ -45,7 +47,7 @@
 // clang 4.0 (unclear if it exists in 3.9, but let's assume not).
 // There doesn't seem to be a __has_XXX() macro for assembler directives
 #if !defined(__clang__) || __clang_major__ >= 4
-.arch armv8-a+crc
+.arch_extension crc
 #endif
 
 /*
