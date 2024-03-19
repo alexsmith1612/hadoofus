@@ -28,7 +28,7 @@ freebsd_task:
     # - HADOOP_TGZ=$(curl https://dlcdn.apache.org/hadoop/common/stable/ |sed -nEe 's/.*href="(hadoop-([0-9]+\.){3}tar\.gz)".*/\1/p')
     # - if [ -z "$HADOOP_TGZ" ] ; then echo "Unable to fetch stable Hadoop name"; exit 1; fi
     # Temporary: Hardcode v3.2.4 for now
-    - HADOOP_TGZ="hadoop-2.10.2.tar.gz"
+    - HADOOP_TGZ="hadoop-3.4.0.tar.gz"
     - HADOOP_VER="${HADOOP_TGZ%.tar.gz}"
     - echo "Fetching latest stable Hadoop version $HADOOP_VER"
     # - curl -O "https://dlcdn.apache.org/hadoop/common/stable/$HADOOP_TGZ"
@@ -40,10 +40,12 @@ freebsd_task:
     - gmake -j$(sysctl -n hw.ncpu) all
   test_script:
     - uname -a
-    - HADOOP_JUNIT_JAR_PATH=$(find /usr/local/hadoop -name "junit*.jar")
+    - HADOOP_JAR_PATH=$(find /usr/local/hadoop -name "*.jar" | tr '\n' ':')
+    - HADOOP_JAR_PATH=${HADOOP_JAR_PATH%:}
     # There's a bug where the junit jar needs to be explicitly added to the class path for the minicluster to work
-    - export HADOOP_CLASSPATH="${HADOOP_CLASSPATH}:${HADOOP_JUNIT_JAR_PATH}"
-    - /usr/local/hadoop/bin/hadoop minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
+    - export HADOOP_CLASSPATH="${HADOOP_CLASSPATH}:${HADOOP_JAR_PATH}"
+    - echo "${HADOOP_CLASSPATH}"
+    - /usr/local/hadoop/bin/mapred minicluster -nomr -format -nnport $HDFS_TEST_NODE_PORT -datanodes 4 &
     - CLUSTER_PID=$!
     - echo "CLUSTER_PID $CLUSTER_PID"
     - |
